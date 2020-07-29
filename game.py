@@ -35,7 +35,7 @@ class Game():
     def available_moves(self):
         available_moves = []
         for column in range(COLUMN_COUNT):
-            if self.get_free_row(column) is not NULL:
+            if self.get_free_row(column) is not None:
                 available_moves.append(column)
         return available_moves
 
