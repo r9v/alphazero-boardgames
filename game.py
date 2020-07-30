@@ -22,7 +22,7 @@ class Game():
         self.board[row][column] = self.current_player
         self.current_player *= -1
 
-        score = self.check_finished()
+        score = self.check_game_over()
         if score is not None:
             return True, score
         return False, 0
@@ -43,7 +43,7 @@ class Game():
     def print(self):
         print(np.flip(self.board, 0))
 
-    def winning_move(self, player):
+    def check_player_won(self, player):
         # Check horizontal locations for win
         for c in range(COLUMN_COUNT-3):
             for r in range(ROW_COUNT):
@@ -68,11 +68,11 @@ class Game():
                 if self.board[r][c] == player and self.board[r-1][c+1] == player and self.board[r-2][c+2] == player and self.board[r-3][c+3] == player:
                     return True
 
-    def check_finished(self):
+    def check_game_over(self):
         if np.count_nonzero(self.board) == ROW_COUNT*COLUMN_COUNT:
             return 0
-        if(self.winning_move(-1)):
+        if(self.check_player_won(-1)):
             return -1
-        if(self.winning_move(1)):
+        if(self.check_player_won(1)):
             return 1
         return None

@@ -82,11 +82,11 @@ class TestStringMethods(unittest.TestCase):
         self.assertFalse(game.step(0))
         self.assertFalse(game.step(1))
         self.assertTrue(game.step(0))
-        self.assertEqual(game.check_finished(), -1)
+        self.assertEqual(game.check_game_over(), -1)
 
         game = Game()
         game.board = np.ones((6, 7), dtype="int")
-        self.assertEqual(game.check_finished(), 0)
+        self.assertEqual(game.check_game_over(), 0)
 
         game.board = np.array(
             [[0, 0, 0, 0, 0, 0, 0],
@@ -95,7 +95,7 @@ class TestStringMethods(unittest.TestCase):
              [0, 0, 0, 0, 0, 0, 0],
              [0, 0, 0, 0, 0, 0, 0],
              [0, 0, 0, 0, 0, 0, 0]], dtype="int")
-        self.assertEqual(game.check_finished(), None)
+        self.assertEqual(game.check_game_over(), None)
 
         game.board = np.array(
             [[1, 0, 0, 0, 0, 0, 0],
@@ -104,7 +104,7 @@ class TestStringMethods(unittest.TestCase):
              [0, 0, 0, 1, 0, 0, 0],
              [0, 0, 0, 0, 0, 0, 0],
              [0, 0, 0, 0, 0, 0, 0]], dtype="int")
-        self.assertEqual(game.check_finished(), 1)
+        self.assertEqual(game.check_game_over(), 1)
 
         game.board = np.array(
             [[1, 0, 0, 0, 0, 0, 0],
@@ -113,7 +113,7 @@ class TestStringMethods(unittest.TestCase):
              [0, 0, 0, -1, 0, 0, 0],
              [0, 0, -1, 0, 0, 0, 0],
              [0, 0, 0, 0, 0, 0, 0]], dtype="int")
-        self.assertEqual(game.check_finished(), -1)
+        self.assertEqual(game.check_game_over(), -1)
 
         game.board = np.array(
             [[0, 0, 0, 0, 0, 0, 0],
@@ -122,7 +122,7 @@ class TestStringMethods(unittest.TestCase):
              [0, 0, 0, 0, 0, 0, 0],
              [0, 0, 0, 0, 0, 0, 0],
              [0, 1, 1, 1, 1, 0, 0]], dtype="int")
-        self.assertEqual(game.check_finished(), 1)
+        self.assertEqual(game.check_game_over(), 1)
 
         game.board = np.array(
             [[0, 0, 0, 0, 0, 0, 0],
@@ -131,7 +131,7 @@ class TestStringMethods(unittest.TestCase):
              [0, 0, 0, 0, 0, 0, 0],
              [0, 0, 0, 0, 0, 0, 0],
              [0, 0, 0, -1, -1, -1, -1]], dtype="int")
-        self.assertEqual(game.check_finished(), -1)
+        self.assertEqual(game.check_game_over(), -1)
 
 
 if __name__ == '__main__':
