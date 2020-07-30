@@ -22,9 +22,10 @@ class Game():
         self.board[row][column] = self.current_player
         self.current_player *= -1
 
-        if self.check_finished() is not None:
-            return True
-        return False
+        score = self.check_finished()
+        if score is not None:
+            return True, score
+        return False, 0
 
     def get_free_row(self, column):
         for row in range(ROW_COUNT):
