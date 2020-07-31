@@ -140,6 +140,22 @@ class TestConnect4Game(unittest.TestCase):
         self.assertTrue(game.checkGameEnded().done)
         self.assertEqual(game.checkGameEnded().victor, -1)
 
+    def testAvailableMoves(self):
+        game = Connect4Game()
+        game.availableMoves()
+        self.assertTrue(np.array_equal(
+            game.availableMoves(), [1, 1, 1, 1, 1, 1, 1]))
+        game.step(0)
+        game.step(0)
+        game.step(0)
+        game.step(0)
+        game.step(0)
+        self.assertTrue(np.array_equal(
+            game.availableMoves(), [1, 1, 1, 1, 1, 1, 1]))
+        game.step(0)
+        self.assertTrue(np.array_equal(
+            game.availableMoves(), [0, 1, 1, 1, 1, 1, 1]))
+
 
 if __name__ == '__main__':
     unittest.main()

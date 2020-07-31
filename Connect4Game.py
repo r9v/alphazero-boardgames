@@ -39,10 +39,10 @@ class Connect4Game():
         return None
 
     def availableMoves(self):
-        availableMoves = []
+        availableMoves = [0]*COLUMN_COUNT
         for column in range(COLUMN_COUNT):
             if self.getFirstFreeRow(column) is not None:
-                availableMoves.append(column)
+                availableMoves[column] = 1
         return availableMoves
 
     def print(self):
