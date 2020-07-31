@@ -11,10 +11,13 @@ for _ in range(NUM_ITERS):
     trainingExamples = []
     for _ in range(NUM_EPISODES):
         mcts = MCTS()
+        board, currentPlayer = game.reset()
         while True:
-            pi = mcts.getPolicy(NUM_MCTS_SIMULATIONS)
+            policy = mcts.getPolicy(NUM_MCTS_SIMULATIONS, board, currentPlayer)
             # get action from pi
+            # add (state,policy,reward=None) to trainingExamples
             done, reward, board, currentPlayer = game.step(action)
             if done:
+                # set reward for all trainingExamples
                 break
     trainNet(trainingExamples)
