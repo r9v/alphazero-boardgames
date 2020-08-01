@@ -1,5 +1,6 @@
 from Connect4Game import Connect4Game
 from TTT import TTTGame
+import random
 
 game = TTTGame()
 
@@ -30,9 +31,6 @@ class MCTS():
             self.search(tree)
 
         # calc policy for root node
-        return policy
-        self.board = board
-        self.player = player
 
     def search(self, root):
         selectedNode = select(root)
@@ -48,9 +46,12 @@ class MCTS():
     def select(self, node: Node):
         bestUCB = -float('inf')
         bestChild = None
+
         for child in node.children:
             if child.n == 0:
                 return child
+
+        for child in node.children:
             childUCB = UCB(child)
             if(childUCB > bestUCB):
                 bestUCB = childUCB
@@ -58,7 +59,7 @@ class MCTS():
         return bestChild
 
     def rollout(self, node: Node):
-        return 20
+        return random.randint(-40, 40)
 
     def backpropagate(self, value, node: Node):
         if Node is None:
