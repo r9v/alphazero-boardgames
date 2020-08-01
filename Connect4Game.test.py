@@ -9,43 +9,43 @@ class TestConnect4Game(unittest.TestCase):
         game = Connect4Game()
         expected_board = np.zeros((6, 7), dtype="int")
         self.assertTrue(np.array_equal(game.board, expected_board))
-        self.assertEqual(game.getFirstFreeRow(0), 0)
+        self.assertEqual(game._getFirstFreeRow(0), 0)
         self.assertEqual(game.currentPlayer, -1)
 
         self.assertFalse(game.step(0)[0])
         expected_board[0][0] = -1
         self.assertTrue(np.array_equal(game.board, expected_board))
-        self.assertEqual(game.getFirstFreeRow(0), 1)
+        self.assertEqual(game._getFirstFreeRow(0), 1)
         self.assertEqual(game.currentPlayer, 1)
 
         expected_board[1][0] = 1
         self.assertFalse(game.step(0)[0])
         self.assertTrue(np.array_equal(game.board, expected_board))
-        self.assertEqual(game.getFirstFreeRow(0), 2)
+        self.assertEqual(game._getFirstFreeRow(0), 2)
         self.assertEqual(game.currentPlayer, -1)
 
         expected_board[2][0] = -1
         self.assertFalse(game.step(0)[0])
         self.assertTrue(np.array_equal(game.board, expected_board))
-        self.assertEqual(game.getFirstFreeRow(0), 3)
+        self.assertEqual(game._getFirstFreeRow(0), 3)
         self.assertEqual(game.currentPlayer, 1)
 
         expected_board[3][0] = 1
         self.assertFalse(game.step(0)[0])
         self.assertTrue(np.array_equal(game.board, expected_board))
-        self.assertEqual(game.getFirstFreeRow(0), 4)
+        self.assertEqual(game._getFirstFreeRow(0), 4)
         self.assertEqual(game.currentPlayer, -1)
 
         expected_board[4][0] = -1
         self.assertFalse(game.step(0)[0])
         self.assertTrue(np.array_equal(game.board, expected_board))
-        self.assertEqual(game.getFirstFreeRow(0), 5)
+        self.assertEqual(game._getFirstFreeRow(0), 5)
         self.assertEqual(game.currentPlayer, 1)
 
         expected_board[5][0] = 1
         self.assertFalse(game.step(0)[0])
         self.assertTrue(np.array_equal(game.board, expected_board))
-        self.assertEqual(game.getFirstFreeRow(0), None)
+        self.assertEqual(game._getFirstFreeRow(0), None)
         self.assertEqual(game.currentPlayer, -1)
 
         self.assertRaises(Exception, game.step, 0)

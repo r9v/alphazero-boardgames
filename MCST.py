@@ -1,6 +1,7 @@
 from Connect4Game import Connect4Game
+from TTT import TTTGame
 
-game = Connect4Game()
+game = TTTGame()
 
 
 class Node():

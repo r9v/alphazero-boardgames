@@ -16,7 +16,7 @@ class Connect4Game():
         if(column < 0 or column > COLUMN_COUNT-1):
             raise Exception(f'Invalid column {column}')
 
-        row = self.getFirstFreeRow(board, column)
+        row = self._getFirstFreeRow(board, column)
         if row is None:
             raise Exception(f'Invalid action, column {column} is full')
         board[row][column] = currentPlayer
@@ -24,7 +24,7 @@ class Connect4Game():
 
         return board, currentPlayer
 
-    def getFirstFreeRow(self, board, column):
+    def _getFirstFreeRow(self, board, column):
         for row in range(ROW_COUNT):
             if board[row][column] == 0:
                 return row
@@ -33,11 +33,11 @@ class Connect4Game():
     def availableMoves(self, board):
         availableMoves = [0]*COLUMN_COUNT
         for column in range(COLUMN_COUNT):
-            if self.getFirstFreeRow(column, board) is not None:
+            if self._getFirstFreeRow(column, board) is not None:
                 availableMoves[column] = 1
         return availableMoves
 
-    def checkPlayerWon(self, board, player):
+    def _checkPlayerWon(self, board, player):
         for c in range(COLUMN_COUNT-3):  # Horizontal
             for r in range(ROW_COUNT):
                 if board[r][c] == player and board[r][c+1] == player and board[r][c+2] == player and board[r][c+3] == player:
@@ -59,8 +59,8 @@ class Connect4Game():
       # return gameOver, victor(reward - 0 if tie)
         if np.count_nonzero(board) == ROW_COUNT*COLUMN_COUNT:
             return True, 0
-        if(self.checkPlayerWon(board, -1)):
+        if(self._checkPlayerWon(board, -1)):
             return True, -1
-        if(self.checkPlayerWon(board, 1)):
+        if(self._checkPlayerWon(board, 1)):
             return True, 1
         return False, None

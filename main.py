@@ -1,11 +1,13 @@
 import numpy as np
 from Connect4Game import Connect4Game
+from TTT import TTTGame
+
 import random
 
 NUM_ITERS = 2
 NUM_EPISODES = 2
 NUM_MCTS_SIMULATIONS = 2
-game = Connect4Game()
+game = TTTGame()
 
 for _ in range(NUM_ITERS):
     trainingExamples = []
