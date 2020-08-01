@@ -15,8 +15,6 @@ class Node():
 
         self.board = board
         self.player = player
-        gameOver, _ = game.over(board)
-        self.gameOver = gameOver
 
     def getChildren(self):
         f = 1
@@ -25,14 +23,19 @@ class Node():
 class MCTS():
 
     def getPolicy(self, numMCTSSimulations, board, player):
+        over, _ = game.over(board)
+        if over:
+            raise Exception('Called getPolicy with over game')
+
         root = Node(None, board, player)
-        root.getChildren()
         for i in range(numMCTSSimulations):
-            self.search(tree)
+            self.search(root)
 
         # calc policy for root node
 
     def search(self, root):
+        # if(root.ifFinalState)
+        # return 1000
         selectedNode = select(root)
         if selectedNode is None:
             return
@@ -40,7 +43,9 @@ class MCTS():
         if selectedNode.n == 0:
             value = rollout(selectedNode)
         else:
-            value = expand(selectedNode)
+            if selectedNode.n == 1:
+                selectedNode.getChildren()
+            value = search(selectedNode)
         backpropagate(value, selectedNode)
 
     def select(self, node: Node):
@@ -62,11 +67,10 @@ class MCTS():
         return random.randint(-40, 40)
 
     def backpropagate(self, value, node: Node):
-        if Node is None:
-            return
-        node.n += 1
-        node.Q = (node.Q+value)/node.n
-        self.backpropagate(value, node.parent)
+        while node is not None:
+            node.n += 1
+            node.Q = (node.Q+value)/node.n
+            node = node.parent
 
     def expand(self, node):
         node.getChildren()
