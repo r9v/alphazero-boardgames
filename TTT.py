@@ -34,6 +34,14 @@ class TTTGame():
             return True, 1
         return False, None
 
+    def availableActions(self, board, currentPlayer):
+        availableActions = [0]*9
+        for row in range(3):
+            for column in range(3):
+                if board[row][column] == 0:
+                    availableActions[row] = 1
+        return availableActions
+
     def _checkPlayerWon(self, board, player):
         for row in range(3):
             if board[row][0] == player and board[row][1] == player and board[row][2] == player:
