@@ -13,7 +13,8 @@ class TestMCTS(unittest.TestCase):
     def testGetPolicy(self):
         mcts = MCTS(game, None)
         board, currentPlayer = game.newGame()
-        node = mcts.getPolicy(4, board, currentPlayer)
+        node = mcts.getPolicy(200, board, currentPlayer)
+        print(node)
 
 
 if __name__ == '__main__':

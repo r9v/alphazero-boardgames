@@ -1,5 +1,3 @@
-from Connect4Game import Connect4Game
-from TTT import TTTGame
 import random
 import math
 import numpy as np
@@ -18,8 +16,6 @@ class Node():
         else:
             self.availableActionsMask = []
         self.availableActions = np.nonzero(self.availableActionsMask)[0]
-        print(f'self.availableActionsMask {self.availableActionsMask}')
-        print(f'self.availableActions {self.availableActions}')
         for action in self.availableActions:
             self.children[action] = None
 
@@ -32,9 +28,6 @@ class Node():
 
         self.board = board
         self.player = player
-
-    def print(self):
-        print(f'board')
 
 
 class MCTS():
@@ -54,15 +47,15 @@ class MCTS():
         # calc policy for root node
 
     def search(self, root: Node):
-
         selectedNode = self.treePolicy(root)
+        print('\n')
         value = self.rollout(selectedNode)
-        print(f'value {value}')
         self.backpropagate(value, selectedNode)
 
     def treePolicy(self, node: Node):
         while not node.terminal:
             bestAction = self.bestAction(node)
+            print(f'bestAction {bestAction}')
             if node.children[bestAction] is None:
                 self.createChild(node, bestAction)
             node = node.children[bestAction]
