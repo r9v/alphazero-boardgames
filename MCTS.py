@@ -26,7 +26,7 @@ class Node():
         self.n = 0
         self.Q = 0.0
 
-       # P, v = nnet.predict()
+        # P, v = nnet.predict()
         self.P = [0, 0, 0, 0.5, 0.6, 0.7, 0, 0, 0]
         self.nnetValue = random.randint(-40, 40)
 
@@ -62,12 +62,19 @@ class MCTS():
 
     def treePolicy(self, node: Node):
         while not node.terminal:
-            node = self.bestChild(node)
+            bestAction = self.bestAction(node)
+            if node.children[bestAction] is None:
+                self.createChild(node, bestAction)
+            node = node.children[bestAction]
             if node.n == 0:
                 return node
         return node
 
-    def bestChild(self, node: Node):
+    def bestAction(self, node: Node):
+        if(node.n == 0):
+            return np.argmax(np.multiply(
+                node.P, node.availableActionsMask))
+
         bestPUCT = -float('inf')
         bestAction = None
         for idx, availableAction in enumerate(node.availableActions):
@@ -83,14 +90,12 @@ class MCTS():
             if(actionPUCT > bestPUCT):
                 bestPUCT = actionPUCT
                 bestAction = availableAction
-        print(f'bestAction {bestAction}')
-        if node.children[bestAction] is None:
-            newBoard, newPlayer = self.game.step(
-                node.board, node.player, bestAction)
-            node.children[bestAction] = Node(
-                node, newBoard, newPlayer, self.game, self.nnet)
+        return bestAction
 
-        return node.children[bestAction]
+    def createChild(self, node, action):
+        newBoard, newPlayer = self.game.step(node.board, node.player, action)
+        node.children[action] = Node(
+            node, newBoard, newPlayer, self.game, self.nnet)
 
     def PUCT(self, Q, P, N, Nparent):
         return Q+P*math.sqrt(Nparent)/(N+1)
