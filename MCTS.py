@@ -57,10 +57,7 @@ class MCTS():
             bestAction = self.bestAction(node)
             print(f'bestAction {bestAction}')
             if node.children[bestAction] is None:
-                self.createChild(node, bestAction)
-            node = node.children[bestAction]
-            if node.n == 0:
-                return node
+                return self.createChild(node, bestAction)
         return node
 
     def bestAction(self, node: Node):
@@ -70,15 +67,12 @@ class MCTS():
 
         bestPUCT = -float('inf')
         bestAction = None
-        for idx, availableAction in enumerate(node.availableActions):
+        for availableAction in node.availableActions:
             child = node.children[availableAction]
             Q, N = 0.0, 0
             if child is not None:
                 Q = child.Q
                 N = child.n
-            else:
-                Q = 0.0
-                N = 0
             actionPUCT = self.PUCT(Q, node.P[availableAction], N, node.n)
             if(actionPUCT > bestPUCT):
                 bestPUCT = actionPUCT
@@ -89,6 +83,7 @@ class MCTS():
         newBoard, newPlayer = self.game.step(node.board, node.player, action)
         node.children[action] = Node(
             node, newBoard, newPlayer, self.game, self.nnet)
+        return node.children[action]
 
     def PUCT(self, Q, P, N, Nparent):
         return Q+P*math.sqrt(Nparent)/(N+1)
