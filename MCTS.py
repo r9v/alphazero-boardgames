@@ -1,29 +1,33 @@
 from Connect4Game import Connect4Game
 from TTT import TTTGame
 import random
+import numpy as np
 
 game = TTTGame()
 
 
 class Node():
-    def __init__(self, parent, board, player):
+    def __init__(self, parent, board, player, nnet):
         self.parent = parent
         self.children = []
 
         gameOver, _ = game.over(board)
         self.terminal = gameOver
-        if not gameOver:
-            self.availableActions = game.availableActions(board, player)
+        if not self.terminal:
+            self.availableActionsMask = game.availableActions(board, player)
         else:
-            self.availableActions = []
+            self.availableActionsMask = []
+        self.availableActions = np.nonzero(self.availableActionsMask)[0]
+
         self.n = 0
-        self.Q = 0
+        self.Q = 0.0
+
+        P, v = nnet.predict()
+        self.P = [0, 0, 0, 0.5, 0.6, 0.7, 0, 0, 0]
+        self.nnetValue = random.randint(-40, 40)
 
         self.board = board
         self.player = player
-
-    def fullyExpanded(self):
-        len(self.children) == np.count_nonzero(self.availableActions)
 
 
 class MCTS():
@@ -46,30 +50,35 @@ class MCTS():
 
     def treePolicy(self, node: Node):
         while not node.terminal:
-            if not node.fullyExpanded():
-                return expand(node)
-            node = bestChild(node)
+            node, neverVisited = bestChild(node)
+            if neverVisited:
+                return node
         return node
 
-    def expand(self, node: Node):
-        action = node.availableActions(len(node.children)+1)
-        newChild = 1  # make child from action
-        node.children.append(newChild)
-        return newChild
-
     def bestChild(self, node: Node):
-        bestUCB = -float('inf')
-        bestChild = None
-        for child in node.children:
-            childUCB = UCB(child)
-            if(childUCB > bestUCB):
-                bestUCB = childUCB
-                bestChild = child
+        bestPUCT = -float('inf')
+        bestAction = None
+        for idx, availableAction in enumerate(node.availableActions):
+            child = parent.children[availableAction]
+            if child is not None:
+                Q = child.Q
+                N = child.n
+            else:
+                Q = 0
+                N = 0
+            actionPUCT = PUCT(child, Q, node.P, N, node.n)
+            if(actionPUCT > bestPUCT):
+                bestPUCT = actionPUCT
+                bestAction = availableAction
+
         return bestChild
 
+    def PUCT(self, Q, P, N, Nparent):
+        return Q+P*sqrt(Nparent)/(N+1)
+
     def rollout(self, node: Node):
-        return random.randint(-40, 40)
-        # get value from NNet
+        # if state terminal return realValue
+        return node.nnetValue
 
     def backpropagate(self, value, node: Node):
         while node is not None:
