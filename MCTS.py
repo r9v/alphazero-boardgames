@@ -9,15 +9,18 @@ game = TTTGame()
 class Node():
     def __init__(self, parent, board, player, nnet):
         self.parent = parent
-        self.children = []
 
-        gameOver, _ = game.over(board)
-        self.terminal = gameOver
+        # dictionary i->node. i is the action avalilableActions[i]
+        self.children = {}
+
+        self.terminal, self.terminalValue = game.over(board)
         if not self.terminal:
             self.availableActionsMask = game.availableActions(board, player)
         else:
             self.availableActionsMask = []
         self.availableActions = np.nonzero(self.availableActionsMask)[0]
+        for action in self.availableActions:
+            self.children[action] = None
 
         self.n = 0
         self.Q = 0.0
@@ -50,8 +53,8 @@ class MCTS():
 
     def treePolicy(self, node: Node):
         while not node.terminal:
-            node, neverVisited = bestChild(node)
-            if neverVisited:
+            node = bestChild(node)
+            if node.n == 0:
                 return node
         return node
 
@@ -59,25 +62,30 @@ class MCTS():
         bestPUCT = -float('inf')
         bestAction = None
         for idx, availableAction in enumerate(node.availableActions):
-            child = parent.children[availableAction]
+            child = node.children[availableAction]
+            Q, N = 0.0, 0
             if child is not None:
                 Q = child.Q
                 N = child.n
             else:
-                Q = 0
+                Q = 0.0
                 N = 0
-            actionPUCT = PUCT(child, Q, node.P, N, node.n)
+            actionPUCT = PUCT(Q, node.P[availableAction], N, node.n)
             if(actionPUCT > bestPUCT):
                 bestPUCT = actionPUCT
                 bestAction = availableAction
 
-        return bestChild
+        if node.children[bestAction] is None:
+            node.children[bestAction] = Node(node, newBoard, newPlayer, nnet)
+
+        return node.children[bestAction]
 
     def PUCT(self, Q, P, N, Nparent):
         return Q+P*sqrt(Nparent)/(N+1)
 
     def rollout(self, node: Node):
-        # if state terminal return realValue
+        if node.terminal:
+            return node.terminalValue
         return node.nnetValue
 
     def backpropagate(self, value, node: Node):
