@@ -39,7 +39,7 @@ class TTTGame():
         for row in range(3):
             for column in range(3):
                 if board[row][column] == 0:
-                    availableActions[row] = 1
+                    availableActions[3*row+column] = 1
         return availableActions
 
     def _checkPlayerWon(self, board, player):

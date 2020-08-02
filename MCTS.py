@@ -1,13 +1,12 @@
 from Connect4Game import Connect4Game
 from TTT import TTTGame
 import random
+import math
 import numpy as np
-
-game = TTTGame()
 
 
 class Node():
-    def __init__(self, parent, board, player, nnet):
+    def __init__(self, parent, board, player, game, nnet):
         self.parent = parent
 
         # dictionary i->node. i is the action avalilableActions[i]
@@ -19,41 +18,51 @@ class Node():
         else:
             self.availableActionsMask = []
         self.availableActions = np.nonzero(self.availableActionsMask)[0]
+        print(f'self.availableActionsMask {self.availableActionsMask}')
+        print(f'self.availableActions {self.availableActions}')
         for action in self.availableActions:
             self.children[action] = None
 
         self.n = 0
         self.Q = 0.0
 
-        P, v = nnet.predict()
+       # P, v = nnet.predict()
         self.P = [0, 0, 0, 0.5, 0.6, 0.7, 0, 0, 0]
         self.nnetValue = random.randint(-40, 40)
 
         self.board = board
         self.player = player
 
+    def print(self):
+        print(f'board')
+
 
 class MCTS():
+    def __init__(self, game, nnet):
+        self.game = game
+        self.nnet = nnet
 
-    def getPolicy(self, numMCTSSimulations, board, player):
-        gameOver, _ = game.over(board)
+    def getPolicy(self, numMCTSSimulations, board, player) -> Node:
+        gameOver, _ = self.game.over(board)
         if gameOver:
             raise Exception('Called getPolicy with gameOver')
 
-        root = Node(None, board, player)
+        root = Node(None, board, player, self.game, self.nnet)
         for i in range(numMCTSSimulations):
             self.search(root)
-
+        return root
         # calc policy for root node
 
     def search(self, root: Node):
-        selectedNode = treePolicy(root)
-        value = rollout(selectedNode)
-        backpropagate(value, selectedNode)
+
+        selectedNode = self.treePolicy(root)
+        value = self.rollout(selectedNode)
+        print(f'value {value}')
+        self.backpropagate(value, selectedNode)
 
     def treePolicy(self, node: Node):
         while not node.terminal:
-            node = bestChild(node)
+            node = self.bestChild(node)
             if node.n == 0:
                 return node
         return node
@@ -70,18 +79,21 @@ class MCTS():
             else:
                 Q = 0.0
                 N = 0
-            actionPUCT = PUCT(Q, node.P[availableAction], N, node.n)
+            actionPUCT = self.PUCT(Q, node.P[availableAction], N, node.n)
             if(actionPUCT > bestPUCT):
                 bestPUCT = actionPUCT
                 bestAction = availableAction
-
+        print(f'bestAction {bestAction}')
         if node.children[bestAction] is None:
-            node.children[bestAction] = Node(node, newBoard, newPlayer, nnet)
+            newBoard, newPlayer = self.game.step(
+                node.board, node.player, bestAction)
+            node.children[bestAction] = Node(
+                node, newBoard, newPlayer, self.game, self.nnet)
 
         return node.children[bestAction]
 
     def PUCT(self, Q, P, N, Nparent):
-        return Q+P*sqrt(Nparent)/(N+1)
+        return Q+P*math.sqrt(Nparent)/(N+1)
 
     def rollout(self, node: Node):
         if node.terminal:

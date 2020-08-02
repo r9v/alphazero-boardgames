@@ -1,14 +1,20 @@
-from MCST import MCTS
+from MCTS import MCTS
 import unittest
 import numpy as np
+
+from Connect4Game import Connect4Game
+from TTT import TTTGame
+
+game = TTTGame()
 
 
 class TestMCTS(unittest.TestCase):
 
     def testGetPolicy(self):
-        mcts = MCTS()
+        mcts = MCTS(game, None)
         board, currentPlayer = game.newGame()
-        mcts.getPolicy(4, board, currentPlayer)
+        node = mcts.getPolicy(4, board, currentPlayer)
+        # print(node.P)
 
 
 if __name__ == '__main__':
