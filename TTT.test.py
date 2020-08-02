@@ -51,6 +51,23 @@ class TestTTTGame(unittest.TestCase):
         self.assertTrue(over)
         self.assertEqual(winer, -1)
 
+    def testAvailableActions(self):
+        game = TTTGame()
+        board, player = game.newGame()
+
+        availableActions = game.availableActions(board, player)
+        self.assertEqual([1, 1, 1, 1, 1, 1, 1, 1, 1], availableActions)
+
+        board, player = game.step(board, player, 0)
+        board, player = game.step(board, player, 5)
+        availableActions = game.availableActions(board, player)
+        self.assertEqual([0, 1, 1, 1, 1, 0, 1, 1, 1], availableActions)
+
+        board, player = game.step(board, player, 4)
+        board, player = game.step(board, player, 8)
+        availableActions = game.availableActions(board, player)
+        self.assertEqual([0, 1, 1, 1, 0, 0, 1, 1, 0], availableActions)
+
 
 if __name__ == '__main__':
     unittest.main()

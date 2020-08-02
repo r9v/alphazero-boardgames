@@ -14,7 +14,6 @@ class TestMCTS(unittest.TestCase):
         mcts = MCTS(game, None)
         board, currentPlayer = game.newGame()
         node = mcts.getPolicy(4, board, currentPlayer)
-        # print(node.P)
 
 
 if __name__ == '__main__':
