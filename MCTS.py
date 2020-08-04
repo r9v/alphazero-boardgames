@@ -49,7 +49,6 @@ class MCTS():
 
     def search(self, root: Node):
         selectedNode = self.treePolicy(root)
-        print('\n')
         value = self.rollout(selectedNode)
         self.backpropagate(value, selectedNode)
 
@@ -73,7 +72,7 @@ class MCTS():
             child = node.children[availableAction]
             Q, N = 0.0, 0
             if child is not None:
-                Q = child.Q
+                Q = -child.Q
                 N = child.n
             actionPUCT = self.PUCT(Q, node.P[availableAction], N, node.n)
             if(actionPUCT > bestPUCT):
