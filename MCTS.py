@@ -21,6 +21,7 @@ class Node():
 
         self.n = 0
         self.Q = 0.0
+        self.W = 0.0
 
         # P, v = nnet.predict()
         self.P = [0, 0, 0, 0.5, 0.6, 0.7, 0, 0, 0]
@@ -97,6 +98,7 @@ class MCTS():
     def backpropagate(self, value, node: Node):
         while node is not None:
             node.n += 1
-            node.Q = (node.Q+value)/node.n
+            node.W += value
+            node.Q = node.W/node.n
             node = node.parent
             value = -value
