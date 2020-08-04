@@ -58,6 +58,7 @@ class MCTS():
             print(f'bestAction {bestAction}')
             if node.children[bestAction] is None:
                 return self.createChild(node, bestAction)
+            node = node.children[bestAction]
         return node
 
     def bestAction(self, node: Node):
@@ -98,3 +99,4 @@ class MCTS():
             node.n += 1
             node.Q = (node.Q+value)/node.n
             node = node.parent
+            value = -value
