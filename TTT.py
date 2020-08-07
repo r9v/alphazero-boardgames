@@ -26,12 +26,12 @@ class TTTGame():
         return nextBoard, currentPlayer * -1
 
     def over(self, board):
-        if np.count_nonzero(board) == 9:
-            return True, 0
         if(self._checkPlayerWon(board, -1)):
             return True, -1
         if(self._checkPlayerWon(board, 1)):
             return True, 1
+        if np.count_nonzero(board) == 9:
+            return True, 0
         return False, None
 
     def availableActions(self, board, currentPlayer):
