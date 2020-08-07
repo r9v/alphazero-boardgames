@@ -3,8 +3,8 @@ import numpy as np
 
 class Hive():
     def newGame(self):
-        # returns board, currentPlayer
-        return np.zeros((23, 23), dtype="int"), Hand(), -1
+        # returns board, player1 hand, player2 hand, currentPlayer
+        return np.zeros((23, 23), dtype="int"), Hand(), Hand(), -1
 
 
 class Hand():
