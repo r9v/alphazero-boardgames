@@ -11,10 +11,11 @@ class GUI():
         window = self.setupWindow()
         board, player1Hand, player2Hand, currentPlayer = hive.newGame()
         self.handDisplay.updateHandDisplay(player1Hand, player2Hand)
-        availableActions = hive.availableActions(
+        self.availableActions = hive.availableActions(
             board, player1Hand, currentPlayer)
-        print(availableActions)
         self.drawBoard(board)
+        self.piecePlaceMode = False
+        self.highlightedHexes = []
         window.mainloop()
 
     def drawBoard(self, board):
@@ -29,8 +30,6 @@ class GUI():
             y = j*h + yoff
             for i in range(23):
                 color = 'white'
-                if i == 11 and j == 11:
-                    color = 'green'
                 id = self.drawHex(x, y, size, color)
                 self.hexes[id] = (i, j)
                 x += 3*w/4
@@ -46,14 +45,28 @@ class GUI():
         return self.canvas.create_polygon(
             points, width=3, fill=color, outline='black')
 
-    def click(self, event):
+    def onCanvasClick(self, event):
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         hexId = event.widget.find_overlapping(x, y, x+1, y+1)
         if(len(hexId) == 0):
             return
-        hexId = hexId[0]
+        self.onHexClick(hexId[0])
+
+    def onHexClick(self, hexId):
         print(self.hexes[hexId])
+        if self.piecePlaceMode:
+            self.tryPlacePiece(hexId)
+
+    def tryPlacePiece(self, hexId):
+        print('tryPlacePiece')
+        self.piecePlaceMode = False
+        self.clearHexHighlight()
+
+    def clearHexHighlight(self):
+        for hexId in self.highlightedHexes:
+            self.canvas.itemconfig(hexId, outline='black')
+        self.highlightedHexes = []
 
     def setupWindow(self):
         window = tk.Tk()
@@ -62,7 +75,8 @@ class GUI():
         frame = tk.Frame(window)
         frame.pack()
 
-        self.handDisplay = HandDisplay(frame)
+        self.handDisplay = HandDisplay(frame, self.onPlacePieceButtonClick)
+
         self.setupBoardCanvas(frame)
         return window
 
@@ -82,37 +96,54 @@ class GUI():
         self.canvas.config(xscrollcommand=hbar.set, yscrollcommand=vbar.set)
         self.canvas.pack()
 
-        self.canvas.bind("<Button-1>", self.click)
+        self.canvas.bind("<Button-1>", self.onCanvasClick)
+
+    def onPlacePieceButtonClick(self, pieceId):
+        if pieceId not in self.availableActions['place']:
+            return
+        hexes = self.availableActions['place'][pieceId]
+
+        self.piecePlaceMode = True
+        for hex in hexes:
+            self.highlightHex(hex)
+
+    def highlightHex(self, hexXY):
+        hexId = list(self.hexes.keys())[list(self.hexes.values()).index(hexXY)]
+        self.canvas.itemconfig(hexId, outline='blue')
+        self.canvas.tag_raise(hexId)
+
+        self.highlightedHexes.append(hexId)
 
 
 class HandDisplay():
-    def __init__(self, frame):
+    def __init__(self, frame, onButtonClick):
+
         leftFrame = tk.Frame(frame)
         rightFrame = tk.Frame(frame)
         leftFrame.pack(side=tk.LEFT)
         rightFrame.pack(side=tk.RIGHT)
 
         self.p1aButton = tk.Button(
-            leftFrame, width=10, command=lambda: self.action(Player1A))
+            leftFrame, width=10, command=lambda: onButtonClick(Player1A))
         self.p1gButton = tk.Button(
-            leftFrame, width=10, command=lambda: self.action(Player1G))
+            leftFrame, width=10, command=lambda: onButtonClick(Player1G))
         self.p1sButton = tk.Button(
-            leftFrame, width=10, command=lambda: self.action(Player1S))
+            leftFrame, width=10, command=lambda: onButtonClick(Player1S))
         self.p1bButton = tk.Button(
-            leftFrame, width=10, command=lambda: self.action(Player1B))
+            leftFrame, width=10, command=lambda: onButtonClick(Player1B))
         self.p1qButton = tk.Button(
-            leftFrame, width=10, command=lambda: self.action(Player1Q))
+            leftFrame, width=10, command=lambda: onButtonClick(Player1Q))
 
         self.p2aButton = tk.Button(
-            rightFrame, width=10, command=lambda: self.action(Player2A))
+            rightFrame, width=10, command=lambda: onButtonClick(Player2A))
         self.p2gButton = tk.Button(
-            rightFrame, width=10, command=lambda: self.action(Player2G))
+            rightFrame, width=10, command=lambda: onButtonClick(Player2G))
         self.p2sButton = tk.Button(
-            rightFrame, width=10, command=lambda: self.action(Player2S))
+            rightFrame, width=10, command=lambda: onButtonClick(Player2S))
         self.p2bButton = tk.Button(
-            rightFrame, width=10, command=lambda: self.action(Player2B))
+            rightFrame, width=10, command=lambda: onButtonClick(Player2B))
         self.p2qButton = tk.Button(
-            rightFrame, width=10, command=lambda: self.action(Player2Q))
+            rightFrame, width=10, command=lambda: onButtonClick(Player2Q))
 
         self.p1aButton.pack(side=tk.TOP)
         self.p1gButton.pack(side=tk.TOP)
@@ -138,9 +169,6 @@ class HandDisplay():
         self.p2sButton['text'] = f'Spider {player2Hand.s}'
         self.p2bButton['text'] = f'Beetle {player2Hand.b}'
         self.p2qButton['text'] = f'Queen {player2Hand.q}'
-
-    def action(self, number):
-        print(number)
 
 
 GUI()

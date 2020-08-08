@@ -10,7 +10,7 @@ class Hive():
     def availableActions(self, board, playersHand, currentPlayer):
         avalilableActions = {'place': {}}
         if np.count_nonzero(board) == 0:
-            avalilableActions['place'] = [Player1Q, (11, 11)]
+            avalilableActions['place'] = {Player1Q: [(11, 11)]}
         return avalilableActions
 
 
