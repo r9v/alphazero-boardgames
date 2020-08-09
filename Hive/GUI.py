@@ -152,29 +152,26 @@ class GUI():
         self.onHexClick(hexId[0])
 
     def onHexClick(self, hexId):
-        if self.piecePlaceMode:
-            self.tryPlacePiece(hexId)
-
-    def onPlacePieceButtonClick(self, pieceId):
-        if pieceId not in self.availableActions['place']:
-            return
-        hexes = self.availableActions['place'][pieceId]
-
-        self.piecePlaceMode = True
-        self.pieceToPlace = pieceId
-        for hex in hexes:
-            self.hexes.highlight(hex[0], hex[1])
-
-    def tryPlacePiece(self, hexId):
-        hexes = self.availableActions['place'][self.pieceToPlace]
         hex = self.hexes.getById(hexId)
-        # for placeHex in hexes:
-        #    if hex == placeHex:
-        #        self.placePiece(hexId)
+        if self.piecePlaceMode:
+            self.tryPlacePiece(hex)
+
+    def onPlacePieceButtonClick(self, piece):
+        piecePlaceActions = self.availableActions.getPlaceActionsByPiece(piece)
+        if len(piecePlaceActions) == 0:
+            return
+        self.piecePlaceMode = True
+        self.pieceToPlace = piece
+        for action in piecePlaceActions:
+            self.hexes.highlight(action.x, action.y)
+
+    def tryPlacePiece(self, hex):
+        if self.availableActions.isPlaceActionCorrect(self.pieceToPlace, hex.x, hex.y):
+            self.placePiece(hex)
         self.piecePlaceMode = False
         self.hexes.clearHighlighted()
 
-    def placePiece(self, hexId):
+    def placePiece(self, hex):
         print('placePiece')
 
     def setupWindow(self):
