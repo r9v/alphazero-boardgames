@@ -6,12 +6,11 @@ import numpy as np
 class Node():
     def __init__(self, parent, state, game, nnet):
         self.parent = parent
-
+        self.state = state
         # dictionary i->node. i is the action avalilableActions[i]
         self.children = {}
 
-        self.terminal, self.terminalValue = game.over(state.board)
-        if not self.terminal:
+        if not self.state.terminal:
             self.availableActionsMask = state.availableActions
         else:
             self.availableActionsMask = []
@@ -27,8 +26,6 @@ class Node():
         self.P = [0, 0, 0, 0.5, 0.6, 0.7, 0, 0, 0]
         self.nnetValue = random.randint(-40, 40)
 
-        self.state = state
-
 
 class MCTS():
     def __init__(self, game, nnet):
@@ -36,9 +33,8 @@ class MCTS():
         self.nnet = nnet
 
     def getPolicy(self, numMCTSSimulations, state) -> Node:
-        gameOver, _ = self.game.over(state.board)
-        if gameOver:
-            raise Exception('Called getPolicy with gameOver')
+        if state.terminal:
+            raise Exception('Called getPolicy with terminal state')
 
         root = Node(None, state, self.game, self.nnet)
         for i in range(numMCTSSimulations):
@@ -52,7 +48,7 @@ class MCTS():
         self.backpropagate(value, selectedNode)
 
     def treePolicy(self, node: Node):
-        while not node.terminal:
+        while not node.state.terminal:
             bestAction = self.bestAction(node)
             print(f'bestAction {bestAction}')
             if node.children[bestAction] is None:
@@ -88,8 +84,8 @@ class MCTS():
         return Q+P*math.sqrt(Nparent)/(N+1)
 
     def rollout(self, node: Node):
-        if node.terminal:
-            return node.terminalValue
+        if node.state.terminal:
+            return node.state.terminalValue
         return node.nnetValue
 
     def backpropagate(self, value, node: Node):
