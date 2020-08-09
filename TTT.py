@@ -6,45 +6,26 @@ COLUMN_COUNT = 7
 
 
 class GameState():
-
-    def __init__(self, game, board=np.zeros((3, 3), dtype="int"), player=-1):
+    def __init__(self, board=np.zeros((3, 3), dtype="int"), player=-1):
         self.board = board
         self.player = player
-        self.availableActions = game.availableActions(self)
+        self.availableActions = self._availableActions()
+        self.terminal, self.terminalValue = self._over()
 
-
-class TTTGame():
-
-    def newGame(self):
-        return GameState(self)
-
-    def step(self, state, action):
-        if(action < 0 or action > 8):
-            raise Exception(f'Invalid action {action}')
-
-        x = action//3
-        y = action % 3
-        if state.board[x][y] != 0:
-            raise Exception(f'Invalid action, {x},{y} is full')
-        nextBoard = np.copy(state.board)
-        nextBoard[x][y] = state.player
-
-        return GameState(self, nextBoard, state.player * -1)
-
-    def over(self, board):
-        if(self._checkPlayerWon(board, -1)):
+    def _over(self):
+        if(self._checkPlayerWon(self.board, -1)):
             return True, -1
-        if(self._checkPlayerWon(board, 1)):
+        if(self._checkPlayerWon(self.board, 1)):
             return True, 1
-        if np.count_nonzero(board) == 9:
+        if np.count_nonzero(self.board) == 9:
             return True, 0
         return False, None
 
-    def availableActions(self, state):
+    def _availableActions(self):
         availableActions = [0]*9
         for row in range(3):
             for column in range(3):
-                if state.board[row][column] == 0:
+                if self.board[row][column] == 0:
                     availableActions[3*row+column] = 1
         return availableActions
 
@@ -62,3 +43,22 @@ class TTTGame():
 
         if board[0][2] == player and board[1][1] == player and board[2][0] == player:
             return True
+
+
+class TTTGame():
+
+    def newGame(self):
+        return GameState()
+
+    def step(self, state, action):
+        if(action < 0 or action > 8):
+            raise Exception(f'Invalid action {action}')
+
+        x = action//3
+        y = action % 3
+        if state.board[x][y] != 0:
+            raise Exception(f'Invalid action, {x},{y} is full')
+        nextBoard = np.copy(state.board)
+        nextBoard[x][y] = state.player
+
+        return GameState(nextBoard, state.player * -1)
