@@ -6,10 +6,31 @@ from const import *
 hive = Hive()
 
 
+class InfoDisplay():
+    def __init__(self, frame):
+        self.player = tk.StringVar()
+        self.turn = tk.StringVar()
+        self.terminal = tk.StringVar()
+        self.terminalValue = tk.StringVar()
+        frame = tk.Frame(frame)
+        tk.Label(frame, textvariable=self.player).pack(side=tk.LEFT)
+        tk.Label(frame, textvariable=self.turn).pack(side=tk.LEFT)
+        tk.Label(frame, textvariable=self.terminal).pack(side=tk.LEFT)
+        tk.Label(frame, textvariable=self.terminalValue).pack(side=tk.LEFT)
+        frame.pack()
+
+    def update(self, player, turn, terminal, terminalValue):
+        self.player.set(f'player: {player}, ')
+        self.turn.set(f'turn: {turn}, ')
+        self.terminal.set(f'terminal: {terminal}, ')
+        self.terminalValue.set(f'terminalValue: {terminalValue}, ')
+
+
 class HandDisplay():
     def __init__(self, frame, onButtonClick):
 
         leftFrame = tk.Frame(frame)
+        self.leftFrame = leftFrame
         rightFrame = tk.Frame(frame)
         leftFrame.pack(side=tk.LEFT)
         rightFrame.pack(side=tk.RIGHT)
@@ -127,6 +148,8 @@ class GUI():
         self.state = hive.newGame()
         self.handDisplay.updateHandDisplay(
             self.state.player1Hand, self.state.player2Hand)
+        self.infoDisplay.update(
+            self.state.player, self.state.turn, self.state.terminal, self.state.terminalValue)
         self.drawBoard()
 
         window.mainloop()
@@ -227,6 +250,8 @@ class GUI():
         self.drawBoard()
         self.handDisplay.updateHandDisplay(
             self.state.player1Hand, self.state.player2Hand)
+        self.infoDisplay.update(
+            self.state.player, self.state.turn, self.state.terminal, self.state.terminalValue)
 
     def setupWindow(self):
         window = tk.Tk()
@@ -234,7 +259,7 @@ class GUI():
 
         frame = tk.Frame(window)
         frame.pack()
-
+        self.infoDisplay = InfoDisplay(frame)
         self.handDisplay = HandDisplay(
             frame, self.onSelectHandPiece)
 

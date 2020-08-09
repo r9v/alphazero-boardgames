@@ -48,16 +48,20 @@ class AvalilableActions():
 
 
 class GameState():
-    def __init__(self, board=np.zeros((23, 23), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand()):
+    def __init__(self, board=np.zeros((23, 23), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand(), turn=1):
         self.board = board
         self.player = player
         self.player1Hand = player1Hand
         self.player2Hand = player2Hand
+        self.turn = turn
+        self.update()
 
+    def update(self):
         self.availableActions = self._availableActions()
         self.terminal, self.terminalValue = self._over()
 
         if self.availableActions.empty() and not self.terminal:  # if player blocked this turn
+            self.turn += 1
             self.player *= -1
             self.availableActions = self._availableActions()
 
@@ -102,6 +106,8 @@ class PlaceAction():
             state.player2Hand.q -= 1
         state.board[self.x][self.y] = self.piece
         state.player *= -1
+        state.turn += 1
+        state.update()
         return state
 
 
@@ -117,6 +123,8 @@ class MoveAction():
         state.board[self.endX][self.endY] = state.board[self.startX][self.startY]
         state.board[self.startX][self.startY] = 0
         state.player *= -1
+        state.turn += 1
+        state.update()
         return state
 
 
