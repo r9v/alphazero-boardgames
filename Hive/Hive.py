@@ -18,7 +18,7 @@ class AvalilableActions():
         self.moveActions = []
 
     def empty(self):
-        return not self.placeAction.spots and not self.moveActions
+        return (not self.placeAction.spots or not self.placeAction.pieces) and not self.moveActions
 
     def addPlaceAction(self, pieces, spots):
         self.placeAction = PlaceAction(pieces, spots)
