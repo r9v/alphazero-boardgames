@@ -5,25 +5,31 @@ ROW_COUNT = 6
 COLUMN_COUNT = 7
 
 
+class GameState():
+
+    def __init__(self, game, board=np.zeros((3, 3), dtype="int"), player=-1):
+        self.board = board
+        self.player = player
+        self.availableActions = game.availableActions(self)
+
+
 class TTTGame():
 
     def newGame(self):
-        # returns board, currentPlayer
-        return np.zeros((3, 3), dtype="int"), -1
+        return GameState(self)
 
-    def step(self, board, currentPlayer, action):
-        # returns done, victor(or reward - 0 if draw), board, currentPlayer
+    def step(self, state, action):
         if(action < 0 or action > 8):
             raise Exception(f'Invalid action {action}')
 
         x = action//3
         y = action % 3
-        if board[x][y] != 0:
+        if state.board[x][y] != 0:
             raise Exception(f'Invalid action, {x},{y} is full')
-        nextBoard = np.copy(board)
-        nextBoard[x][y] = currentPlayer
+        nextBoard = np.copy(state.board)
+        nextBoard[x][y] = state.player
 
-        return nextBoard, currentPlayer * -1
+        return GameState(self, nextBoard, state.player * -1)
 
     def over(self, board):
         if(self._checkPlayerWon(board, -1)):
@@ -34,11 +40,11 @@ class TTTGame():
             return True, 0
         return False, None
 
-    def availableActions(self, board, currentPlayer):
+    def availableActions(self, state):
         availableActions = [0]*9
         for row in range(3):
             for column in range(3):
-                if board[row][column] == 0:
+                if state.board[row][column] == 0:
                     availableActions[3*row+column] = 1
         return availableActions
 

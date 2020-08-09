@@ -4,15 +4,15 @@ import numpy as np
 
 
 class Node():
-    def __init__(self, parent, board, player, game, nnet):
+    def __init__(self, parent, state, game, nnet):
         self.parent = parent
 
         # dictionary i->node. i is the action avalilableActions[i]
         self.children = {}
 
-        self.terminal, self.terminalValue = game.over(board)
+        self.terminal, self.terminalValue = game.over(state.board)
         if not self.terminal:
-            self.availableActionsMask = game.availableActions(board, player)
+            self.availableActionsMask = state.availableActions
         else:
             self.availableActionsMask = []
         self.availableActions = np.nonzero(self.availableActionsMask)[0]
@@ -27,8 +27,7 @@ class Node():
         self.P = [0, 0, 0, 0.5, 0.6, 0.7, 0, 0, 0]
         self.nnetValue = random.randint(-40, 40)
 
-        self.board = board
-        self.player = player
+        self.state = state
 
 
 class MCTS():
@@ -36,12 +35,12 @@ class MCTS():
         self.game = game
         self.nnet = nnet
 
-    def getPolicy(self, numMCTSSimulations, board, player) -> Node:
-        gameOver, _ = self.game.over(board)
+    def getPolicy(self, numMCTSSimulations, state) -> Node:
+        gameOver, _ = self.game.over(state.board)
         if gameOver:
             raise Exception('Called getPolicy with gameOver')
 
-        root = Node(None, board, player, self.game, self.nnet)
+        root = Node(None, state, self.game, self.nnet)
         for i in range(numMCTSSimulations):
             self.search(root)
         return root
@@ -81,9 +80,8 @@ class MCTS():
         return bestAction
 
     def createChild(self, node, action):
-        newBoard, newPlayer = self.game.step(node.board, node.player, action)
         node.children[action] = Node(
-            node, newBoard, newPlayer, self.game, self.nnet)
+            node, self.game.step(node.state, action), self.game, self.nnet)
         return node.children[action]
 
     def PUCT(self, Q, P, N, Nparent):
