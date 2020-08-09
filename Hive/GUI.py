@@ -15,6 +15,7 @@ class GUI():
             board, player1Hand, currentPlayer)
         self.drawBoard(board)
         self.piecePlaceMode = False
+        self.pieceToPlace = None
         self.highlightedHexes = []
         window.mainloop()
 
@@ -54,14 +55,20 @@ class GUI():
         self.onHexClick(hexId[0])
 
     def onHexClick(self, hexId):
-        print(self.hexes[hexId])
         if self.piecePlaceMode:
             self.tryPlacePiece(hexId)
 
     def tryPlacePiece(self, hexId):
-        print('tryPlacePiece')
+        hexes = self.availableActions['place'][self.pieceToPlace]
+        hex = self.hexes[hexId]
+        for placeHex in hexes:
+            if hex == placeHex:
+                self.placePiece(hexId)
         self.piecePlaceMode = False
         self.clearHexHighlight()
+
+    def placePiece(self, hexId):
+        print('placePiece')
 
     def clearHexHighlight(self):
         for hexId in self.highlightedHexes:
@@ -104,6 +111,7 @@ class GUI():
         hexes = self.availableActions['place'][pieceId]
 
         self.piecePlaceMode = True
+        self.pieceToPlace = pieceId
         for hex in hexes:
             self.highlightHex(hex)
 
