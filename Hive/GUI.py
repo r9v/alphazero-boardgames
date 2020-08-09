@@ -70,7 +70,6 @@ class Hex():
         self.canvas = canvas
         self.canvasX = canvasX
         self.canvasY = canvasY
-
         self.text = None
         self.piece = None
 
@@ -81,16 +80,10 @@ class Hex():
     def clearHighlight(self):
         self.canvas.itemconfig(self.id, outline='black')
 
-    def placePiece(self, piece):
+    def setPiece(self, piece):
         self.text = self.canvas.create_text(
             self.canvasX, self.canvasY, text=piece)
         self.piece = piece
-
-    def removePiece(self):
-        if self.text:
-            self.canvas.delete(self.text)
-            self.text = None
-        self.piece = None
 
 
 class Hexes():
@@ -149,7 +142,10 @@ class GUI():
             y = j*h + yoff
             for i in range(23):
                 id = self.drawHex(x, y, size)
-                self.hexes.add(Hex(id, i, j, self.canvas, x, y))
+                hex = Hex(id, i, j, self.canvas, x, y)
+                if self.state.board[i][j] != 0:
+                    hex.setPiece(self.state.board[i][j])
+                self.hexes.add(hex)
                 x += 3*w/4
                 y += h/2
 
@@ -206,17 +202,31 @@ class GUI():
             self.hexes.highlight(action.x, action.y)
 
     def tryPlacePiece(self, hex):
-        if self.state.availableActions.isPlaceActionCorrect(self.pieceToPlace, hex.x, hex.y):
-            hex.placePiece(self.pieceToPlace)
+        self.clearModes()
+        action = self.state.availableActions.getPlaceAction(
+            self.pieceToPlace, hex.x, hex.y)
+        if action is not None:
+            self.doAction(action)
+
+    def tryMovePiece(self, hex):
+        self.clearModes()
+        action = self.state.availableActions.getMoveAction(
+            self.hexToMove.x, self.hexToMove.y, hex.x, hex.y)
+        if action is not None:
+            self.doAction(action)
+
+    def clearModes(self):
+        self.moveMode = False
         self.piecePlaceMode = False
         self.hexes.clearHighlighted()
 
-    def tryMovePiece(self, hex):
-        if self.state.availableActions.isMoveActionCorrect(self.hexToMove.x, self.hexToMove.y, hex.x, hex.y):
-            hex.placePiece(self.hexToMove.piece)
-            self.hexToMove.removePiece()
-        self.moveMode = False
-        self.hexes.clearHighlighted()
+    def doAction(self, action):
+        self.state = hive.step(self.state, action)
+        self.canvas.delete("all")
+        self.hexes = Hexes()
+        self.drawBoard()
+        self.handDisplay.updateHandDisplay(
+            self.state.player1Hand, self.state.player2Hand)
 
     def setupWindow(self):
         window = tk.Tk()
