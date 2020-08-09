@@ -14,27 +14,33 @@ class Hand():
 
 class AvalilableActions():
     def __init__(self):
-        self.placeActions = []
+        self.placeAction = PlaceAction([], [])
         self.moveActions = []
 
     def empty(self):
-        return not self.placeActions and not self.moveActions
+        return not self.placeAction.spots and not self.moveActions
 
-    def addPlaceAction(self, piece, x, y):
-        self.placeActions.append(PlaceAction(piece, x, y))
+    def addPlaceAction(self, pieces, spots):
+        self.placeAction = PlaceAction(pieces, spots)
 
     def addMoveAction(self, startX, startY, endX, endY):
         self.moveActions.append(MoveAction(startX, startY, endX, endY))
 
-    def getPlaceActionsByPiece(self, piece):
-        return [action for action in self.placeActions if action.piece == piece]
+    def canBePlaced(self, piece):
+        piecePresent = [
+            action for action in self.placeAction.pieces if action == piece]
+        return self.placeAction.spots and piecePresent
 
     def getMoveActionsByStart(self, startX, startY):
         return [action for action in self.moveActions if action.startX == startX and action.startY == startY]
 
-    def getPlaceAction(self, piece, x, y):
-        actions = [action for action in self.placeActions if action.piece == piece
-                   and action.x == x and action.y == y]
+    def canBePlacedAt(self, piece, x, y):
+        piecePresent = [
+            action for action in self.placeAction.pieces if action == piece]
+        spotPresent = [
+            action for action in self.placeAction.spots if action[0] == x and action[1] == y]
+        return spotPresent and piecePresent
+
         if len(actions) == 0:
             return None
         return actions[0]
@@ -70,41 +76,88 @@ class GameState():
 
     def _availableActions(self):
         avalilableActions = AvalilableActions()
-        if np.count_nonzero(self.board) == 0:
-            avalilableActions.addPlaceAction(Player1Q, 11, 11)
-        avalilableActions.addMoveAction(11, 11, 12, 12)
+        if self.turn == 1:
+            avalilableActions.addPlaceAction(
+                [Player1A, Player1G, Player1S, Player1B], [[11, 11]])
+            return avalilableActions
+        avaliablePlaceSpots = self._getAvailablePlaceSpots()
+        if self.turn > 6:
+            if self.player == -1 and self.player1Hand.q == 1:
+                avalilableActions.addPlaceAction(
+                    [Player1Q], avaliablePlaceSpots)
+                return avalilableActions
+            if self.player == 1 and self.player2Hand.q == 1:
+                avalilableActions.addPlaceAction(
+                    [Player2Q], avaliablePlaceSpots)
+                return avalilableActions
+
+        avalilableActions.addPlaceAction(
+            self._getPiecesToPlace(),  avaliablePlaceSpots)
+
+        self._addMoveActions(avalilableActions)
         return avalilableActions
+
+    def _getPiecesToPlace(self):
+        pieces = []
+        if(self.player == -1):
+            if(self.player1Hand.a > 0):
+                pieces.append(Player1A)
+            if(self.player1Hand.g > 0):
+                pieces.append(Player1G)
+            if(self.player1Hand.s > 0):
+                pieces.append(Player1S)
+            if(self.player1Hand.b > 0):
+                pieces.append(Player1B)
+            if(self.player1Hand.q > 0):
+                pieces.append(Player1Q)
+            return pieces
+        if(self.player2Hand.a > 0):
+            pieces.append(Player2A)
+        if(self.player2Hand.g > 0):
+            pieces.append(Player2G)
+        if(self.player2Hand.s > 0):
+            pieces.append(Player2S)
+        if(self.player2Hand.b > 0):
+            pieces.append(Player2B)
+        if(self.player2Hand.q > 0):
+            pieces.append(Player2Q)
+        return pieces
+
+    def _addMoveActions(self, avalilableActions):
+        avalilableActions.addMoveAction(11, 11, 12, 12)
+
+    def _getAvailablePlaceSpots(self):
+        return [[11, 11]]
 
 
 class PlaceAction():
-    def __init__(self, piece, x, y):
-        self.piece = piece
-        self.x = x
-        self.y = y
+    def __init__(self, pieces, spots):
+        self.pieces = pieces
+        self.spots = spots
 
-    def do(self, state: GameState):
+    def do(self, state: GameState, piece, x, y):
         state = copy.deepcopy(state)
-        if(self.piece == Player1A):
+        if(piece == Player1A):
             state.player1Hand.a -= 1
-        elif(self.piece == Player1G):
+        elif(piece == Player1G):
             state.player1Hand.g -= 1
-        elif(self.piece == Player1S):
+        elif(piece == Player1S):
             state.player1Hand.s -= 1
-        elif(self.piece == Player1B):
+        elif(piece == Player1B):
             state.player1Hand.b -= 1
-        elif(self.piece == Player1Q):
+        elif(piece == Player1Q):
             state.player1Hand.q -= 1
-        elif(self.piece == Player2A):
+        elif(piece == Player2A):
             state.player2Hand.a -= 1
-        elif(self.piece == Player2G):
+        elif(piece == Player2G):
             state.player2Hand.g -= 1
-        elif(self.piece == Player2S):
+        elif(piece == Player2S):
             state.player2Hand.s -= 1
-        elif(self.piece == Player2B):
+        elif(piece == Player2B):
             state.player2Hand.b -= 1
-        elif(self.piece == Player2Q):
+        elif(piece == Player2Q):
             state.player2Hand.q -= 1
-        state.board[self.x][self.y] = self.piece
+        state.board[x][y] = piece
         state.player *= -1
         state.turn += 1
         state.update()
@@ -131,7 +184,3 @@ class MoveAction():
 class Hive():
     def newGame(self):
         return GameState()
-
-    def step(self, state: GameState, action):
-        # raise Exception(f'Invalid action {action}')
-        return action.do(state)

@@ -215,21 +215,19 @@ class GUI():
 
         self.hexes.clearHighlighted()
 
-        piecePlaceActions = self.state.availableActions.getPlaceActionsByPiece(
-            piece)
-        if len(piecePlaceActions) == 0:
+        if not self.state.availableActions.canBePlaced(piece):
             return
         self.piecePlaceMode = True
         self.pieceToPlace = piece
-        for action in piecePlaceActions:
-            self.hexes.highlight(action.x, action.y)
+        for spot in self.state.availableActions.placeAction.spots:
+            self.hexes.highlight(spot[0], spot[1])
 
     def tryPlacePiece(self, hex):
         self.clearModes()
-        action = self.state.availableActions.getPlaceAction(
-            self.pieceToPlace, hex.x, hex.y)
-        if action is not None:
-            self.doAction(action)
+        if not self.state.availableActions.canBePlacedAt(self.pieceToPlace, hex.x, hex.y):
+            return
+        self.doAction(self.state.availableActions.placeAction,
+                      self.pieceToPlace, hex.x, hex.y)
 
     def tryMovePiece(self, hex):
         self.clearModes()
@@ -243,8 +241,8 @@ class GUI():
         self.piecePlaceMode = False
         self.hexes.clearHighlighted()
 
-    def doAction(self, action):
-        self.state = hive.step(self.state, action)
+    def doAction(self, action, *actionArgs):
+        self.state = action.do(self.state, *actionArgs)
         self.canvas.delete("all")
         self.hexes = Hexes()
         self.drawBoard()
