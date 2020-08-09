@@ -63,11 +63,16 @@ class HandDisplay():
 
 
 class Hex():
-    def __init__(self, id, x, y, canvas):
+    def __init__(self, id, x, y, canvas, canvasX, canvasY):
         self.id = id
         self.x = x
         self.y = y
         self.canvas = canvas
+        self.canvasX = canvasX
+        self.canvasY = canvasY
+
+        self.text = None
+        self.piece = None
 
     def highlight(self):
         self.canvas.itemconfig(self.id, outline='blue')
@@ -75,6 +80,17 @@ class Hex():
 
     def clearHighlight(self):
         self.canvas.itemconfig(self.id, outline='black')
+
+    def placePiece(self, piece):
+        self.text = self.canvas.create_text(
+            self.canvasX, self.canvasY, text=piece)
+        self.piece = piece
+
+    def removePiece(self):
+        if self.text:
+            self.canvas.delete(self.text)
+            self.text = None
+        self.piece = None
 
 
 class Hexes():
@@ -86,7 +102,7 @@ class Hexes():
         self.hexes.append(hex)
 
     def getById(self, id):
-        return next((hex for hex in self.hexes if hex.id == id), None)
+        return next((hex for hex in self.hexes if hex.id == id or hex.text == id), None)
 
     def getByXY(self, x, y):
         return next((hex for hex in self.hexes if (hex.x == x and hex.y == y)), None)
@@ -106,19 +122,23 @@ class GUI():
     def __init__(self):
 
         self.hexes = Hexes()
+
         self.piecePlaceMode = False
         self.pieceToPlace = None
 
+        self.moveMode = False
+        self.hexToMove = None
+
         window = self.setupWindow()
-        board, player1Hand, player2Hand, currentPlayer = hive.newGame()
-        self.handDisplay.updateHandDisplay(player1Hand, player2Hand)
-        self.availableActions = hive.availableActions(
-            board, player1Hand, currentPlayer)
-        self.drawBoard(board)
+
+        self.state = hive.newGame()
+        self.handDisplay.updateHandDisplay(
+            self.state.player1Hand, self.state.player2Hand)
+        self.drawBoard()
 
         window.mainloop()
 
-    def drawBoard(self, board):
+    def drawBoard(self):
         size = 20
         yoff = 50
         xoff = 50
@@ -128,20 +148,19 @@ class GUI():
             x = xoff
             y = j*h + yoff
             for i in range(23):
-                color = 'white'
-                id = self.drawHex(x, y, size, color)
-                self.hexes.add(Hex(id, i, j, self.canvas))
+                id = self.drawHex(x, y, size)
+                self.hexes.add(Hex(id, i, j, self.canvas, x, y))
                 x += 3*w/4
                 y += h/2
 
-    def drawHex(self, x, y, size, color):
+    def drawHex(self, x, y, size):
         points = []
         for i in range(6):
             angle = math.pi/180*(60*i)
             points.append(x+size*math.cos(angle))
             points.append(y+size*math.sin(angle))
         return self.canvas.create_polygon(
-            points, width=3, fill=color, outline='black')
+            points, width=3, fill="", outline='black')
 
     def onCanvasClick(self, event):
         x = self.canvas.canvasx(event.x)
@@ -155,9 +174,30 @@ class GUI():
         hex = self.hexes.getById(hexId)
         if self.piecePlaceMode:
             self.tryPlacePiece(hex)
+        elif self.moveMode:
+            self.tryMovePiece(hex)
+        elif hex.piece:
+            self.startMoveAction(hex)
 
-    def onPlacePieceButtonClick(self, piece):
-        piecePlaceActions = self.availableActions.getPlaceActionsByPiece(piece)
+    def startMoveAction(self, hex):
+        moveActions = self.state.availableActions.getMoveActionsByStart(
+            hex.x, hex.y)
+        if len(moveActions) == 0:
+            return
+        self.moveMode = True
+        self.hexToMove = hex
+        for action in moveActions:
+            self.hexes.highlight(action.endX, action.endY)
+
+    def onSelectHandPiece(self, piece):
+
+        self.piecePlaceMode = False
+        self.moveMode = False
+
+        self.hexes.clearHighlighted()
+
+        piecePlaceActions = self.state.availableActions.getPlaceActionsByPiece(
+            piece)
         if len(piecePlaceActions) == 0:
             return
         self.piecePlaceMode = True
@@ -166,13 +206,17 @@ class GUI():
             self.hexes.highlight(action.x, action.y)
 
     def tryPlacePiece(self, hex):
-        if self.availableActions.isPlaceActionCorrect(self.pieceToPlace, hex.x, hex.y):
-            self.placePiece(hex)
+        if self.state.availableActions.isPlaceActionCorrect(self.pieceToPlace, hex.x, hex.y):
+            hex.placePiece(self.pieceToPlace)
         self.piecePlaceMode = False
         self.hexes.clearHighlighted()
 
-    def placePiece(self, hex):
-        print('placePiece')
+    def tryMovePiece(self, hex):
+        if self.state.availableActions.isMoveActionCorrect(self.hexToMove.x, self.hexToMove.y, hex.x, hex.y):
+            hex.placePiece(self.hexToMove.piece)
+            self.hexToMove.removePiece()
+        self.moveMode = False
+        self.hexes.clearHighlighted()
 
     def setupWindow(self):
         window = tk.Tk()
@@ -181,14 +225,15 @@ class GUI():
         frame = tk.Frame(window)
         frame.pack()
 
-        self.handDisplay = HandDisplay(frame, self.onPlacePieceButtonClick)
+        self.handDisplay = HandDisplay(
+            frame, self.onSelectHandPiece)
 
         self.setupBoardCanvas(frame)
         return window
 
     def setupBoardCanvas(self, frame):
         self.canvas = tk.Canvas(frame, width=500, height=500,
-                                scrollregion=(0, 0, 750, 1220), bg='Black')
+                                scrollregion=(0, 0, 750, 1220), bg='white')
 
         hbar = tk.Scrollbar(frame, orient=tk.HORIZONTAL)
         vbar = tk.Scrollbar(frame, orient=tk.VERTICAL)
