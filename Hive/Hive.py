@@ -76,24 +76,29 @@ class GameState():
 
     def _availableActions(self):
         avalilableActions = AvalilableActions()
-        if self.turn == 1:
+        if self.turn == 1:  # first move at orgin and not queen
             avalilableActions.addPlaceAction(
                 [Player1A, Player1G, Player1S, Player1B], [[11, 11]])
             return avalilableActions
-        avaliablePlaceSpots = self._getAvailablePlaceSpots()
-        if self.turn > 6:
+        if self.turn == 2:  # second move close to orgin and not queen
+            avalilableActions.addPlaceAction(
+                [Player2A, Player2G, Player2S, Player2B], [[11, 10], [12, 10], [12, 11], [11, 12], [10, 12], [10, 11]])
+            return avalilableActions
+
+        if self.turn > 6 and self.turn < 9:
             if self.player == -1 and self.player1Hand.q == 1:
                 avalilableActions.addPlaceAction(
-                    [Player1Q], avaliablePlaceSpots)
+                    [Player1Q], self._getAvailablePlaceSpots())
                 return avalilableActions
             if self.player == 1 and self.player2Hand.q == 1:
                 avalilableActions.addPlaceAction(
-                    [Player2Q], avaliablePlaceSpots)
+                    [Player2Q], self._getAvailablePlaceSpots())
                 return avalilableActions
 
-        avalilableActions.addPlaceAction(
-            self._getPiecesToPlace(),  avaliablePlaceSpots)
-
+        piecesToPlace = self._getPiecesToPlace()
+        if piecesToPlace:
+            avalilableActions.addPlaceAction(
+                piecesToPlace,  self._getAvailablePlaceSpots())
         self._addMoveActions(avalilableActions)
         return avalilableActions
 
