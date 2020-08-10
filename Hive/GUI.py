@@ -158,24 +158,23 @@ class GUI():
         size = 20
         yoff = 50
         xoff = 50
-        w = 2*size
-        h = math.sqrt(3)*size
+        h = 2*size
+        w = math.sqrt(3)*size
         for j in range(23):
-            x = xoff
-            y = j*h + yoff
+            x = xoff + j*w/2
+            y = j*3*h/4 + yoff
             for i in range(23):
                 id = self.drawHex(x, y, size)
                 hex = Hex(id, i, j, self.canvas, x, y)
                 if self.state.board[i][j] != 0:
                     hex.setPiece(self.state.board[i][j])
                 self.hexes.add(hex)
-                x += 3*w/4
-                y += h/2
+                x += w
 
     def drawHex(self, x, y, size):
         points = []
         for i in range(6):
-            angle = math.pi/180*(60*i)
+            angle = math.pi/180*(60*i-30)
             points.append(x+size*math.cos(angle))
             points.append(y+size*math.sin(angle))
         return self.canvas.create_polygon(
@@ -266,7 +265,7 @@ class GUI():
 
     def setupBoardCanvas(self, frame):
         self.canvas = tk.Canvas(frame, width=500, height=500,
-                                scrollregion=(0, 0, 750, 1220), bg='white')
+                                scrollregion=(0, 0, 1220, 750), bg='white')
 
         hbar = tk.Scrollbar(frame, orient=tk.HORIZONTAL)
         vbar = tk.Scrollbar(frame, orient=tk.VERTICAL)
@@ -275,8 +274,8 @@ class GUI():
         hbar.config(command=self.canvas.xview)
         vbar.config(command=self.canvas.yview)
 
-        self.canvas.yview_moveto(0.30)
-        self.canvas.xview_moveto(0.17)  # center - excuse the magic numbers
+        self.canvas.yview_moveto(0.17)
+        self.canvas.xview_moveto(0.30)  # center - excuse the magic numbers
         self.canvas.config(xscrollcommand=hbar.set, yscrollcommand=vbar.set)
         self.canvas.pack()
 
