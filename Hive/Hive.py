@@ -84,7 +84,15 @@ def antMovement(x, y, board):
 
 
 def grassMovement(x, y, board):
-    return queenMovement(x, y, board)
+    movements = []
+    for idx, n in enumerate(neighbours(x, y)):
+        distance = 0
+        while board[n[0]][n[1]]:
+            n = neighbours(n[0], n[1])[idx]
+            distance += 1
+        if distance > 0:
+            movements.append(n)
+    return movements
 
 
 def spiderMovement(x, y, board):
