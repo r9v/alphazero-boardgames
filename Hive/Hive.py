@@ -18,7 +18,7 @@ class AvalilableActions():
         self.moveActions = []
 
     def empty(self):
-        return (not self.placeAction.spots or not self.placeAction.pieces) and not self.moveActions
+        return (len(self.placeAction.spots) == 0 or len(self.placeAction.pieces) == 0) and len(self.moveActions) == 0
 
     def addPlaceAction(self, pieces, spots):
         self.placeAction = PlaceAction(pieces, spots)
@@ -29,7 +29,7 @@ class AvalilableActions():
     def canBePlaced(self, piece):
         piecePresent = [
             action for action in self.placeAction.pieces if action == piece]
-        return self.placeAction.spots and piecePresent
+        return len(self.placeAction.spots) != 0 and len(piecePresent) != 0
 
     def getMoveActionsByStart(self, startX, startY):
         return [action for action in self.moveActions if action.startX == startX and action.startY == startY]
@@ -51,6 +51,10 @@ class AvalilableActions():
         if len(actions) == 0:
             return None
         return actions[0]
+
+
+def neighbours(x, y):
+    return [[x, y-1], [x+1, y-1], [x+1, y], [x, y+1], [x-1, y+1], [x-1, y]]
 
 
 class GameState():
@@ -132,7 +136,34 @@ class GameState():
         avalilableActions.addMoveAction(11, 11, 12, 12)
 
     def _getAvailablePlaceSpots(self):
-        return [[11, 11]]
+        print(np.swapaxes(self.board, 0, 1))
+        spots = []
+        playerPieces = []
+        if self.player == -1:
+            playerPieces = np.argwhere((self.board > 10) & (self.board < 20))
+        else:
+            playerPieces = np.argwhere(self.board > 20)
+
+        for piece in playerPieces:
+            for neighbour in neighbours(piece[0], piece[1]):
+                available = True
+                if self.board[neighbour[0]][neighbour[1]] == 0:
+                    for neighbour2 in neighbours(neighbour[0], neighbour[1]):
+                        enemyPresent = False
+                        if self.player == -1:
+                            enemyPresent = self.board[neighbour2[0]
+                                                      ][neighbour2[1]] > 20
+                        else:
+                            enemyPresent = self.board[neighbour2[0]][neighbour2[1]
+                                                                     ] > 10 and self.board[neighbour2[0]][neighbour2[1]] < 20
+                        if enemyPresent:
+                            available = False
+                            break
+                else:
+                    available = False
+                if available and neighbour not in spots:
+                    spots.append(neighbour)
+        return spots
 
 
 class PlaceAction():
