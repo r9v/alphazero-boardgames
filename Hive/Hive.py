@@ -57,6 +57,39 @@ def neighbours(x, y):
     return [[x, y-1], [x+1, y-1], [x+1, y], [x, y+1], [x-1, y+1], [x-1, y]]
 
 
+def getPlayerPieces(player, board):
+    playerPieces = []
+    if player == -1:
+        playerPieces = np.argwhere((board > 10) & (board < 20))
+    else:
+        playerPieces = np.argwhere(board > 20)
+    return playerPieces
+
+
+def canMoveWithoutBreakingHive(piece, board):
+    return True
+
+
+def antMovement(x, y, board):
+    return []
+
+
+def grassMovement(x, y, board):
+    return []
+
+
+def spiderMovement(x, y, board):
+    return []
+
+
+def beetleMovement(x, y, board):
+    return []
+
+
+def queenMovement(x, y, board):
+    return []
+
+
 class GameState():
     def __init__(self, board=np.zeros((23, 23), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand(), turn=1):
         self.board = board
@@ -133,16 +166,29 @@ class GameState():
         return pieces
 
     def _addMoveActions(self, avalilableActions):
-        avalilableActions.addMoveAction(11, 11, 12, 12)
+        playerPieces = getPlayerPieces(self.player, self.board)
+        for piece in playerPieces:
+            if not canMoveWithoutBreakingHive(piece, self.board):
+                continue
+            movements = []
+            if self.board[piece[0]][piece[1]] == Player1A or self.board[piece[0]][piece[1]] == Player2A:
+                movements = antMovement(piece[0], piece[1], self.board)
+            elif self.board[piece[0]][piece[1]] == Player1G or self.board[piece[0]][piece[1]] == Player2G:
+                movements = grassMovement(piece[0], piece[1], self.board)
+            elif self.board[piece[0]][piece[1]] == Player1S or self.board[piece[0]][piece[1]] == Player2S:
+                movements = spiderMovement(piece[0], piece[1], self.board)
+            elif self.board[piece[0]][piece[1]] == Player1B or self.board[piece[0]][piece[1]] == Player2B:
+                movements = beetleMovement(piece[0], piece[1], self.board)
+            elif self.board[piece[0]][piece[1]] == Player1Q or self.board[piece[0]][piece[1]] == Player2Q:
+                movements = queenMovement(piece[0], piece[1], self.board)
+            for movement in movements:
+                avalilableActions.addMoveAction(
+                    piece[0], piece[1], movement[0], movement[1])
 
     def _getAvailablePlaceSpots(self):
         print(np.swapaxes(self.board, 0, 1))
         spots = []
-        playerPieces = []
-        if self.player == -1:
-            playerPieces = np.argwhere((self.board > 10) & (self.board < 20))
-        else:
-            playerPieces = np.argwhere(self.board > 20)
+        playerPieces = getPlayerPieces(self.player, self.board)
 
         for piece in playerPieces:
             for neighbour in neighbours(piece[0], piece[1]):
