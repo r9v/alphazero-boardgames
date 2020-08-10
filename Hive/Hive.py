@@ -57,6 +57,15 @@ def neighbours(x, y):
     return [[x, y-1], [x+1, y-1], [x+1, y], [x, y+1], [x-1, y+1], [x-1, y]]
 
 
+def neighboursWithRightLeft(x, y):
+    return [{'n': [x, y-1], 'l':[x-1, y], 'r':[x+1, y-1]},
+            {'n': [x+1, y-1], 'l':[x, y-1], 'r':[x+1, y]},
+            {'n': [x+1, y], 'l':[x+1, y-1], 'r':[x, y+1]},
+            {'n': [x, y+1], 'l':[x+1, y], 'r':[x-1, y+1]},
+            {'n': [x-1, y+1], 'l':[x, y+1], 'r':[x-1, y]},
+            {'n': [x-1, y], 'l':[x-1, y+1], 'r':[x, y-1]}]
+
+
 def getPlayerPieces(player, board):
     playerPieces = []
     if player == -1:
@@ -71,23 +80,33 @@ def canMoveWithoutBreakingHive(piece, board):
 
 
 def antMovement(x, y, board):
-    return []
+    return queenMovement(x, y, board)
 
 
 def grassMovement(x, y, board):
-    return []
+    return queenMovement(x, y, board)
 
 
 def spiderMovement(x, y, board):
-    return []
+    return queenMovement(x, y, board)
 
 
 def beetleMovement(x, y, board):
-    return []
+    return queenMovement(x, y, board)
 
 
 def queenMovement(x, y, board):
-    return []
+    movements = []
+    for neighbour in neighboursWithRightLeft(x, y):
+        n = neighbour['n']
+        r = neighbour['r']
+        l = neighbour['l']
+        if board[n[0]][n[1]] != 0:
+            continue
+        if (board[r[0]][r[1]] != 0) == (board[l[0]][l[1]] != 0):
+            continue
+        movements.append(n)
+    return movements
 
 
 class GameState():
