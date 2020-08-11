@@ -75,24 +75,12 @@ def getPlayerPieces(player, board):
     return playerPieces
 
 
-def canMoveWithoutBreakingHive(piece, board):
-    return True
+def moveBreakesHive(piece, board):
+    return False
 
 
 def antMovement(x, y, board):
     return queenMovement(x, y, board)
-
-
-def grassMovement(x, y, board):
-    movements = []
-    for idx, n in enumerate(neighbours(x, y)):
-        distance = 0
-        while board[n[0]][n[1]]:
-            n = neighbours(n[0], n[1])[idx]
-            distance += 1
-        if distance > 0:
-            movements.append(n)
-    return movements
 
 
 def spiderMovement(x, y, board):
@@ -114,6 +102,20 @@ def queenMovement(x, y, board):
         if (board[r[0]][r[1]] != 0) == (board[l[0]][l[1]] != 0):
             continue
         movements.append(n)
+    return movements
+
+
+
+
+def grassMovement(x, y, board):
+    movements = []
+    for idx, n in enumerate(neighbours(x, y)):
+        distance = 0
+        while board[n[0]][n[1]]:
+            n = neighbours(n[0], n[1])[idx]
+            distance += 1
+        if distance > 0:
+            movements.append(n)
     return movements
 
 
@@ -195,7 +197,7 @@ class GameState():
     def _addMoveActions(self, avalilableActions):
         playerPieces = getPlayerPieces(self.player, self.board)
         for piece in playerPieces:
-            if not canMoveWithoutBreakingHive(piece, self.board):
+            if moveBreakesHive(piece, self.board):
                 continue
             movements = []
             if self.board[piece[0]][piece[1]] == Player1A or self.board[piece[0]][piece[1]] == Player2A:
