@@ -75,36 +75,44 @@ def getPlayerPieces(player, board):
     return playerPieces
 
 
-def moveBreakesHive(piece, board):
-    return False
-
-
-def antMovement(x, y, board):
-    return queenMovement(x, y, board)
-
-
-def spiderMovement(x, y, board):
-    return queenMovement(x, y, board)
-
-
-def beetleMovement(x, y, board):
-    return queenMovement(x, y, board)
-
-
-def queenMovement(x, y, board):
-    movements = []
+def slide2(x, y, N, board, movements):
+    if N == 0:
+        return
     for neighbour in neighboursWithRightLeft(x, y):
         n = neighbour['n']
         r = neighbour['r']
         l = neighbour['l']
+        if n in movements:
+            continue
         if board[n[0]][n[1]] != 0:
             continue
         if (board[r[0]][r[1]] != 0) == (board[l[0]][l[1]] != 0):
             continue
         movements.append(n)
+        slide2(n[0], n[1], N-1, board, movements)
+    return
+
+
+def slide(x, y, N, board):
+    movements = [[x, y]]
+    save = board[x][y]
+    board[x][y] = 0
+    slide2(x, y, N, board, movements)
+    movements.pop(0)
+    board[x][y] = save
     return movements
 
 
+def moveBreakesHive(piece, board):
+    return False
+
+
+def antMovement(x, y, board):
+    return slide(x, y, 9999999, board)
+
+
+def queenMovement(x, y, board):
+    return slide(x, y, 1, board)
 
 
 def grassMovement(x, y, board):
@@ -117,6 +125,20 @@ def grassMovement(x, y, board):
         if distance > 0:
             movements.append(n)
     return movements
+
+
+def spiderMovement(x, y, board):
+    two = slide(x, y, 2, board)
+    if not two:
+        return []
+    three = slide(x, y, 3, board)
+    if not three:
+        return []
+    return [i for i in three if i not in two]
+
+
+def beetleMovement(x, y, board):
+    return queenMovement(x, y, board)
 
 
 class GameState():
@@ -215,7 +237,7 @@ class GameState():
                     piece[0], piece[1], movement[0], movement[1])
 
     def _getAvailablePlaceSpots(self):
-        print(np.swapaxes(self.board, 0, 1))
+        #print(np.swapaxes(self.board, 0, 1))
         spots = []
         playerPieces = getPlayerPieces(self.player, self.board)
 
