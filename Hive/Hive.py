@@ -1,6 +1,7 @@
 import numpy as np
 from const import *
 import copy
+import queue
 
 
 def stackSizeAndTopPiece(x, y, board):
@@ -126,8 +127,58 @@ def slide(x, y, N, board):
     return movements
 
 
-def moveBreakesHive(piece, board):
-    return False
+def getAPiece(board):
+    for x in range(23):
+        for y in range(23):
+            if board[x][y][0] != 0:
+                return [x, y]
+
+
+def hiveBroken(board, nAllPieces):
+    que = queue.Queue(22)
+    piece = getAPiece(board)
+    partOfHive = np.zeros((23, 23), dtype=bool)
+    partOfHive[piece[0]][piece[1]] = True
+    nVisited, _ = stackSizeAndTopPiece(piece[0], piece[1], board)
+    que.put(piece)
+    while not que.empty():
+        piece = que.get()
+        for n in neighbours(piece[0], piece[1]):
+            stackSize, _ = stackSizeAndTopPiece(n[0], n[1], board)
+            if stackSize == 0:
+                continue
+            if partOfHive[n[0]][n[1]]:
+                continue
+            nVisited += stackSize
+            partOfHive[n[0]][n[1]] = True
+            que.put([n[0], n[1]])
+    return nAllPieces-1 != nVisited
+
+
+def moveBreakesHive(piece, board, nAllPieces):
+    if piece[2] > 0:
+        return False
+    ns = neighbours(piece[0], piece[1])
+    stackSize, _ = stackSizeAndTopPiece(ns[0][0], ns[0][1], board)
+    lastHasPiece = stackSize > 0
+    iterns = iter(ns)
+    next(iterns)
+    edges = 0
+    for n in iterns:
+        stackSize, _ = stackSizeAndTopPiece(n[0], n[1], board)
+        hasPiece = stackSize > 0
+        if lastHasPiece != hasPiece:
+            edges += 1
+            if edges > 2:
+                break
+        lastHasPiece = hasPiece
+    if edges <= 2:
+        return False
+    save = board[piece[0]][piece[1]][piece[2]]
+    board[piece[0]][piece[1]][piece[2]] = 0
+    broken = hiveBroken(board, nAllPieces)
+    board[piece[0]][piece[1]][piece[2]] = save
+    return broken
 
 
 def antMovement(x, y, board):
@@ -260,8 +311,9 @@ class GameState():
     def _addMoveActions(self, avalilableActions):
         playerPiecesOnTopXYZ = getPlayerPiecesIfOnTopXYZ(
             self.player, self.board)
+        nAllPieces = np.count_nonzero(self.board)
         for piece in playerPiecesOnTopXYZ:
-            if moveBreakesHive(piece, self.board):
+            if moveBreakesHive(piece, self.board, nAllPieces):
                 continue
             movements = []
             if self.board[piece[0]][piece[1]][piece[2]] == Player1A or self.board[piece[0]][piece[1]][piece[2]] == Player2A:
