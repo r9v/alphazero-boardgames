@@ -104,9 +104,12 @@ def slide2(x, y, N, board, movements):
         l = neighbour['l']
         if n in movements:
             continue
-        if board[n[0]][n[1]] != 0:
+        stackSize, _ = stackSizeAndTopPiece(n[0], n[1], board)
+        if stackSize != 0:
             continue
-        if (board[r[0]][r[1]] != 0) == (board[l[0]][l[1]] != 0):
+        stackSizeL, _ = stackSizeAndTopPiece(l[0], l[1], board)
+        stackSizeR, _ = stackSizeAndTopPiece(r[0], r[1], board)
+        if (stackSizeL != 0) == (stackSizeR != 0):
             continue
         movements.append(n)
         slide2(n[0], n[1], N-1, board, movements)
@@ -115,7 +118,7 @@ def slide2(x, y, N, board, movements):
 
 def slide(x, y, N, board):
     movements = [[x, y]]
-    save = board[x][y]
+    save = board[x][y].copy()
     board[x][y] = 0
     slide2(x, y, N, board, movements)
     movements.pop(0)
@@ -139,8 +142,10 @@ def grassMovement(x, y, board):
     movements = []
     for idx, n in enumerate(neighbours(x, y)):
         distance = 0
-        while board[n[0]][n[1]]:
+        stackSize, piece = stackSizeAndTopPiece(n[0], n[1], board)
+        while stackSize:
             n = neighbours(n[0], n[1])[idx]
+            stackSize, piece = stackSizeAndTopPiece(n[0], n[1], board)
             distance += 1
         if distance > 0:
             movements.append(n)
@@ -237,20 +242,21 @@ class GameState():
         return pieces
 
     def _addMoveActions(self, avalilableActions):
-        playerPieces = getPlayerPieces(self.player, self.board)
-        for piece in playerPieces:
+        playerPiecesOnTopXYZ = getPlayerPiecesIfOnTopXYZ(
+            self.player, self.board)
+        for piece in playerPiecesOnTopXYZ:
             if moveBreakesHive(piece, self.board):
                 continue
             movements = []
-            if self.board[piece[0]][piece[1]] == Player1A or self.board[piece[0]][piece[1]] == Player2A:
+            if self.board[piece[0]][piece[1]][piece[2]] == Player1A or self.board[piece[0]][piece[1]][piece[2]] == Player2A:
                 movements = antMovement(piece[0], piece[1], self.board)
-            elif self.board[piece[0]][piece[1]] == Player1G or self.board[piece[0]][piece[1]] == Player2G:
+            elif self.board[piece[0]][piece[1]][piece[2]] == Player1G or self.board[piece[0]][piece[1]][piece[2]] == Player2G:
                 movements = grassMovement(piece[0], piece[1], self.board)
-            elif self.board[piece[0]][piece[1]] == Player1S or self.board[piece[0]][piece[1]] == Player2S:
+            elif self.board[piece[0]][piece[1]][piece[2]] == Player1S or self.board[piece[0]][piece[1]][piece[2]] == Player2S:
                 movements = spiderMovement(piece[0], piece[1], self.board)
-            elif self.board[piece[0]][piece[1]] == Player1B or self.board[piece[0]][piece[1]] == Player2B:
+            elif self.board[piece[0]][piece[1]][piece[2]] == Player1B or self.board[piece[0]][piece[1]][piece[2]] == Player2B:
                 movements = beetleMovement(piece[0], piece[1], self.board)
-            elif self.board[piece[0]][piece[1]] == Player1Q or self.board[piece[0]][piece[1]] == Player2Q:
+            elif self.board[piece[0]][piece[1]][piece[2]] == Player1Q or self.board[piece[0]][piece[1]][piece[2]] == Player2Q:
                 movements = queenMovement(piece[0], piece[1], self.board)
             for movement in movements:
                 avalilableActions.addMoveAction(
@@ -329,8 +335,13 @@ class MoveAction():
 
     def do(self, state: GameState):
         state = copy.deepcopy(state)
-        state.board[self.endX][self.endY] = state.board[self.startX][self.startY]
-        state.board[self.startX][self.startY] = 0
+        stackSizeA, pieceA = stackSizeAndTopPiece(
+            self.startX, self.startY, state.board)
+        stackSizeB, pieceB = stackSizeAndTopPiece(
+            self.endX, self.endY, state.board)
+
+        state.board[self.endX][self.endY][stackSizeB] = pieceA
+        state.board[self.startX][self.startY][stackSizeA-1] = 0
         state.player *= -1
         state.turn += 1
         state.update()
