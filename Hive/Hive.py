@@ -233,6 +233,24 @@ def beetleMovement(x, y, board):
     return movements
 
 
+def boardCenter(board):
+    board2 = board[:, :, 0].copy()
+    minx = miny = 24
+    maxx = maxy = 0
+    for x in range(25):
+        for y in range(25):
+            if board2[x][y] == 0:
+                continue
+            if x < minx:
+                minx = x
+            if y < miny:
+                miny = y
+            if x > maxx:
+                maxx = x
+            if y > maxy:
+                maxy = y
+    return (maxx+minx)/2., (maxy+miny)/2.
+
 class GameState():
     def __init__(self, board=np.zeros((23, 23, 5), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand(), turn=1):
         self.board = board
@@ -243,6 +261,13 @@ class GameState():
         self.update()
 
     def update(self):
+        cx, cy = boardCenter(self.board)
+        xshift = int(round(12-cx))
+        yshift = int(round(12-cy))
+        if xshift:
+            self.board = np.roll(self.board, xshift,  axis=0)
+        if yshift:
+            self.board = np.roll(self.board, yshift,  axis=1)
         self.availableActions = self._availableActions()
         self.terminal, self.terminalValue = self._over()
 
