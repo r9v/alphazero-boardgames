@@ -1,6 +1,6 @@
 import tkinter as tk
 import math
-from Hive import Hive
+from Hive import Hive, stackSizeAndTopPiece
 from const import *
 
 hive = Hive()
@@ -101,9 +101,12 @@ class Hex():
     def clearHighlight(self):
         self.canvas.itemconfig(self.id, outline='black')
 
-    def setPiece(self, piece):
+    def setPiece(self, piece, stackSize):
+        text = piece
+        if stackSize != 1:
+            text = f'{stackSize} {piece}'
         self.text = self.canvas.create_text(
-            self.canvasX, self.canvasY, text=piece)
+            self.canvasX, self.canvasY, text=text)
         self.piece = piece
 
 
@@ -166,8 +169,10 @@ class GUI():
             for i in range(23):
                 id = self.drawHex(x, y, size)
                 hex = Hex(id, i, j, self.canvas, x, y)
-                if self.state.board[i][j] != 0:
-                    hex.setPiece(self.state.board[i][j])
+                stackSize, piece = stackSizeAndTopPiece(
+                    i, j, self.state.board)
+                if stackSize != 0:
+                    hex.setPiece(piece, stackSize)
                 self.hexes.add(hex)
                 x += w
 

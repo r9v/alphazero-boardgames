@@ -3,6 +3,18 @@ from const import *
 import copy
 
 
+def stackSizeAndTopPiece(x, y, board):
+    size = 0
+    piece = None
+    for z in range(5):
+        if board[x][y][z] != 0:
+            size = z+1
+            piece = board[x][y][z]
+        else:
+            break
+    return size, piece
+
+
 class Hand():
     def __init__(self):
         self.a = 3
@@ -66,12 +78,20 @@ def neighboursWithRightLeft(x, y):
             {'n': [x-1, y], 'l':[x-1, y+1], 'r':[x, y-1]}]
 
 
-def getPlayerPieces(player, board):
+def getPlayerPiecesIfOnTopXYZ(player, board):
     playerPieces = []
     if player == -1:
-        playerPieces = np.argwhere((board > 10) & (board < 20))
+        for x in range(23):
+            for y in range(23):
+                stackSize, piece = stackSizeAndTopPiece(x, y, board)
+                if piece is not None and piece > 10 and piece < 20:
+                    playerPieces.append([x, y, stackSize-1])
     else:
-        playerPieces = np.argwhere(board > 20)
+        for x in range(23):
+            for y in range(23):
+                stackSize, piece = stackSizeAndTopPiece(x, y, board)
+                if piece is not None and piece > 20:
+                    playerPieces.append([x, y, stackSize-1])
     return playerPieces
 
 
@@ -84,9 +104,12 @@ def slide2(x, y, N, board, movements):
         l = neighbour['l']
         if n in movements:
             continue
-        if board[n[0]][n[1]] != 0:
+        stackSize, _ = stackSizeAndTopPiece(n[0], n[1], board)
+        if stackSize != 0:
             continue
-        if (board[r[0]][r[1]] != 0) == (board[l[0]][l[1]] != 0):
+        stackSizeL, _ = stackSizeAndTopPiece(l[0], l[1], board)
+        stackSizeR, _ = stackSizeAndTopPiece(r[0], r[1], board)
+        if (stackSizeL != 0) == (stackSizeR != 0):
             continue
         movements.append(n)
         slide2(n[0], n[1], N-1, board, movements)
@@ -95,7 +118,7 @@ def slide2(x, y, N, board, movements):
 
 def slide(x, y, N, board):
     movements = [[x, y]]
-    save = board[x][y]
+    save = board[x][y].copy()
     board[x][y] = 0
     slide2(x, y, N, board, movements)
     movements.pop(0)
@@ -119,8 +142,10 @@ def grassMovement(x, y, board):
     movements = []
     for idx, n in enumerate(neighbours(x, y)):
         distance = 0
-        while board[n[0]][n[1]]:
+        stackSize, piece = stackSizeAndTopPiece(n[0], n[1], board)
+        while stackSize:
             n = neighbours(n[0], n[1])[idx]
+            stackSize, piece = stackSizeAndTopPiece(n[0], n[1], board)
             distance += 1
         if distance > 0:
             movements.append(n)
@@ -142,7 +167,7 @@ def beetleMovement(x, y, board):
 
 
 class GameState():
-    def __init__(self, board=np.zeros((23, 23), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand(), turn=1):
+    def __init__(self, board=np.zeros((23, 23, 5), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand(), turn=1):
         self.board = board
         self.player = player
         self.player1Hand = player1Hand
@@ -217,20 +242,21 @@ class GameState():
         return pieces
 
     def _addMoveActions(self, avalilableActions):
-        playerPieces = getPlayerPieces(self.player, self.board)
-        for piece in playerPieces:
+        playerPiecesOnTopXYZ = getPlayerPiecesIfOnTopXYZ(
+            self.player, self.board)
+        for piece in playerPiecesOnTopXYZ:
             if moveBreakesHive(piece, self.board):
                 continue
             movements = []
-            if self.board[piece[0]][piece[1]] == Player1A or self.board[piece[0]][piece[1]] == Player2A:
+            if self.board[piece[0]][piece[1]][piece[2]] == Player1A or self.board[piece[0]][piece[1]][piece[2]] == Player2A:
                 movements = antMovement(piece[0], piece[1], self.board)
-            elif self.board[piece[0]][piece[1]] == Player1G or self.board[piece[0]][piece[1]] == Player2G:
+            elif self.board[piece[0]][piece[1]][piece[2]] == Player1G or self.board[piece[0]][piece[1]][piece[2]] == Player2G:
                 movements = grassMovement(piece[0], piece[1], self.board)
-            elif self.board[piece[0]][piece[1]] == Player1S or self.board[piece[0]][piece[1]] == Player2S:
+            elif self.board[piece[0]][piece[1]][piece[2]] == Player1S or self.board[piece[0]][piece[1]][piece[2]] == Player2S:
                 movements = spiderMovement(piece[0], piece[1], self.board)
-            elif self.board[piece[0]][piece[1]] == Player1B or self.board[piece[0]][piece[1]] == Player2B:
+            elif self.board[piece[0]][piece[1]][piece[2]] == Player1B or self.board[piece[0]][piece[1]][piece[2]] == Player2B:
                 movements = beetleMovement(piece[0], piece[1], self.board)
-            elif self.board[piece[0]][piece[1]] == Player1Q or self.board[piece[0]][piece[1]] == Player2Q:
+            elif self.board[piece[0]][piece[1]][piece[2]] == Player1Q or self.board[piece[0]][piece[1]][piece[2]] == Player2Q:
                 movements = queenMovement(piece[0], piece[1], self.board)
             for movement in movements:
                 avalilableActions.addMoveAction(
@@ -239,20 +265,23 @@ class GameState():
     def _getAvailablePlaceSpots(self):
         #print(np.swapaxes(self.board, 0, 1))
         spots = []
-        playerPieces = getPlayerPieces(self.player, self.board)
+        playerPiecesOnTopXYZ = getPlayerPiecesIfOnTopXYZ(
+            self.player, self.board)
 
-        for piece in playerPieces:
-            for neighbour in neighbours(piece[0], piece[1]):
+        for pieceXYZ in playerPiecesOnTopXYZ:
+            for neighbour in neighbours(pieceXYZ[0], pieceXYZ[1]):
                 available = True
-                if self.board[neighbour[0]][neighbour[1]] == 0:
+                if self.board[neighbour[0]][neighbour[1]][0] == 0:
                     for neighbour2 in neighbours(neighbour[0], neighbour[1]):
                         enemyPresent = False
                         if self.player == -1:
-                            enemyPresent = self.board[neighbour2[0]
-                                                      ][neighbour2[1]] > 20
+                            stackSize, topPiece = stackSizeAndTopPiece(
+                                neighbour2[0], neighbour2[1], self.board)
+                            enemyPresent = topPiece is not None and topPiece > 20
                         else:
-                            enemyPresent = self.board[neighbour2[0]][neighbour2[1]
-                                                                     ] > 10 and self.board[neighbour2[0]][neighbour2[1]] < 20
+                            stackSize, topPiece = stackSizeAndTopPiece(
+                                neighbour2[0], neighbour2[1], self.board)
+                            enemyPresent = topPiece is not None and topPiece > 10 and topPiece < 20
                         if enemyPresent:
                             available = False
                             break
@@ -290,7 +319,7 @@ class PlaceAction():
             state.player2Hand.b -= 1
         elif(piece == Player2Q):
             state.player2Hand.q -= 1
-        state.board[x][y] = piece
+        state.board[x][y][0] = piece
         state.player *= -1
         state.turn += 1
         state.update()
@@ -306,8 +335,13 @@ class MoveAction():
 
     def do(self, state: GameState):
         state = copy.deepcopy(state)
-        state.board[self.endX][self.endY] = state.board[self.startX][self.startY]
-        state.board[self.startX][self.startY] = 0
+        stackSizeA, pieceA = stackSizeAndTopPiece(
+            self.startX, self.startY, state.board)
+        stackSizeB, pieceB = stackSizeAndTopPiece(
+            self.endX, self.endY, state.board)
+
+        state.board[self.endX][self.endY][stackSizeB] = pieceA
+        state.board[self.startX][self.startY][stackSizeA-1] = 0
         state.player *= -1
         state.turn += 1
         state.update()
