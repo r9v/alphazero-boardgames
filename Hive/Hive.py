@@ -3,6 +3,18 @@ from const import *
 import copy
 
 
+def stackSizeAndTopPiece(x, y, board):
+    size = 0
+    piece = None
+    for z in range(5):
+        if board[x][y][z] != 0:
+            size = z+1
+            piece = board[x][y][z]
+        else:
+            break
+    return size, piece
+
+
 class Hand():
     def __init__(self):
         self.a = 3
@@ -142,7 +154,7 @@ def beetleMovement(x, y, board):
 
 
 class GameState():
-    def __init__(self, board=np.zeros((23, 23), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand(), turn=1):
+    def __init__(self, board=np.zeros((23, 23, 5), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand(), turn=1):
         self.board = board
         self.player = player
         self.player1Hand = player1Hand
@@ -290,7 +302,7 @@ class PlaceAction():
             state.player2Hand.b -= 1
         elif(piece == Player2Q):
             state.player2Hand.q -= 1
-        state.board[x][y] = piece
+        state.board[x][y][0] = piece
         state.player *= -1
         state.turn += 1
         state.update()
