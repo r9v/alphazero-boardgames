@@ -7,6 +7,8 @@ import queue
 def stackSizeAndTopPiece(x, y, board):
     size = 0
     piece = None
+    if x < 0 or x > 24 or y < 0 or y > 24:
+        return size, piece
     for z in range(5):
         if board[x][y][z] != 0:
             size = z+1
@@ -82,14 +84,14 @@ def neighboursWithRightLeft(x, y):
 def getPlayerPiecesIfOnTopXYZ(player, board):
     playerPieces = []
     if player == -1:
-        for x in range(23):
-            for y in range(23):
+        for x in range(25):
+            for y in range(25):
                 stackSize, piece = stackSizeAndTopPiece(x, y, board)
                 if piece is not None and piece > 10 and piece < 20:
                     playerPieces.append([x, y, stackSize-1])
     else:
-        for x in range(23):
-            for y in range(23):
+        for x in range(25):
+            for y in range(25):
                 stackSize, piece = stackSizeAndTopPiece(x, y, board)
                 if piece is not None and piece > 20:
                     playerPieces.append([x, y, stackSize-1])
@@ -128,8 +130,8 @@ def slide(x, y, N, board):
 
 
 def getAPiece(board):
-    for x in range(23):
-        for y in range(23):
+    for x in range(25):
+        for y in range(25):
             if board[x][y][0] != 0:
                 return [x, y]
 
@@ -137,7 +139,7 @@ def getAPiece(board):
 def hiveBroken(board, nAllPieces):
     que = queue.Queue(22)
     piece = getAPiece(board)
-    partOfHive = np.zeros((23, 23), dtype=bool)
+    partOfHive = np.zeros((25, 25), dtype=bool)
     partOfHive[piece[0]][piece[1]] = True
     nVisited, _ = stackSizeAndTopPiece(piece[0], piece[1], board)
     que.put(piece)
@@ -251,8 +253,9 @@ def boardCenter(board):
                 maxy = y
     return (maxx+minx)/2., (maxy+miny)/2.
 
+
 class GameState():
-    def __init__(self, board=np.zeros((23, 23, 5), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand(), turn=1):
+    def __init__(self, board=np.zeros((25, 25, 5), dtype="int"), player=-1, player1Hand=Hand(), player2Hand=Hand(), turn=1):
         self.board = board
         self.player = player
         self.player1Hand = player1Hand
@@ -283,11 +286,11 @@ class GameState():
         avalilableActions = AvalilableActions()
         if self.turn == 1:  # first move at orgin and not queen
             avalilableActions.addPlaceAction(
-                [Player1A, Player1G, Player1S, Player1B], [[11, 11]])
+                [Player1A, Player1G, Player1S, Player1B], [[12, 12]])
             return avalilableActions
         if self.turn == 2:  # second move close to orgin and not queen
             avalilableActions.addPlaceAction(
-                [Player2A, Player2G, Player2S, Player2B], [[11, 10], [12, 10], [12, 11], [11, 12], [10, 12], [10, 11]])
+                [Player2A, Player2G, Player2S, Player2B], neighbours(12, 12))
             return avalilableActions
 
         if self.turn > 6 and self.turn < 9:
@@ -356,7 +359,7 @@ class GameState():
                     piece[0], piece[1], movement[0], movement[1])
 
     def _getAvailablePlaceSpots(self):
-        #print(np.swapaxes(self.board, 0, 1))
+        # print(np.swapaxes(self.board, 0, 1))
         spots = []
         playerPiecesOnTopXYZ = getPlayerPiecesIfOnTopXYZ(
             self.player, self.board)
@@ -364,6 +367,7 @@ class GameState():
         for pieceXYZ in playerPiecesOnTopXYZ:
             for neighbour in neighbours(pieceXYZ[0], pieceXYZ[1]):
                 available = True
+                # check idx 25
                 if self.board[neighbour[0]][neighbour[1]][0] == 0:
                     for neighbour2 in neighbours(neighbour[0], neighbour[1]):
                         enemyPresent = False

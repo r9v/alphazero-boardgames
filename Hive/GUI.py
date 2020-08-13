@@ -163,10 +163,10 @@ class GUI():
         xoff = 50
         h = 2*size
         w = math.sqrt(3)*size
-        for j in range(23):
+        for j in range(25):
             x = xoff + j*w/2
             y = j*3*h/4 + yoff
-            for i in range(23):
+            for i in range(25):
                 id = self.drawHex(x, y, size)
                 hex = Hex(id, i, j, self.canvas, x, y)
                 stackSize, piece = stackSizeAndTopPiece(
@@ -279,8 +279,8 @@ class GUI():
         hbar.config(command=self.canvas.xview)
         vbar.config(command=self.canvas.yview)
 
-        self.canvas.yview_moveto(0.17)
-        self.canvas.xview_moveto(0.30)  # center - excuse the magic numbers
+        self.canvas.yview_moveto(0.20)
+        self.canvas.xview_moveto(0.34)  # center - excuse the magic numbers
         self.canvas.config(xscrollcommand=hbar.set, yscrollcommand=vbar.set)
         self.canvas.pack()
 
