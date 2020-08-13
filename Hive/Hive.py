@@ -163,7 +163,23 @@ def spiderMovement(x, y, board):
 
 
 def beetleMovement(x, y, board):
-    return queenMovement(x, y, board)
+    movements = []
+    for neighbour in neighboursWithRightLeft(x, y):
+        n = neighbour['n']
+        r = neighbour['r']
+        l = neighbour['l']
+        stackSizeN, piece = stackSizeAndTopPiece(n[0], n[1], board)
+        stackSizeL, piece = stackSizeAndTopPiece(l[0], l[1], board)
+        stackSizeR, piece = stackSizeAndTopPiece(r[0], r[1], board)
+        if not stackSizeN and not stackSizeL and not stackSizeR:
+            continue
+        if stackSizeN < stackSizeL and stackSizeN < stackSizeR:
+            stackSizeB, piece = stackSizeAndTopPiece(x, y, board)
+            stackSizeB -= 1
+            if stackSizeB < stackSizeL and stackSizeB < stackSizeR:
+                continue
+        movements.append(n)
+    return movements
 
 
 class GameState():
