@@ -78,12 +78,20 @@ def neighboursWithRightLeft(x, y):
             {'n': [x-1, y], 'l':[x-1, y+1], 'r':[x, y-1]}]
 
 
-def getPlayerPieces(player, board):
+def getPlayerPiecesIfOnTopXYZ(player, board):
     playerPieces = []
     if player == -1:
-        playerPieces = np.argwhere((board > 10) & (board < 20))
+        for x in range(23):
+            for y in range(23):
+                stackSize, piece = stackSizeAndTopPiece(x, y, board)
+                if piece is not None and piece > 10 and piece < 20:
+                    playerPieces.append([x, y, stackSize-1])
     else:
-        playerPieces = np.argwhere(board > 20)
+        for x in range(23):
+            for y in range(23):
+                stackSize, piece = stackSizeAndTopPiece(x, y, board)
+                if piece is not None and piece > 20:
+                    playerPieces.append([x, y, stackSize-1])
     return playerPieces
 
 
@@ -251,20 +259,23 @@ class GameState():
     def _getAvailablePlaceSpots(self):
         #print(np.swapaxes(self.board, 0, 1))
         spots = []
-        playerPieces = getPlayerPieces(self.player, self.board)
+        playerPiecesOnTopXYZ = getPlayerPiecesIfOnTopXYZ(
+            self.player, self.board)
 
-        for piece in playerPieces:
-            for neighbour in neighbours(piece[0], piece[1]):
+        for pieceXYZ in playerPiecesOnTopXYZ:
+            for neighbour in neighbours(pieceXYZ[0], pieceXYZ[1]):
                 available = True
-                if self.board[neighbour[0]][neighbour[1]] == 0:
+                if self.board[neighbour[0]][neighbour[1]][0] == 0:
                     for neighbour2 in neighbours(neighbour[0], neighbour[1]):
                         enemyPresent = False
                         if self.player == -1:
-                            enemyPresent = self.board[neighbour2[0]
-                                                      ][neighbour2[1]] > 20
+                            stackSize, topPiece = stackSizeAndTopPiece(
+                                neighbour2[0], neighbour2[1], self.board)
+                            enemyPresent = topPiece is not None and topPiece > 20
                         else:
-                            enemyPresent = self.board[neighbour2[0]][neighbour2[1]
-                                                                     ] > 10 and self.board[neighbour2[0]][neighbour2[1]] < 20
+                            stackSize, topPiece = stackSizeAndTopPiece(
+                                neighbour2[0], neighbour2[1], self.board)
+                            enemyPresent = topPiece is not None and topPiece > 10 and topPiece < 20
                         if enemyPresent:
                             available = False
                             break
