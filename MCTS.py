@@ -67,7 +67,7 @@ class MCTS():
             child = node.children[availableAction]
             Q, N = 0.0, 0
             if child is not None:
-                Q = -child.Q
+                Q = child.Q
                 N = child.n
             actionPUCT = self.PUCT(Q, node.P[availableAction], N, node.n)
             if(actionPUCT > bestPUCT):
@@ -85,8 +85,8 @@ class MCTS():
 
     def rollout(self, node: Node):
         if node.state.terminal:
-            return node.state.terminalValue
-        return node.nnetValue
+            return -node.state.terminalValue * node.state.player
+        return -node.nnetValue * node.state.player
 
     def backpropagate(self, value, node: Node):
         while node is not None:
