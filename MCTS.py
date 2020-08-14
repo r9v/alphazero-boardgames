@@ -90,6 +90,8 @@ class MCTS():
 
     def backpropagate(self, value, node: Node):
         while node is not None:
+            if node.state.lastTurnSkipped:
+                value = -value
             node.n += 1
             node.W += value
             node.Q = node.W/node.n

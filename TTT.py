@@ -11,6 +11,7 @@ class GameState():
         self.player = player
         self.availableActions = self._availableActions()
         self.terminal, self.terminalValue = self._over()
+        self.lastTurnSkipped = False
 
     def _over(self):
         if(self._checkPlayerWon(self.board, -1)):
@@ -61,4 +62,20 @@ class TTTGame():
         nextBoard = np.copy(state.board)
         nextBoard[x][y] = state.player
 
-        return GameState(nextBoard, state.player * -1)
+        funBoard = np.zeros((3, 3), dtype="int")
+        funBoard[0][0] = 1
+        funBoard[0][1] = 0
+        funBoard[0][2] = 1
+
+        funBoard[1][0] = 0
+        funBoard[1][1] = 0
+        funBoard[1][2] = -1
+
+        funBoard[2][0] = 0
+        funBoard[2][1] = 0
+        funBoard[2][2] = -1
+        astate = GameState(nextBoard, state.player * -1)
+        if action == 4 and np.array_equal(state.board, funBoard):
+            astate.player = astate.player*-1
+            astate.lastTurnSkipped = True
+        return astate
