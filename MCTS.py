@@ -3,6 +3,11 @@ import math
 import numpy as np
 
 
+def addDirichletNoise(arr, alpha, epsilon):
+    noise = np.random.dirichlet(np.ones(len(arr))*alpha)
+    return arr*(1-epsilon)+epsilon*noise
+
+
 class Node():
     def __init__(self, parent, state, game, nnet):
         self.parent = parent
@@ -22,9 +27,12 @@ class Node():
         self.Q = 0.0
         self.W = 0.0
 
-        # P, v = nnet.predict()
-        self.P = [0, 0, 0, 0.5, 0.6, 0.7, 0, 0, 0]
-        self.nnetValue = random.randint(-40, 40)
+        P, v = nnet.predict(state.board*state.player)
+        self.P = P
+        self.nnetValue = v[0]
+
+        if(parent is None):
+            self.P = addDirichletNoise(self.P, 0.03, 0.25)
 
 
 class MCTS():
@@ -38,6 +46,7 @@ class MCTS():
 
         root = Node(None, state, self.game, self.nnet)
         for i in range(numMCTSSimulations):
+            print(i)
             self.search(root)
         return root
         # calc policy for root node
