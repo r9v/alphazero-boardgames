@@ -36,9 +36,7 @@ class Node():
         self.Q = 0.0
         self.W = 0.0
 
-        P, v = nnet.predict(state.board*state.player)
-        self.P = P
-        self.nnetValue = v[0]
+        self.P, self.nnetValue = nnet.predict(state)
 
 
 class MCTS():
