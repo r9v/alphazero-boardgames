@@ -37,13 +37,13 @@ class MCTS():
         self.game = game
         self.nnet = nnet
 
-    def getPolicy(self, numMCTSSimulations, state, isTraining) -> Node:
+    def getPolicy(self, numMCTSSimulations, state, addDirichletNoise) -> Node:
         if state.terminal:
             raise Exception('Called getPolicy with terminal state')
 
         root = Node(None, state, self.nnet)
-        # if isTraining:
-        #root.P = addDirichletNoise(root.P, 0.03, 0.25)
+        if addDirichletNoise:
+            root.P = addDirichletNoise(root.P, 0.03, 0.25)
         for i in range(numMCTSSimulations):
             print(i)
             self.search(root)
