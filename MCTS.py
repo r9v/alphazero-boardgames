@@ -31,20 +31,19 @@ class Node():
         self.P = P
         self.nnetValue = v[0]
 
-        if(parent is None):
-            self.P = addDirichletNoise(self.P, 0.03, 0.25)
-
 
 class MCTS():
     def __init__(self, game, nnet):
         self.game = game
         self.nnet = nnet
 
-    def getPolicy(self, numMCTSSimulations, state) -> Node:
+    def getPolicy(self, numMCTSSimulations, state, isTraining) -> Node:
         if state.terminal:
             raise Exception('Called getPolicy with terminal state')
 
         root = Node(None, state, self.nnet)
+        # if isTraining:
+        #root.P = addDirichletNoise(root.P, 0.03, 0.25)
         for i in range(numMCTSSimulations):
             print(i)
             self.search(root)
