@@ -8,37 +8,41 @@ class Net():
         self.model = self.buildModel()
 
     def convLayer(self, x):
-        x = tf.keras.layers.Conv2D(
-            filters=256, kernel_size=(3, 3), padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(1e-4)
-        )(x)
-        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Conv2D(data_format='channels_first',
+                                   filters=256, kernel_size=(3, 3), padding='same',
+                                   kernel_regularizer=tf.keras.regularizers.l2(
+                                       1e-4)
+                                   )(x)
+        x = tf.keras.layers.BatchNormalization(axis=1)(x)
         x = tf.keras.layers.ReLU()(x)
         return x
 
     def resLayer(self, xIn):
-        x = tf.keras.layers.Conv2D(
-            filters=256, kernel_size=(3, 3), padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(1e-4),
-        )(xIn)
-        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Conv2D(data_format='channels_first',
+                                   filters=256, kernel_size=(3, 3), padding='same',
+                                   kernel_regularizer=tf.keras.regularizers.l2(
+                                       1e-4),
+                                   )(xIn)
+        x = tf.keras.layers.BatchNormalization(axis=1)(x)
         x = tf.keras.layers.ReLU()(x)
-        x = tf.keras.layers.Conv2D(
-            filters=256, kernel_size=(3, 3), padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(1e-4)
-        )(x)
-        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Conv2D(data_format='channels_first',
+                                   filters=256, kernel_size=(3, 3), padding='same',
+                                   kernel_regularizer=tf.keras.regularizers.l2(
+                                       1e-4)
+                                   )(x)
+        x = tf.keras.layers.BatchNormalization(axis=1)(x)
         x = tf.keras.layers.Add()([xIn, x])
         x = tf.keras.layers.ReLU()(x)
         return x
 
     def valueHead(self, x):
-        x = tf.keras.layers.Conv2D(
-            filters=1, kernel_size=(1, 1),
-            padding='same', activation='linear',
-            kernel_regularizer=tf.keras.regularizers.l2(1e-4)
-        )(x)
-        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Conv2D(data_format='channels_first',
+                                   filters=1, kernel_size=(1, 1),
+                                   padding='same', activation='linear',
+                                   kernel_regularizer=tf.keras.regularizers.l2(
+                                       1e-4)
+                                   )(x)
+        x = tf.keras.layers.BatchNormalization(axis=1)(x)
         x = tf.keras.layers.ReLU()(x)
         x = tf.keras.layers.Flatten()(x)
         x = tf.keras.layers.Dense(32, activation='linear')(x)
@@ -47,12 +51,13 @@ class Net():
         return x
 
     def policyHead(self, x):
-        x = tf.keras.layers.Conv2D(
-            filters=2, kernel_size=(1, 1),
-            padding='same', activation='linear',
-            kernel_regularizer=tf.keras.regularizers.l2(1e-4)
-        )(x)
-        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Conv2D(data_format='channels_first',
+                                   filters=2, kernel_size=(1, 1),
+                                   padding='same', activation='linear',
+                                   kernel_regularizer=tf.keras.regularizers.l2(
+                                       1e-4)
+                                   )(x)
+        x = tf.keras.layers.BatchNormalization(axis=1)(x)
         x = tf.keras.layers.ReLU()(x)
         x = tf.keras.layers.Flatten()(x)
         x = tf.keras.layers.Dense(9, activation='softmax')(x)
@@ -60,7 +65,7 @@ class Net():
         return x
 
     def buildModel(self):
-        theInput = tf.keras.Input(shape=(3, 3, 2))  # 2 channels of 3x3 boards
+        theInput = tf.keras.Input(shape=(4, 3, 3))  # 4 channels of 3x3 boards
 
         x = self.convLayer(theInput)
 
