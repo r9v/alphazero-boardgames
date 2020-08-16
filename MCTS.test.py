@@ -30,7 +30,7 @@ class TestMCTS(unittest.TestCase):
 
         state.player = -1
         state.availableActions = state._availableActions()
-        node = mcts.getPolicy(230, state)
+        node = mcts.getPolicy(200, state, True)
         print(node)
 
 
