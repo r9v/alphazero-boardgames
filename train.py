@@ -13,12 +13,6 @@ net.load_checkpoint()
 mcts = MCTS(game, net)
 
 
-def getPi(node):
-    pi = np.zeros(np.shape(node.availableActionsMask))
-    for action in node.availableActions:
-        if node.children[action] is not None:
-            pi[action] = node.children[action].n/node.n
-    return pi
 
 
 for _ in range(1):
@@ -28,7 +22,7 @@ for _ in range(1):
         foo = []
         while True:
             root = mcts.getPolicy(50, state, False)
-            pi = getPi(root)
+            pi = mcts.getPolicy(50, state, False)
             action = np.random.choice(np.arange(len(pi)), p=pi)
             action = np.argmax(pi)
             foo.append([state, pi])

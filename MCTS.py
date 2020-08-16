@@ -8,6 +8,15 @@ def addDirichletNoise(arr, alpha, epsilon):
     return arr*(1-epsilon)+epsilon*noise
 
 
+
+
+def getPi(node):
+    pi = np.zeros(np.shape(node.availableActionsMask))
+    for action in node.availableActions:
+        if node.children[action] is not None:
+            pi[action] = node.children[action].n/node.n
+    return pi
+
 class Node():
     def __init__(self, parent, state, nnet):
         self.parent = parent
@@ -47,8 +56,7 @@ class MCTS():
         for i in range(numMCTSSimulations):
             print(i)
             self.search(root)
-        return root
-        # calc policy for root node
+        return getPi(root)
 
     def search(self, root: Node):
         selectedNode = self.treePolicy(root)
