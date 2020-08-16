@@ -1,16 +1,12 @@
 import numpy as np
-from Connect4Game import Connect4Game
-from TTT import TTTGame
-from Hive.Net import Net
 import random
+from TTT.TTT import TTTGame
+from TTT.Net import Net
 from MCTS import MCTS
-from TTTNet.NNetWrapper import NNetWrapper as NNet
 from TrainingData import TrainingData
 
 game = TTTGame()
-net = NNet()
-net.load_checkpoint()
-
+net = Net()
 mcts = MCTS(game, net)
 
 
