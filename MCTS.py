@@ -9,7 +9,7 @@ def addDirichletNoise(arr, alpha, epsilon):
 
 
 class Node():
-    def __init__(self, parent, state, game, nnet):
+    def __init__(self, parent, state, nnet):
         self.parent = parent
         self.state = state
         # dictionary i->node. i is the action avalilableActions[i]
@@ -44,7 +44,7 @@ class MCTS():
         if state.terminal:
             raise Exception('Called getPolicy with terminal state')
 
-        root = Node(None, state, self.game, self.nnet)
+        root = Node(None, state, self.nnet)
         for i in range(numMCTSSimulations):
             print(i)
             self.search(root)
@@ -86,7 +86,7 @@ class MCTS():
 
     def createChild(self, node, action):
         node.children[action] = Node(
-            node, self.game.step(node.state, action), self.game, self.nnet)
+            node, self.game.step(node.state, action), self.nnet)
         return node.children[action]
 
     def PUCT(self, Q, P, N, Nparent):
