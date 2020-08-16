@@ -5,6 +5,7 @@ from Hive.Net import Net
 import random
 from MCTS import MCTS
 from TTTNet.NNetWrapper import NNetWrapper as NNet
+from TrainingData import TrainingData
 
 game = TTTGame()
 net = NNet()
@@ -13,26 +14,26 @@ net.load_checkpoint()
 mcts = MCTS(game, net)
 
 
-
+trainingData = TrainingData(100)
+MINIBATCH_SIZE = 2
+GAMES_PER_AGENT = 2
 
 for _ in range(1):
-    trainingExamples = []
-    for _ in range(10):
+    for _ in range(GAMES_PER_AGENT):
         state = game.newGame()
-        foo = []
+        trainingDataFromGame = []
         while True:
-            root = mcts.getPolicy(50, state, False)
             pi = mcts.getPolicy(50, state, False)
             action = np.random.choice(np.arange(len(pi)), p=pi)
-            action = np.argmax(pi)
-            foo.append([state, pi])
-            # add (state,policy,reward=None) to trainingExamples
+            # action = np.argmax(pi)
+            trainingDataFromGame.append([state, pi])
             state = game.step(state, action)
             if state.terminal:
-                for f in foo:
-                    f.append(state.terminalValue)
+                for d in trainingDataFromGame:
+                    d.append(state.terminalValue)
                 print('gameOver', state.terminalValue)
                 break
-        trainingExamples.append(foo)
-    print(trainingExamples)
-    # trainNet(trainingExamples)
+        trainingData.insertArr(trainingDataFromGame)
+    print(trainingData.arr)
+    # trainNet(trainingData)
+    # netDuel
