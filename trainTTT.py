@@ -22,7 +22,7 @@ for _ in range(1):
             pi = mcts.getPolicy(50, state, False)
             action = np.random.choice(np.arange(len(pi)), p=pi)
             # action = np.argmax(pi)
-            trainingDataFromGame.append([state, pi])
+            trainingDataFromGame.append([net.stateToInput(state), pi])
             state = game.step(state, action)
             if state.terminal:
                 for d in trainingDataFromGame:

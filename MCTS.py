@@ -36,7 +36,7 @@ class Node():
         self.Q = 0.0
         self.W = 0.0
 
-        self.P, self.nnetValue = nnet.predict(state)
+        self.nnetValue, self.P = nnet.predict(state)
 
 
 class MCTS():
@@ -44,12 +44,12 @@ class MCTS():
         self.game = game
         self.nnet = nnet
 
-    def getPolicy(self, numMCTSSimulations, state, addDirichletNoise) -> Node:
+    def getPolicy(self, numMCTSSimulations, state, addDirichlet) -> Node:
         if state.terminal:
             raise Exception('Called getPolicy with terminal state')
 
         root = Node(None, state, self.nnet)
-        if addDirichletNoise:
+        if addDirichlet:
             root.P = addDirichletNoise(root.P, 0.03, 0.25)
         for i in range(numMCTSSimulations):
             print(i)

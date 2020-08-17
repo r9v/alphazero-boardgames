@@ -77,12 +77,24 @@ class Net():
 
         model = tf.keras.Model(inputs=theInput, outputs=[
                                valueHead, policyHead])
+
         model.compile(loss=['mean_squared_error',
                             'categorical_crossentropy'], optimizer=tf.keras.optimizers.Adam(0.001))
         return model
 
     def predict(self, state):
-        return np.random.dirichlet(np.ones(9)*0.5), random.randint(-1, 1)
+        theInput = self.stateToInput(state)
+        v, pi = self.model.predict(np.array([theInput]))
+        return v[0][0], pi[0]
 
     def stateToInput(self, state):
-        np.zeros((3, 3, 4))
+        theInput = np.zeros((4, 3, 3), dtype=bool)
+        firstPlayer = np.where(state.board == -1)
+        theInput[0][firstPlayer] = 1
+        secondPlayer = np.where(state.board == 1)
+        theInput[1][secondPlayer] = 1
+        if(state.player == -1):
+            theInput[2][:] = 1
+        else:
+            theInput[3][:] = 1
+        return theInput
