@@ -65,7 +65,7 @@ class Net():
         return x
 
     def buildModel(self):
-        theInput = tf.keras.Input(shape=(4, 3, 3))  # 4 channels of 3x3 boards
+        theInput = tf.keras.Input(shape=(8, 3, 3))  # 8 channels of 3x3 boards
 
         x = self.convLayer(theInput)
 
@@ -88,13 +88,30 @@ class Net():
         return v[0][0], pi[0]
 
     def stateToInput(self, state):
-        theInput = np.zeros((4, 3, 3), dtype=bool)
-        firstPlayer = np.where(state.board == -1)
-        theInput[0][firstPlayer] = 1
-        secondPlayer = np.where(state.board == 1)
-        theInput[1][secondPlayer] = 1
+        theInput = np.zeros((8, 3, 3), dtype=int)
+
+        if(state.prevState):
+            oneHot = self.boardToOneHot(state.prevState.board)
+            theInput[2] = oneHot[0]
+            theInput[3] = oneHot[1]
+            if(state.prevState.prevState):
+                oneHot = self.boardToOneHot(state.prevState.prevState.board)
+                theInput[0] = oneHot[0]
+                theInput[1] = oneHot[1]
+
+        oneHot = self.boardToOneHot(state.board)
+        theInput[4] = oneHot[0]
+        theInput[5] = oneHot[1]
         if(state.player == -1):
-            theInput[2][:] = 1
+            theInput[6][:] = 1
         else:
-            theInput[3][:] = 1
+            theInput[7][:] = 1
         return theInput
+
+    def boardToOneHot(self, board):
+        oneHot = np.zeros((2, 3, 3), dtype=int)
+        firstPlayer = np.where(board == -1)
+        oneHot[0][firstPlayer] = 1
+        secondPlayer = np.where(board == 1)
+        oneHot[1][secondPlayer] = 1
+        return oneHot

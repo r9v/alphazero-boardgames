@@ -6,12 +6,13 @@ COLUMN_COUNT = 7
 
 
 class GameState():
-    def __init__(self, board=np.zeros((3, 3), dtype="int"), player=-1):
+    def __init__(self, prevState, board=np.zeros((3, 3), dtype="int"), player=-1):
         self.board = board
         self.player = player
         self.availableActions = self._availableActions()
         self.terminal, self.terminalValue = self._over()
         self.lastTurnSkipped = False
+        self.prevState = prevState
 
     def _over(self):
         if(self._checkPlayerWon(self.board, -1)):
@@ -49,7 +50,7 @@ class GameState():
 class TTTGame():
 
     def newGame(self):
-        return GameState()
+        return GameState(None)
 
     def step(self, state, action):
         if(action < 0 or action > 8):
@@ -61,4 +62,4 @@ class TTTGame():
             raise Exception(f'Invalid action, {x},{y} is full')
         nextBoard = np.copy(state.board)
         nextBoard[x][y] = state.player
-        return GameState(nextBoard, state.player * -1)
+        return GameState(state, nextBoard, state.player * -1)
