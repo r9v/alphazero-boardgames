@@ -1,6 +1,9 @@
 import tensorflow as tf
 import random
 import numpy as np
+import os
+import sys
+import time
 
 
 class Net():
@@ -115,3 +118,51 @@ class Net():
         secondPlayer = np.where(board == 1)
         oneHot[1][secondPlayer] = 1
         return oneHot
+
+    def save(self):
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        filePath = os.path.join('TTT', 'networks', f'{timestr}.h5')
+        self.model.save_weights(filePath, overwrite=False)
+
+        ckpt = self.getLatestModelFileName()
+
+        f = open(os.path.join('TTT', 'networks', 'latest.txt'), "w")
+        f.write(f'{timestr}.h5')
+        f.close()
+
+        f = open(os.path.join('TTT', 'networks', 'secondLatest.txt'), "w")
+        f.write(ckpt)
+        f.close()
+        print(f'Model {timestr}.h5  saved')
+        return f'{timestr}.h5'
+
+    def loadLatest(self):
+        ckpt = self.getLatestModelFileName()
+        if self.load(ckpt):
+            print('Loaded latest checkpoint')
+        else:
+            print('Failed to load latest checkpoint')
+
+    def loadSecondLatest(self):
+        f = open(os.path.join('TTT', 'networks', 'secondLatest.txt'), "r")
+        ckpt = f.read()
+        f.close()
+        if self.load(ckpt):
+            print('Loaded second latest checkpoint')
+        else:
+            print('Failed to load second latest checkpoint')
+
+    def load(self, name):
+        filePath = os.path.join('TTT', 'networks', name)
+        if name == '' or not os.path.exists(filePath):
+            print(f'No checkpoint named {name}')
+            return False
+        self.model.load_weights(filePath)
+        print(f'Model loaded from {name} checkpoint')
+        return True
+
+    def getLatestModelFileName(self):
+        f = open(os.path.join('TTT', 'networks', 'latest.txt'), "r")
+        ckpt = f.read()
+        f.close()
+        return ckpt
