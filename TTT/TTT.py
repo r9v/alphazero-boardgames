@@ -61,21 +61,4 @@ class TTTGame():
             raise Exception(f'Invalid action, {x},{y} is full')
         nextBoard = np.copy(state.board)
         nextBoard[x][y] = state.player
-
-        funBoard = np.zeros((3, 3), dtype="int")
-        funBoard[0][0] = 1
-        funBoard[0][1] = 0
-        funBoard[0][2] = 1
-
-        funBoard[1][0] = 0
-        funBoard[1][1] = 0
-        funBoard[1][2] = -1
-
-        funBoard[2][0] = 0
-        funBoard[2][1] = 0
-        funBoard[2][2] = -1
-        astate = GameState(nextBoard, state.player * -1)
-        if action == 4 and np.array_equal(state.board, funBoard):
-            astate.player = astate.player*-1
-            astate.lastTurnSkipped = True
-        return astate
+        return GameState(nextBoard, state.player * -1)
