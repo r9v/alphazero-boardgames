@@ -1,6 +1,7 @@
 # AlphaZero for Board Games
 
 An implementation of the [AlphaZero](https://arxiv.org/abs/1712.01815) algorithm applied to classic board games — Connect 4, Tic-Tac-Toe, and Hive.
+Implemented in 2020.
 
 Based on the paper: **"Mastering Chess and Shogi by Self-Play with a General Reinforcement Learning Algorithm"** by David Silver, Thomas Hubert, Julian Schrittwieser et al. (DeepMind), [arXiv:1712.01815](https://arxiv.org/abs/1712.01815) [[PDF]](https://arxiv.org/pdf/1712.01815)
 
