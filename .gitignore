@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Model checkpoints (keep only best.pt)
+checkpoints/**/*.pt
+!checkpoints/**/best.pt
