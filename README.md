@@ -37,7 +37,7 @@ python play.py --game tictactoe --human-first
 | Game            | Board        | Status                                 |
 | --------------- | ------------ | -------------------------------------- |
 | **Tic-Tac-Toe** | 3x3          | Fully trained, playable                |
-| **Connect 4**   | 6x7          | Integrated, ready to train             |
+| **Connect 4**   | 6x7          | Fully trained, playable                |
 | **Hive**        | 25x25x5 (3D) | Game logic + GUI (action encoding TBD) |
 
 ## Architecture

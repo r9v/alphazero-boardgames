@@ -2,6 +2,8 @@ import random
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from mcts import MCTS
 from training.replay_buffer import ReplayBuffer
@@ -22,6 +24,10 @@ class Trainer:
         self.mcts = MCTS(game, net)
         self.optimizer = torch.optim.Adam(net.parameters(), lr=self.lr, weight_decay=1e-4)
 
+        log_dir = self.config.get("log_dir", f"runs/{self.config.get('game_name', 'unknown')}")
+        self.writer = SummaryWriter(log_dir)
+        self.global_step = 0
+
     def self_play_game(self):
         """Play a single self-play game and return training examples."""
         state = self.game.new_game()
@@ -40,11 +46,13 @@ class Trainer:
         """Train the network on samples from the replay buffer."""
         samples = [s for s in self.buffer.arr if s is not None]
         if len(samples) < self.batch_size:
-            print(f"  Not enough samples ({len(samples)}), skipping training")
-            return
+            tqdm.write(f"  Not enough samples ({len(samples)}), skipping training")
+            return None
 
         self.net.train()
         total_loss = 0
+        total_value_loss = 0
+        total_policy_loss = 0
         num_batches = 0
 
         for epoch in range(self.epochs):
@@ -67,19 +75,54 @@ class Trainer:
                 self.optimizer.step()
 
                 total_loss += loss.item()
+                total_value_loss += value_loss.item()
+                total_policy_loss += policy_loss.item()
                 num_batches += 1
 
         avg_loss = total_loss / max(num_batches, 1)
-        print(f"  Training: {len(samples)} samples, {num_batches} batches, avg loss: {avg_loss:.4f}")
+        avg_value_loss = total_value_loss / max(num_batches, 1)
+        avg_policy_loss = total_policy_loss / max(num_batches, 1)
+        return avg_loss, avg_value_loss, avg_policy_loss
 
     def run(self, num_iterations=1):
         """Run the training loop: self-play → train → save."""
-        for iteration in range(num_iterations):
-            print(f"Iteration {iteration + 1}/{num_iterations}")
-            for game_num in range(self.games_per_iteration):
+        for iteration in tqdm(range(num_iterations), desc="Iterations", unit="iter"):
+            # Self-play
+            results = []
+            game_lengths = []
+            for game_num in tqdm(range(self.games_per_iteration),
+                                 desc=f"  Self-play (iter {iteration+1})",
+                                 unit="game", leave=False):
                 examples = self.self_play_game()
                 self.buffer.insert_batch(examples)
                 result = examples[-1][2] if examples else 0
-                print(f"  Game {game_num + 1}/{self.games_per_iteration} — result: {result}")
-            self.train_network()
+                results.append(result)
+                game_lengths.append(len(examples))
+
+            # Log self-play stats
+            wins_p1 = results.count(-1)
+            wins_p2 = results.count(1)
+            draws = results.count(0)
+            avg_length = np.mean(game_lengths)
+            self.writer.add_scalar("self_play/avg_game_length", avg_length, iteration)
+            self.writer.add_scalar("self_play/wins_p1", wins_p1, iteration)
+            self.writer.add_scalar("self_play/wins_p2", wins_p2, iteration)
+            self.writer.add_scalar("self_play/draws", draws, iteration)
+            self.writer.add_scalar("self_play/buffer_size",
+                                   sum(1 for s in self.buffer.arr if s is not None), iteration)
+
+            # Train
+            train_result = self.train_network()
+            if train_result is not None:
+                avg_loss, avg_value_loss, avg_policy_loss = train_result
+                self.writer.add_scalar("loss/total", avg_loss, iteration)
+                self.writer.add_scalar("loss/value", avg_value_loss, iteration)
+                self.writer.add_scalar("loss/policy", avg_policy_loss, iteration)
+                tqdm.write(f"  Iter {iteration+1}: loss={avg_loss:.4f} "
+                           f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}) | "
+                           f"games: p1={wins_p1} p2={wins_p2} draw={draws} | "
+                           f"avg_len={avg_length:.1f}")
+
             self.net.save(self.checkpoint_dir)
+
+        self.writer.close()

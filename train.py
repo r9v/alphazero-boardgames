@@ -54,6 +54,7 @@ def main():
         "num_simulations": args.simulations,
         "games_per_iteration": args.games,
         "checkpoint_dir": checkpoint_dir,
+        "game_name": args.game,
     }
 
     trainer = Trainer(game, net, config)

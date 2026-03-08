@@ -104,11 +104,13 @@ class AlphaZeroNet(nn.Module):
 
     def load_latest(self, directory):
         latest_path = os.path.join(directory, "latest.txt")
-        if not os.path.exists(latest_path):
-            return False
-        with open(latest_path) as f:
-            name = f.read().strip()
-        return self.load(os.path.join(directory, name))
+        if os.path.exists(latest_path):
+            with open(latest_path) as f:
+                name = f.read().strip()
+            return self.load(os.path.join(directory, name))
+        # Fall back to best.pt (e.g. fresh clone without latest.txt)
+        best_path = os.path.join(directory, "best.pt")
+        return self.load(best_path)
 
     def load(self, path):
         if not os.path.exists(path):

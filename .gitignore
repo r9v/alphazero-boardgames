@@ -128,6 +128,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# TensorBoard logs
+runs/
+
 # Model checkpoints (keep only best.pt)
 checkpoints/**/*.pt
 !checkpoints/**/best.pt
+checkpoints/**/*.txt
+.claude
