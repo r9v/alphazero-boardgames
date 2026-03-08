@@ -282,6 +282,8 @@ class GUI:
         self._on_hex_click(hex_id[0])
 
     def _on_hex_click(self, hex_id):
+        if self.state.terminal:
+            return
         hex_obj = self.hexes.get_by_id(hex_id)
         if hex_obj is None:
             return
@@ -304,6 +306,8 @@ class GUI:
             self.hexes.highlight(target)
 
     def _on_select_hand_piece(self, piece):
+        if self.state.terminal:
+            return
         self.piece_place_mode = False
         self.move_mode = False
         self.hexes.clear_highlighted()

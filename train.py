@@ -7,6 +7,7 @@ from training import Trainer
 GAMES = {
     "tictactoe": "games.tictactoe:TTTGame",
     "connect4": "games.connect4:Connect4Game",
+    "santorini": "games.santorini:SantoriniGame",
 }
 
 
@@ -37,8 +38,9 @@ def main():
 
     game = load_game(args.game)
 
-    # Input channels: 2 channels per (history + current) state + 2 for player
-    input_channels = 2 * (game.num_history_states + 1) + 2
+    # Input channels: use game-specific value if available, else default formula
+    input_channels = getattr(game, 'input_channels',
+                             2 * (game.num_history_states + 1) + 2)
 
     net = AlphaZeroNet(
         input_channels=input_channels,

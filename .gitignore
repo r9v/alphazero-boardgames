@@ -136,3 +136,6 @@ checkpoints/**/*.pt
 !checkpoints/**/best.pt
 checkpoints/**/*.txt
 .claude
+
+*.md
+!README.md

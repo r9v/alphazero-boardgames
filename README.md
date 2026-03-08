@@ -1,6 +1,6 @@
 # AlphaZero for Board Games
 
-An implementation of the [AlphaZero](https://arxiv.org/abs/1712.01815) algorithm applied to classic board games — Tic-Tac-Toe, Connect 4, and Hive.
+An implementation of the [AlphaZero](https://arxiv.org/abs/1712.01815) algorithm applied to classic board games — Tic-Tac-Toe, Connect 4, and Santorini.
 
 Originally implemented in 2020. Restructured and modernized in 2026 (PyTorch migration, unified game interface).
 
@@ -30,27 +30,38 @@ python train.py --game tictactoe --simulations 25 --games 20 --iterations 10 --f
 
 ```bash
 python play.py --game tictactoe --human-first
+python play.py --game connect4 --human-first
+```
+
+**Santorini GUI:**
+
+```bash
+python -m games.santorini.gui
 ```
 
 ## Supported Games
 
-| Game            | Board        | Status                                 |
-| --------------- | ------------ | -------------------------------------- |
-| **Tic-Tac-Toe** | 3x3          | Fully trained, playable                |
-| **Connect 4**   | 6x7          | Fully trained, playable                |
-| **Hive**        | 25x25x5 (3D) | Game logic + GUI (action encoding TBD) |
+| Game            | Board | Action Space | Status                             |
+| --------------- | ----- | ------------ | ---------------------------------- |
+| **Tic-Tac-Toe** | 3×3   | 9            | Fully trained, playable            |
+| **Connect 4**   | 6×7   | 7            | Fully trained, playable            |
+| **Santorini**   | 5×5   | 128          | Game + pygame GUI, AlphaZero-ready |
+
+### A note on Hive
+
+Hive is a strategic insect-themed board game. It was originally implemented with full game logic and a GUI, but was abandoned for AlphaZero integration — Hive has a **variable, unbounded action space** and no fixed board grid, making it fundamentally incompatible with AlphaZero's fixed-size policy output. The game logic and GUI remain in the codebase for standalone play.
 
 ## Architecture
 
 The neural network follows the AlphaZero design:
 
-- **Input**: Current board + 2 previous board states + player indicator (8 channels for TTT)
+- **Input**: Board state channels (game-specific encoding) + player indicator
 - **Backbone**: 1 convolutional layer (256 filters) followed by 2 residual blocks
 - **Policy head**: Outputs a probability distribution over legal moves
 - **Value head**: Outputs a scalar in [-1, 1] estimating the winning probability
 
 ```
-Input (board state + 2 previous states + player indicator)
+Input (board state channels + player indicator)
         │
   Conv2D + BatchNorm + ReLU
         │
@@ -82,7 +93,8 @@ games/
   base.py              # Abstract Game / GameState interface
   tictactoe.py         # Tic-Tac-Toe
   connect4.py          # Connect 4
-  hive/                # Hive (game + GUI + pieces)
+  santorini/           # Santorini (game + pygame GUI)
+  hive/                # Hive (game + GUI, not AlphaZero-integrated)
 network/
   alphazero_net.py     # Configurable dual-head ResNet (PyTorch)
 mcts/

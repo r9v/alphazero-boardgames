@@ -131,7 +131,7 @@ def get_a_piece(board):
 
 
 def hive_broken(board, n_all_pieces):
-    que = queue.Queue(22)
+    que = queue.Queue()
     piece = get_a_piece(board)
     part_of_hive = np.zeros((25, 25), dtype=bool)
     part_of_hive[piece[0]][piece[1]] = True
@@ -189,12 +189,15 @@ def grass_movement(x, y, board):
     movements = []
     for idx, n in enumerate(neighbours(x, y)):
         distance = 0
-        ss, piece = stack_size_and_top_piece(n[0], n[1], board)
+        ss, _ = stack_size_and_top_piece(n[0], n[1], board)
         while ss:
-            n = neighbours(n[0], n[1])[idx]
-            ss, piece = stack_size_and_top_piece(n[0], n[1], board)
+            next_n = neighbours(n[0], n[1])[idx]
+            if next_n[0] < 0 or next_n[0] > 24 or next_n[1] < 0 or next_n[1] > 24:
+                break
+            n = next_n
+            ss, _ = stack_size_and_top_piece(n[0], n[1], board)
             distance += 1
-        if distance > 0:
+        if distance > 0 and ss == 0:
             movements.append(n)
     return movements
 
@@ -266,14 +269,6 @@ class GameState(BaseGameState):
         self._update()
 
     def _update(self):
-        cx, cy = board_center(self.board)
-        xshift = int(round(12 - cx))
-        yshift = int(round(12 - cy))
-        if xshift:
-            self.board = np.roll(self.board, xshift, axis=0)
-        if yshift:
-            self.board = np.roll(self.board, yshift, axis=1)
-
         self.available_actions = self._compute_available_actions()
         self.terminal, self.terminal_value = self._over()
 
@@ -284,7 +279,33 @@ class GameState(BaseGameState):
             self.available_actions = self._compute_available_actions()
 
     def _over(self):
+        # Check if either queen is surrounded on all 6 sides
+        p1q_surrounded = self._queen_surrounded(-1)
+        p2q_surrounded = self._queen_surrounded(1)
+        if p1q_surrounded and p2q_surrounded:
+            return True, 0  # draw - both surrounded simultaneously
+        if p1q_surrounded:
+            return True, 1  # player 2 wins
+        if p2q_surrounded:
+            return True, -1  # player 1 wins
         return False, None
+
+    def _queen_surrounded(self, player):
+        queen = Player1Q if player == -1 else Player2Q
+        # Find the queen on the board
+        for x in range(25):
+            for y in range(25):
+                for z in range(5):
+                    if self.board[x][y][z] == queen:
+                        # Check all 6 neighbours are occupied
+                        for n in neighbours(x, y):
+                            ss, _ = stack_size_and_top_piece(n[0], n[1], self.board)
+                            if ss == 0:
+                                return False
+                        return True
+                    elif self.board[x][y][z] == 0:
+                        break
+        return False  # queen not on board yet
 
     def _compute_available_actions(self):
         aa = AvailableActions()
@@ -297,13 +318,13 @@ class GameState(BaseGameState):
                 [Player2A, Player2G, Player2S, Player2B], neighbours(12, 12))
             return aa
 
-        if self.turn > 6 and self.turn < 9:
-            if self.player == -1 and self.player1_hand.q == 1:
-                aa.add_place_action([Player1Q], self._get_available_place_spots())
-                return aa
-            if self.player == 1 and self.player2_hand.q == 1:
-                aa.add_place_action([Player2Q], self._get_available_place_spots())
-                return aa
+        # Force queen placement by turn 4 per player (turns 7-8 in game turns)
+        if self.player == -1 and self.player1_hand.q == 1 and self.turn >= 7:
+            aa.add_place_action([Player1Q], self._get_available_place_spots())
+            return aa
+        if self.player == 1 and self.player2_hand.q == 1 and self.turn >= 8:
+            aa.add_place_action([Player2Q], self._get_available_place_spots())
+            return aa
 
         pieces_to_place = self._get_pieces_to_place()
         if pieces_to_place:
