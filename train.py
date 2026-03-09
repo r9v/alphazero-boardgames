@@ -2,7 +2,7 @@ import argparse
 
 import torch
 
-from network import AlphaZeroNet, NETWORK_CONFIGS
+from network import AlphaZeroNet, GAME_CONFIGS
 from training import Trainer
 
 
@@ -45,9 +45,9 @@ def main():
 
     game = load_game(args.game)
 
-    net_cfg = NETWORK_CONFIGS.get(args.game, {})
-    filters = net_cfg.get("num_filters", 256)
-    res_blocks = net_cfg.get("num_res_blocks", 2)
+    game_cfg = GAME_CONFIGS.get(args.game, {})
+    filters = game_cfg.get("num_filters", 256)
+    res_blocks = game_cfg.get("num_res_blocks", 2)
 
     # Input channels: use game-specific value if available, else default formula
     input_channels = getattr(game, 'input_channels',
@@ -63,6 +63,14 @@ def main():
 
     checkpoint_dir = f"checkpoints/{args.game}"
     net.to(device)
+
+    # Resume from latest checkpoint if available
+    loaded_path = net.load_latest(checkpoint_dir)
+    if loaded_path:
+        print(f"Resumed from: {loaded_path}")
+    else:
+        print("No checkpoint found, starting from scratch.")
+
     if device == "cuda":
         net.compile_for_inference()
 
@@ -72,6 +80,7 @@ def main():
         "checkpoint_dir": checkpoint_dir,
         "game_name": args.game,
         "device": device,
+        "max_train_steps": game_cfg.get("max_train_steps", 1000),
     }
 
     trainer = Trainer(game, net, config)

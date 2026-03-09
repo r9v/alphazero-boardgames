@@ -35,10 +35,10 @@ python play.py --game santorini --human-first
 ```bash
 python train.py --game tictactoe --iterations 10 --games 32 --simulations 32
 
-python train.py --game connect4 --iterations 32 --games 128 --simulations 128
+python train.py --game connect4 --iterations 32 --games 64 --simulations 64
 
 # Santorini (larger network, more simulations)
-python train.py --game santorini --iterations 3 --games 64 --simulations 128
+python train.py --game santorini --iterations 10 --games 64 --simulations 128
 ```
 
 ## Supported Games

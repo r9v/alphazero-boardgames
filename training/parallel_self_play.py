@@ -1,7 +1,11 @@
 import time
 import numpy as np
 
-from mcts.mcts import MCTS, Node, add_dirichlet_noise
+try:
+    from mcts.c_mcts import CMCTS as MCTS, CNode as Node
+    from mcts.mcts import add_dirichlet_noise
+except ImportError:
+    from mcts.mcts import MCTS, Node, add_dirichlet_noise
 
 
 class BatchedSelfPlay:
@@ -34,6 +38,7 @@ class BatchedSelfPlay:
         self._last_preprocess_time = 0.0
         self._last_transfer_time = 0.0
         self._last_forward_time = 0.0
+        self._last_result_time = 0.0
         self._last_postprocess_time = 0.0
         self._last_batch_count = 0
         self._last_sample_count = 0
@@ -65,9 +70,11 @@ class BatchedSelfPlay:
             for i in active:
                 root = roots[i]
                 pi = np.zeros(np.shape(root.available_actions_mask))
+                children = root.children
                 for action in root.available_actions:
-                    if root.children[action] is not None:
-                        pi[action] = root.children[action].n / root.n
+                    child = children.get(action) if isinstance(children, dict) else children[action]
+                    if child is not None:
+                        pi[action] = child.n / root.n
 
                 action = np.random.choice(len(pi), p=pi)
                 examples[i].append([self.game.state_to_input(states[i]), pi])
@@ -108,6 +115,7 @@ class BatchedSelfPlay:
             "preprocess_time": self._last_preprocess_time,
             "transfer_time": self._last_transfer_time,
             "forward_time": self._last_forward_time,
+            "result_time": self._last_result_time,
             "postprocess_time": self._last_postprocess_time,
             "batch_count": self._last_batch_count,
             "sample_count": self._last_sample_count,
@@ -173,6 +181,7 @@ class BatchedSelfPlay:
         self._last_preprocess_time += preprocess_time
         self._last_transfer_time += detail["transfer_time"]
         self._last_forward_time += detail["forward_time"]
+        self._last_result_time += detail["result_time"]
         self._last_postprocess_time += postprocess_time
         self._last_batch_count += 1
         self._last_sample_count += len(nodes)

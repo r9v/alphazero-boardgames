@@ -125,13 +125,16 @@ class AlphaZeroNet(nn.Module):
             torch.cuda.synchronize()
         forward_time = time.time() - t0
 
+        t0 = time.time()
         values = v.float().squeeze(1).cpu().numpy().tolist()
         policies = p.float().cpu().numpy()
+        result_time = time.time() - t0
 
         if detailed_timing:
             return values, list(policies), {
                 "transfer_time": transfer_time,
                 "forward_time": forward_time,
+                "result_time": result_time,
             }
         return values, list(policies)
 

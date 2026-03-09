@@ -22,6 +22,7 @@ class Trainer:
         self.epochs = self.config.get("epochs", 10)
         self.lr = self.config.get("lr", 0.001)
         self.device = self.config.get("device", "cpu")
+        self.max_train_steps = self.config.get("max_train_steps", 1000)
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
         self.optimizer = torch.optim.Adam(net.parameters(), lr=self.lr, weight_decay=1e-4)
 
@@ -45,33 +46,35 @@ class Trainer:
         data_prep_time = 0.0
         gradient_time = 0.0
 
-        for epoch in range(self.epochs):
-            random.shuffle(samples)
-            for i in range(0, len(samples) - self.batch_size + 1, self.batch_size):
-                batch = samples[i:i + self.batch_size]
+        # Use fixed number of training steps with random sampling
+        n_samples = len(samples)
+        num_steps = min(self.max_train_steps, self.epochs * (n_samples // self.batch_size))
 
-                t0 = time.time()
-                states = torch.FloatTensor(np.array([s[0] for s in batch])).to(self.device)
-                target_pis = torch.FloatTensor(np.array([s[1] for s in batch])).to(self.device)
-                target_vs = torch.FloatTensor(np.array([s[2] for s in batch])).unsqueeze(1).to(self.device)
-                data_prep_time += time.time() - t0
+        for _ in range(num_steps):
+            batch = random.choices(samples, k=self.batch_size)
 
-                t0 = time.time()
-                pred_vs, pred_pis = self.net(states)
+            t0 = time.time()
+            states = torch.FloatTensor(np.array([s[0] for s in batch])).to(self.device)
+            target_pis = torch.FloatTensor(np.array([s[1] for s in batch])).to(self.device)
+            target_vs = torch.FloatTensor(np.array([s[2] for s in batch])).unsqueeze(1).to(self.device)
+            data_prep_time += time.time() - t0
 
-                value_loss = F.mse_loss(pred_vs, target_vs)
-                policy_loss = -torch.mean(torch.sum(target_pis * torch.log(pred_pis + 1e-8), dim=1))
-                loss = value_loss + policy_loss
+            t0 = time.time()
+            pred_vs, pred_pis = self.net(states)
 
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-                gradient_time += time.time() - t0
+            value_loss = F.mse_loss(pred_vs, target_vs)
+            policy_loss = -torch.mean(torch.sum(target_pis * torch.log(pred_pis + 1e-8), dim=1))
+            loss = value_loss + policy_loss
 
-                total_loss += loss.item()
-                total_value_loss += value_loss.item()
-                total_policy_loss += policy_loss.item()
-                num_batches += 1
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            gradient_time += time.time() - t0
+
+            total_loss += loss.item()
+            total_value_loss += value_loss.item()
+            total_policy_loss += policy_loss.item()
+            num_batches += 1
 
         avg_loss = total_loss / max(num_batches, 1)
         avg_value_loss = total_value_loss / max(num_batches, 1)
@@ -141,6 +144,7 @@ class Trainer:
                 self.writer.add_scalar("perf/nn_preprocess", perf["preprocess_time"], iteration)
                 self.writer.add_scalar("perf/nn_transfer", perf["transfer_time"], iteration)
                 self.writer.add_scalar("perf/nn_forward", perf["forward_time"], iteration)
+                self.writer.add_scalar("perf/nn_result", perf["result_time"], iteration)
                 self.writer.add_scalar("perf/nn_postprocess", perf["postprocess_time"], iteration)
                 self.writer.add_scalar("perf/batch_count", perf["batch_count"], iteration)
                 self.writer.add_scalar("perf/avg_batch_size", avg_batch, iteration)
@@ -149,6 +153,7 @@ class Trainer:
                            f"backup={perf['backup_time']:.1f}s "
                            f"terminal_hits={perf['terminal_hits']}")
                 tqdm.write(f"  NN:   forward={perf['forward_time']:.1f}s "
+                           f"result={perf['result_time']:.1f}s "
                            f"preprocess={perf['preprocess_time']:.1f}s "
                            f"transfer={perf['transfer_time']:.1f}s | "
                            f"batches={perf['batch_count']} "
@@ -164,6 +169,8 @@ class Trainer:
                            f"samples={tp['num_samples']} "
                            f"batches={tp['num_batches']}")
 
-            self.net.save(self.checkpoint_dir)
+            # Save every 15 iterations + always on the last one
+            if (iteration + 1) % 15 == 0 or iteration == num_iterations - 1:
+                self.net.save(self.checkpoint_dir)
 
         self.writer.close()

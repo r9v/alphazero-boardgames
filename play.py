@@ -1,7 +1,7 @@
 import argparse
 import numpy as np
 
-from network import AlphaZeroNet, NETWORK_CONFIGS
+from network import AlphaZeroNet, GAME_CONFIGS
 from mcts import MCTS
 
 
@@ -45,7 +45,7 @@ def main():
                         help="Human plays first (as X)")
     args = parser.parse_args()
 
-    net_cfg = NETWORK_CONFIGS.get(args.game, {})
+    net_cfg = GAME_CONFIGS.get(args.game, {})
     filters = net_cfg.get("num_filters", 256)
     res_blocks = net_cfg.get("num_res_blocks", 2)
 
@@ -101,7 +101,21 @@ def main():
             print("AI thinking...")
             pi = mcts.get_policy(args.simulations, state)
             move = np.argmax(pi)
-            print(f"AI plays: {move}")
+
+            # Debug: show MCTS stats per action
+            root = mcts.last_root
+            print(f"\n  {'Col':>3}  {'N':>6}  {'Q':>7}  {'P':>7}  {'pi':>7}")
+            print(f"  {'---':>3}  {'---':>6}  {'---':>7}  {'---':>7}  {'---':>7}")
+            for a in range(len(pi)):
+                child = root.children.get(a) if isinstance(root.children, dict) else root.children[a]
+                n = child.n if child else 0
+                q = f"{child.Q:+.3f}" if child else "  -   "
+                p = f"{root.P[a]:.3f}" if root.P[a] > 0.001 else "  .   "
+                pi_str = f"{pi[a]:.3f}" if pi[a] > 0.001 else "  .   "
+                marker = " <--" if a == move else ""
+                print(f"  {a:>3}  {n:>6}  {q:>7}  {p:>7}  {pi_str:>7}{marker}")
+            print(f"\n  Root N={root.n}  V={root.nnet_value:+.3f}")
+            print(f"AI plays: {move}\n")
             state = game.step(state, move)
 
     print_board(state.board, args.game)

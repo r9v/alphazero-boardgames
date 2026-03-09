@@ -57,6 +57,7 @@ class MCTS:
         for action in root.available_actions:
             if root.children[action] is not None:
                 pi[action] = root.children[action].n / root.n
+        self.last_root = root
         return pi
 
     def _search(self, root):
