@@ -90,7 +90,9 @@ class Trainer:
     def _self_play(self, iteration):
         """Run self-play games in parallel with batched evaluation."""
         self._batched = BatchedSelfPlay(
-            self.game, self.net, self.games_per_iteration, self.num_simulations
+            self.game, self.net, self.games_per_iteration, self.num_simulations,
+            selects_per_round=self.config.get("selects_per_round", 1),
+            vl_value=self.config.get("vl_value", 0.0),
         )
         return self._batched.play_games()
 

@@ -105,6 +105,11 @@ cdef int _best_action(CNode node):
     cdef double puct, best_puct, q, sqrt_n, p_val
     cdef int child_n
     cdef CNode child
+
+    # P=None guard: node created during multi-select, not yet evaluated
+    if node.P is None:
+        return node._avail[0]
+
     # Access P as flat buffer pointer for speed (works with any float dtype)
     cdef cnp.ndarray P_arr = <cnp.ndarray>node.P
     cdef char* P_data = P_arr.data
@@ -169,6 +174,27 @@ cdef double _evaluate(CNode node) noexcept:
     if node.is_terminal:
         return -<double>node.terminal_value * <double>node.player
     return -node.nnet_value * <double>node.player
+
+
+cdef void _apply_virtual_loss(CNode node, double vl_value) noexcept:
+    """Apply virtual loss from node up to root."""
+    while node is not None:
+        node.n += 1
+        node.W -= vl_value
+        node.Q = node.W / <double>node.n
+        node = node.parent
+
+
+cdef void _undo_virtual_loss(CNode node, double vl_value) noexcept:
+    """Undo virtual loss from node up to root."""
+    while node is not None:
+        node.n -= 1
+        node.W += vl_value
+        if node.n > 0:
+            node.Q = node.W / <double>node.n
+        else:
+            node.Q = 0.0
+        node = node.parent
 
 
 cdef class CMCTS:
@@ -256,3 +282,47 @@ cdef class CMCTS:
                 return child
             node = <CNode>node.children[best]
         return node
+
+    # --- Virtual loss methods for multi-select batching ---
+
+    def search_expand_vl(self, CNode root, double vl_value=3.0):
+        """Select+expand with virtual loss. Returns (leaf, path) or (None, None)."""
+        cdef CNode node = root
+        cdef CNode child
+        cdef int best
+        cdef list path = []
+
+        # Tree policy with VL
+        while not node.is_terminal:
+            path.append(node)
+            if node.P is None:
+                # Node created in a previous select this round, not yet evaluated
+                _apply_virtual_loss(node, vl_value)
+                return node, path
+            best = _best_action(node)
+            if node.children[best] is None:
+                child = CNode(node, self.game.step(node.state, best),
+                              self.game)  # net=None → deferred
+                node.children[best] = child
+                path.append(child)
+                _apply_virtual_loss(child, vl_value)
+                return child, path
+            node = <CNode>node.children[best]
+        path.append(node)
+
+        # Terminal or already evaluated — no VL needed, handle immediately
+        if node.is_terminal or node.P is not None:
+            _backpropagate(_evaluate(node), node)
+            return None, None
+        # Shouldn't reach here, but handle gracefully
+        _apply_virtual_loss(node, vl_value)
+        return node, path
+
+    def search_backup_vl(self, CNode node, list path, double vl_value=3.0):
+        """Undo virtual loss on path, then normal backprop."""
+        _undo_virtual_loss(node, vl_value)
+        _backpropagate(_evaluate(node), node)
+
+    def undo_virtual_loss(self, CNode node, list path, double vl_value=3.0):
+        """Just undo VL without backprop (cleanup/dedup)."""
+        _undo_virtual_loss(node, vl_value)

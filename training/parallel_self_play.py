@@ -16,11 +16,14 @@ class BatchedSelfPlay:
     and evaluates them in a single batched forward pass.
     """
 
-    def __init__(self, game, net, num_games, num_simulations):
+    def __init__(self, game, net, num_games, num_simulations,
+                 selects_per_round=1, vl_value=0.0):
         self.game = game
         self.net = net
         self.num_games = num_games
         self.num_simulations = num_simulations
+        self.selects_per_round = selects_per_round
+        self.vl_value = vl_value
         self.mcts = MCTS(game, net)
 
     def play_games(self):
@@ -128,33 +131,69 @@ class BatchedSelfPlay:
     def _run_simulations(self, roots, active):
         """Run num_simulations MCTS simulations for all active games.
 
-        Each round expands one node per game, batching them for the GPU.
+        Uses K-select with virtual loss: each round selects K leaves per game,
+        batches them for GPU eval, then backprops. Virtual loss ensures different
+        selects explore different branches.
         """
         select_expand_time = 0.0
         backup_time = 0.0
         nn_time = 0.0
         terminal_hits = 0
+        K = self.selects_per_round
+        use_vl = K > 1
 
-        for _ in range(self.num_simulations):
-            pending = []
+        for _ in range(0, self.num_simulations, K):
+            pending = []  # (leaf, path) tuples
 
             t0 = time.time()
-            for i in active:
-                leaf = self.mcts.search_expand(roots[i])
-                if leaf is not None:
-                    pending.append(leaf)
-                else:
-                    terminal_hits += 1
+            if use_vl:
+                for i in active:
+                    for k in range(K):
+                        leaf, path = self.mcts.search_expand_vl(roots[i], self.vl_value)
+                        if leaf is not None:
+                            pending.append((leaf, path))
+                        else:
+                            terminal_hits += 1
+            else:
+                # K=1, no VL needed — use original fast path
+                for i in active:
+                    leaf = self.mcts.search_expand(roots[i])
+                    if leaf is not None:
+                        pending.append((leaf, None))
+                    else:
+                        terminal_hits += 1
             select_expand_time += time.time() - t0
 
             if pending:
+                if use_vl:
+                    # Deduplicate by node id — same leaf selected twice
+                    unique = {}
+                    for leaf, path in pending:
+                        nid = id(leaf)
+                        if nid not in unique:
+                            unique[nid] = (leaf, path)
+                        else:
+                            # Undo VL for duplicate
+                            self.mcts.undo_virtual_loss(leaf, path, self.vl_value)
+                            terminal_hits += 1  # count as handled
+
+                    leaves = [lp[0] for lp in unique.values()]
+                    paths = [lp[1] for lp in unique.values()]
+                else:
+                    leaves = [lp[0] for lp in pending]
+                    paths = [None] * len(leaves)
+
                 t0 = time.time()
-                self._batch_evaluate_nodes(pending)
+                self._batch_evaluate_nodes(leaves)
                 nn_time += time.time() - t0
 
                 t0 = time.time()
-                for node in pending:
-                    self.mcts.search_backup(node)
+                if use_vl:
+                    for leaf, path in zip(leaves, paths):
+                        self.mcts.search_backup_vl(leaf, path, self.vl_value)
+                else:
+                    for node in leaves:
+                        self.mcts.search_backup(node)
                 backup_time += time.time() - t0
 
         self._last_select_expand_time += select_expand_time

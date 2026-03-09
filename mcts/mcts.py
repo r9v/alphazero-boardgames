@@ -74,6 +74,9 @@ class MCTS:
         return node
 
     def _best_action(self, node):
+        if node.P is None:
+            # Node not yet evaluated (created during multi-select) — pick first legal
+            return np.nonzero(node.available_actions_mask)[0][0]
         if node.n == 0:
             return np.argmax(np.multiply(node.P, node.available_actions_mask))
 
@@ -143,4 +146,63 @@ class MCTS:
         """Complete evaluate + backpropagate for a resolved node."""
         value = self._evaluate(node)
         self._backpropagate(value, node)
+
+    # --- Virtual loss methods for multi-select batching ---
+
+    def _apply_virtual_loss(self, node, vl_value):
+        """Apply virtual loss from node up to root."""
+        while node is not None:
+            node.n += 1
+            node.W -= vl_value
+            node.Q = node.W / node.n
+            node = node.parent
+
+    def _undo_virtual_loss(self, node, vl_value):
+        """Undo virtual loss from node up to root."""
+        while node is not None:
+            node.n -= 1
+            node.W += vl_value
+            node.Q = node.W / max(node.n, 1)
+            node = node.parent
+
+    def _tree_policy_deferred_vl(self, node, vl_value):
+        """Select+expand with virtual loss applied along the path."""
+        path = []
+        while not node.state.terminal:
+            path.append(node)
+            if node.P is None:
+                # Node created in a previous select this round, not yet evaluated
+                return node, path
+            best = self._best_action(node)
+            if node.children[best] is None:
+                child = Node(node, self.game.step(node.state, action=best),
+                             self.game)  # net=None → deferred
+                node.children[best] = child
+                path.append(child)
+                self._apply_virtual_loss(child, vl_value)
+                return child, path
+            node = node.children[best]
+        path.append(node)
+        return node, path
+
+    def search_expand_vl(self, root, vl_value=3.0):
+        """Select+expand with virtual loss. Returns (leaf, path) or (None, None)."""
+        leaf, path = self._tree_policy_deferred_vl(root, vl_value)
+        if leaf.state.terminal or leaf.nnet_value is not None:
+            # Terminal or already evaluated — undo VL, backprop, done
+            self._undo_virtual_loss(leaf, vl_value)
+            value = self._evaluate(leaf)
+            self._backpropagate(value, leaf)
+            return None, None
+        return leaf, path
+
+    def search_backup_vl(self, node, path, vl_value=3.0):
+        """Undo virtual loss on path, then normal backprop."""
+        self._undo_virtual_loss(node, vl_value)
+        value = self._evaluate(node)
+        self._backpropagate(value, node)
+
+    def undo_virtual_loss(self, node, path, vl_value=3.0):
+        """Just undo VL without backprop (cleanup/dedup)."""
+        self._undo_virtual_loss(node, vl_value)
 

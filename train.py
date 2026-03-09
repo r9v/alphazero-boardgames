@@ -81,6 +81,8 @@ def main():
         "game_name": args.game,
         "device": device,
         "max_train_steps": game_cfg.get("max_train_steps", 1000),
+        "selects_per_round": game_cfg.get("selects_per_round", 1),
+        "vl_value": game_cfg.get("vl_value", 0.0),
     }
 
     trainer = Trainer(game, net, config)
