@@ -8,7 +8,7 @@ def add_dirichlet_noise(arr, alpha, epsilon):
 
 
 class Node:
-    def __init__(self, parent, state, game, net):
+    def __init__(self, parent, state, game, net=None):
         self.parent = parent
         self.state = state
         self.children = {}
@@ -25,8 +25,17 @@ class Node:
         self.Q = 0.0
         self.W = 0.0
 
-        state_input = game.state_to_input(state)
-        self.nnet_value, self.P = net.predict(state_input)
+        if net is not None:
+            state_input = game.state_to_input(state)
+            self.nnet_value, self.P = net.predict(state_input)
+        else:
+            self.nnet_value = None
+            self.P = None
+
+    def resolve(self, value, policy):
+        """Fill in deferred neural network evaluation."""
+        self.nnet_value = value
+        self.P = policy
 
 
 class MCTS:
@@ -100,3 +109,37 @@ class MCTS:
             node.Q = node.W / node.n
             node = node.parent
             value = -value
+
+    # --- Batched parallel self-play methods ---
+
+    def _tree_policy_deferred(self, node):
+        """Like _tree_policy but creates child nodes without neural net eval."""
+        while not node.state.terminal:
+            best = self._best_action(node)
+            if node.children[best] is None:
+                child = Node(node, self.game.step(node.state, action=best),
+                             self.game)  # net=None → deferred
+                node.children[best] = child
+                return child
+            node = node.children[best]
+        return node
+
+    def search_expand(self, root):
+        """Run one simulation's select+expand phase.
+
+        Returns the pending (unevaluated) leaf node, or None if the leaf
+        was terminal and was handled internally (evaluate + backprop).
+        """
+        leaf = self._tree_policy_deferred(root)
+        if leaf.state.terminal or leaf.nnet_value is not None:
+            # Terminal or already evaluated — complete immediately
+            value = self._evaluate(leaf)
+            self._backpropagate(value, leaf)
+            return None
+        return leaf  # Needs resolve() then search_backup()
+
+    def search_backup(self, node):
+        """Complete evaluate + backpropagate for a resolved node."""
+        value = self._evaluate(node)
+        self._backpropagate(value, node)
+

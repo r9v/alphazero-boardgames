@@ -1,6 +1,8 @@
 import argparse
 
-from network import AlphaZeroNet
+import torch
+
+from network import AlphaZeroNet, NETWORK_CONFIGS
 from training import Trainer
 
 
@@ -30,13 +32,22 @@ def main():
                         help="Self-play games per iteration")
     parser.add_argument("--iterations", type=int, default=1,
                         help="Number of training iterations")
-    parser.add_argument("--filters", type=int, default=256,
-                        help="Number of conv filters")
-    parser.add_argument("--res-blocks", type=int, default=2,
-                        help="Number of residual blocks")
+    parser.add_argument("--device", type=str, default="auto",
+                        help="Device: 'cpu', 'cuda', or 'auto' (default)")
     args = parser.parse_args()
 
+    # Resolve device
+    if args.device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        device = args.device
+    print(f"Using device: {device}")
+
     game = load_game(args.game)
+
+    net_cfg = NETWORK_CONFIGS.get(args.game, {})
+    filters = net_cfg.get("num_filters", 256)
+    res_blocks = net_cfg.get("num_res_blocks", 2)
 
     # Input channels: use game-specific value if available, else default formula
     input_channels = getattr(game, 'input_channels',
@@ -46,17 +57,21 @@ def main():
         input_channels=input_channels,
         board_shape=game.board_shape,
         action_size=game.action_size,
-        num_res_blocks=args.res_blocks,
-        num_filters=args.filters,
+        num_res_blocks=res_blocks,
+        num_filters=filters,
     )
 
     checkpoint_dir = f"checkpoints/{args.game}"
+    net.to(device)
+    if device == "cuda":
+        net.compile_for_inference()
 
     config = {
         "num_simulations": args.simulations,
         "games_per_iteration": args.games,
         "checkpoint_dir": checkpoint_dir,
         "game_name": args.game,
+        "device": device,
     }
 
     trainer = Trainer(game, net, config)

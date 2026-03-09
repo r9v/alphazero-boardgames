@@ -69,6 +69,16 @@ class AlphaZeroNet(nn.Module):
 
         return v, p
 
+    def compile_for_inference(self):
+        """Compile the forward pass with torch.compile for faster inference."""
+        try:
+            self.eval()
+            # Store compiled forward function (not module) to avoid
+            # circular reference that causes recursion in self.eval()
+            self._compiled_forward = torch.compile(self.forward, mode="reduce-overhead")
+        except Exception:
+            self._compiled_forward = None
+
     @torch.no_grad()
     def predict(self, state_input):
         """Run inference on a single state input.
@@ -80,9 +90,50 @@ class AlphaZeroNet(nn.Module):
             (value, policy) where value is a float and policy is a numpy array
         """
         self.eval()
-        x = torch.FloatTensor(state_input).unsqueeze(0)
+        device = next(self.parameters()).device
+        x = torch.FloatTensor(state_input).unsqueeze(0).to(device)
         v, p = self(x)
-        return v.item(), p.squeeze(0).numpy()
+        return v.item(), p.squeeze(0).cpu().numpy()
+
+    @torch.no_grad()
+    def batch_predict(self, state_inputs, detailed_timing=False):
+        """Run inference on a batch of state inputs.
+
+        Args:
+            state_inputs: list of numpy arrays, each of shape (C, H, W)
+            detailed_timing: if True, return timing breakdown as third element
+
+        Returns:
+            (values, policies) or (values, policies, timing_dict)
+        """
+        self.eval()
+        device = next(self.parameters()).device
+        use_fp16 = device.type == 'cuda'
+        fwd = getattr(self, '_compiled_forward', None) or self.forward
+
+        t0 = time.time()
+        x = torch.FloatTensor(np.array(state_inputs)).to(device)
+        if use_fp16:
+            x = x.half()
+            torch.cuda.synchronize()
+        transfer_time = time.time() - t0
+
+        t0 = time.time()
+        with torch.autocast('cuda', enabled=use_fp16):
+            v, p = fwd(x)
+        if use_fp16:
+            torch.cuda.synchronize()
+        forward_time = time.time() - t0
+
+        values = v.float().squeeze(1).cpu().numpy().tolist()
+        policies = p.float().cpu().numpy()
+
+        if detailed_timing:
+            return values, list(policies), {
+                "transfer_time": transfer_time,
+                "forward_time": forward_time,
+            }
+        return values, list(policies)
 
     def save(self, directory):
         os.makedirs(directory, exist_ok=True)
@@ -91,14 +142,8 @@ class AlphaZeroNet(nn.Module):
         torch.save(self.state_dict(), path)
 
         latest_path = os.path.join(directory, "latest.txt")
-        second_latest = ""
-        if os.path.exists(latest_path):
-            with open(latest_path) as f:
-                second_latest = f.read().strip()
         with open(latest_path, "w") as f:
             f.write(f"{timestr}.pt")
-        with open(os.path.join(directory, "second_latest.txt"), "w") as f:
-            f.write(second_latest)
 
         return path
 
@@ -107,13 +152,20 @@ class AlphaZeroNet(nn.Module):
         if os.path.exists(latest_path):
             with open(latest_path) as f:
                 name = f.read().strip()
-            return self.load(os.path.join(directory, name))
+            path = os.path.join(directory, name)
+            if self.load(path):
+                return path
+            return None
         # Fall back to best.pt (e.g. fresh clone without latest.txt)
         best_path = os.path.join(directory, "best.pt")
-        return self.load(best_path)
+        if self.load(best_path):
+            return best_path
+        return None
 
     def load(self, path):
         if not os.path.exists(path):
             return False
-        self.load_state_dict(torch.load(path, weights_only=True))
+        device = next(self.parameters()).device
+        self.load_state_dict(torch.load(path, weights_only=True,
+                                        map_location=device))
         return True

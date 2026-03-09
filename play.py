@@ -1,7 +1,7 @@
 import argparse
 import numpy as np
 
-from network import AlphaZeroNet
+from network import AlphaZeroNet, NETWORK_CONFIGS
 from mcts import MCTS
 
 
@@ -41,27 +41,24 @@ def main():
     parser.add_argument("--game", type=str, default="tictactoe",
                         choices=["tictactoe", "connect4", "santorini"])
     parser.add_argument("--simulations", type=int, default=100)
-    parser.add_argument("--filters", type=int, default=256)
-    parser.add_argument("--res-blocks", type=int, default=2)
     parser.add_argument("--human-first", action="store_true",
                         help="Human plays first (as X)")
     args = parser.parse_args()
+
+    net_cfg = NETWORK_CONFIGS.get(args.game, {})
+    filters = net_cfg.get("num_filters", 256)
+    res_blocks = net_cfg.get("num_res_blocks", 2)
 
     # Santorini launches the pygame GUI instead of terminal play
     if args.game == "santorini":
         from games.santorini.gui import GUI
         ai_player = 1 if args.human_first else -1
         GUI(ai_player=ai_player, simulations=args.simulations,
-            filters=args.filters, res_blocks=args.res_blocks)
+            filters=filters, res_blocks=res_blocks)
         return
 
-    # Load game
-    if args.game == "tictactoe":
-        from games.tictactoe import TTTGame
-        game = TTTGame()
-    elif args.game == "connect4":
-        from games.connect4 import Connect4Game
-        game = Connect4Game()
+    from train import load_game
+    game = load_game(args.game)
 
     input_channels = getattr(game, 'input_channels',
                              2 * (game.num_history_states + 1) + 2)
@@ -69,13 +66,14 @@ def main():
         input_channels=input_channels,
         board_shape=game.board_shape,
         action_size=game.action_size,
-        num_res_blocks=args.res_blocks,
-        num_filters=args.filters,
+        num_res_blocks=res_blocks,
+        num_filters=filters,
     )
 
     checkpoint_dir = f"checkpoints/{args.game}"
-    if net.load_latest(checkpoint_dir):
-        print("Loaded trained model.")
+    loaded_path = net.load_latest(checkpoint_dir)
+    if loaded_path:
+        print(f"Loaded model: {loaded_path}")
     else:
         print("No checkpoint found, using untrained network.")
 

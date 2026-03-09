@@ -20,23 +20,25 @@ AlphaZero learns to play board games entirely from self-play, with no human know
 pip install -r requirements.txt
 ```
 
-**Train:**
-
-```bash
-python train.py --game tictactoe --simulations 25 --games 20 --iterations 10 --filters 64
-```
-
 **Play against the AI:**
+
+Pretrained models are included in `checkpoints/` - no training required - just run the commands below.
 
 ```bash
 python play.py --game tictactoe --human-first
 python play.py --game connect4 --human-first
+python play.py --game santorini --human-first
 ```
 
-**Santorini GUI:**
+**Train from scratch:**
 
 ```bash
-python -m games.santorini.gui
+python train.py --game tictactoe --iterations 10 --games 32 --simulations 32
+
+python train.py --game connect4 --iterations 32 --games 128 --simulations 128
+
+# Santorini (larger network, more simulations)
+python train.py --game santorini --iterations 3 --games 64 --simulations 128
 ```
 
 ## Supported Games

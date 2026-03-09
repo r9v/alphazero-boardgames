@@ -1,12 +1,13 @@
 import random
+import time
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from mcts import MCTS
 from training.replay_buffer import ReplayBuffer
+from training.parallel_self_play import BatchedSelfPlay
 
 
 class Trainer:
@@ -20,27 +21,14 @@ class Trainer:
         self.batch_size = self.config.get("batch_size", 64)
         self.epochs = self.config.get("epochs", 10)
         self.lr = self.config.get("lr", 0.001)
+        self.device = self.config.get("device", "cpu")
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
-        self.mcts = MCTS(game, net)
         self.optimizer = torch.optim.Adam(net.parameters(), lr=self.lr, weight_decay=1e-4)
 
-        log_dir = self.config.get("log_dir", f"runs/{self.config.get('game_name', 'unknown')}")
+        game_name = self.config.get("game_name", "unknown")
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        log_dir = self.config.get("log_dir", f"runs/{game_name}/{timestr}")
         self.writer = SummaryWriter(log_dir)
-        self.global_step = 0
-
-    def self_play_game(self):
-        """Play a single self-play game and return training examples."""
-        state = self.game.new_game()
-        examples = []
-        while True:
-            pi = self.mcts.get_policy(self.num_simulations, state, add_dirichlet=True)
-            action = np.random.choice(len(pi), p=pi)
-            examples.append([self.game.state_to_input(state), pi])
-            state = self.game.step(state, action)
-            if state.terminal:
-                for ex in examples:
-                    ex.append(state.terminal_value)
-                return examples
 
     def train_network(self):
         """Train the network on samples from the replay buffer."""
@@ -54,16 +42,21 @@ class Trainer:
         total_value_loss = 0
         total_policy_loss = 0
         num_batches = 0
+        data_prep_time = 0.0
+        gradient_time = 0.0
 
         for epoch in range(self.epochs):
             random.shuffle(samples)
             for i in range(0, len(samples) - self.batch_size + 1, self.batch_size):
                 batch = samples[i:i + self.batch_size]
 
-                states = torch.FloatTensor(np.array([s[0] for s in batch]))
-                target_pis = torch.FloatTensor(np.array([s[1] for s in batch]))
-                target_vs = torch.FloatTensor(np.array([s[2] for s in batch])).unsqueeze(1)
+                t0 = time.time()
+                states = torch.FloatTensor(np.array([s[0] for s in batch])).to(self.device)
+                target_pis = torch.FloatTensor(np.array([s[1] for s in batch])).to(self.device)
+                target_vs = torch.FloatTensor(np.array([s[2] for s in batch])).unsqueeze(1).to(self.device)
+                data_prep_time += time.time() - t0
 
+                t0 = time.time()
                 pred_vs, pred_pis = self.net(states)
 
                 value_loss = F.mse_loss(pred_vs, target_vs)
@@ -73,6 +66,7 @@ class Trainer:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+                gradient_time += time.time() - t0
 
                 total_loss += loss.item()
                 total_value_loss += value_loss.item()
@@ -82,22 +76,30 @@ class Trainer:
         avg_loss = total_loss / max(num_batches, 1)
         avg_value_loss = total_value_loss / max(num_batches, 1)
         avg_policy_loss = total_policy_loss / max(num_batches, 1)
+        self._train_perf = {
+            "data_prep_time": data_prep_time,
+            "gradient_time": gradient_time,
+            "num_samples": len(samples),
+            "num_batches": num_batches,
+        }
         return avg_loss, avg_value_loss, avg_policy_loss
+
+    def _self_play(self, iteration):
+        """Run self-play games in parallel with batched evaluation."""
+        self._batched = BatchedSelfPlay(
+            self.game, self.net, self.games_per_iteration, self.num_simulations
+        )
+        return self._batched.play_games()
 
     def run(self, num_iterations=1):
         """Run the training loop: self-play → train → save."""
         for iteration in tqdm(range(num_iterations), desc="Iterations", unit="iter"):
             # Self-play
-            results = []
-            game_lengths = []
-            for game_num in tqdm(range(self.games_per_iteration),
-                                 desc=f"  Self-play (iter {iteration+1})",
-                                 unit="game", leave=False):
-                examples = self.self_play_game()
-                self.buffer.insert_batch(examples)
-                result = examples[-1][2] if examples else 0
-                results.append(result)
-                game_lengths.append(len(examples))
+            t0 = time.time()
+            all_examples, results, game_lengths = self._self_play(iteration)
+            self_play_time = time.time() - t0
+
+            self.buffer.insert_batch(all_examples)
 
             # Log self-play stats
             wins_p1 = results.count(-1)
@@ -112,7 +114,10 @@ class Trainer:
                                    sum(1 for s in self.buffer.arr if s is not None), iteration)
 
             # Train
+            t0 = time.time()
             train_result = self.train_network()
+            train_time = time.time() - t0
+
             if train_result is not None:
                 avg_loss, avg_value_loss, avg_policy_loss = train_result
                 self.writer.add_scalar("loss/total", avg_loss, iteration)
@@ -121,7 +126,43 @@ class Trainer:
                 tqdm.write(f"  Iter {iteration+1}: loss={avg_loss:.4f} "
                            f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}) | "
                            f"games: p1={wins_p1} p2={wins_p2} draw={draws} | "
-                           f"avg_len={avg_length:.1f}")
+                           f"avg_len={avg_length:.1f} | "
+                           f"self_play={self_play_time:.1f}s train={train_time:.1f}s")
+
+            self.writer.add_scalar("perf/self_play_time", self_play_time, iteration)
+            self.writer.add_scalar("perf/train_time", train_time, iteration)
+            if hasattr(self, '_batched') and hasattr(self._batched, 'perf'):
+                perf = self._batched.perf
+                mcts_time = perf["select_expand_time"] + perf["backup_time"]
+                avg_batch = perf["sample_count"] / max(perf["batch_count"], 1)
+                self.writer.add_scalar("perf/mcts_select_expand", perf["select_expand_time"], iteration)
+                self.writer.add_scalar("perf/mcts_backup", perf["backup_time"], iteration)
+                self.writer.add_scalar("perf/nn_time", perf["nn_time"], iteration)
+                self.writer.add_scalar("perf/nn_preprocess", perf["preprocess_time"], iteration)
+                self.writer.add_scalar("perf/nn_transfer", perf["transfer_time"], iteration)
+                self.writer.add_scalar("perf/nn_forward", perf["forward_time"], iteration)
+                self.writer.add_scalar("perf/nn_postprocess", perf["postprocess_time"], iteration)
+                self.writer.add_scalar("perf/batch_count", perf["batch_count"], iteration)
+                self.writer.add_scalar("perf/avg_batch_size", avg_batch, iteration)
+                self.writer.add_scalar("perf/terminal_hits", perf["terminal_hits"], iteration)
+                tqdm.write(f"  MCTS: select={perf['select_expand_time']:.1f}s "
+                           f"backup={perf['backup_time']:.1f}s "
+                           f"terminal_hits={perf['terminal_hits']}")
+                tqdm.write(f"  NN:   forward={perf['forward_time']:.1f}s "
+                           f"preprocess={perf['preprocess_time']:.1f}s "
+                           f"transfer={perf['transfer_time']:.1f}s | "
+                           f"batches={perf['batch_count']} "
+                           f"batch_sz={perf['min_batch']}/{avg_batch:.0f}/{perf['max_batch']}")
+            if hasattr(self, '_train_perf'):
+                tp = self._train_perf
+                self.writer.add_scalar("perf/train_data_prep", tp["data_prep_time"], iteration)
+                self.writer.add_scalar("perf/train_gradient", tp["gradient_time"], iteration)
+                self.writer.add_scalar("perf/train_num_samples", tp["num_samples"], iteration)
+                self.writer.add_scalar("perf/train_num_batches", tp["num_batches"], iteration)
+                tqdm.write(f"  Train: data={tp['data_prep_time']:.1f}s "
+                           f"grad={tp['gradient_time']:.1f}s | "
+                           f"samples={tp['num_samples']} "
+                           f"batches={tp['num_batches']}")
 
             self.net.save(self.checkpoint_dir)
 
