@@ -1,3 +1,4 @@
+import os
 import random
 import time
 import numpy as np
@@ -172,7 +173,9 @@ class Trainer:
                            f"batches={tp['num_batches']}")
 
             # Save every 15 iterations + always on the last one
-            if (iteration + 1) % 15 == 0 or iteration == num_iterations - 1:
+            # Also save iteration 0 if no checkpoint exists (quick sanity check)
+            no_checkpoint = not os.path.exists(os.path.join(self.checkpoint_dir, "latest.txt"))
+            if (iteration + 1) % 15 == 0 or iteration == num_iterations - 1 or (iteration == 0 and no_checkpoint):
                 self.net.save(self.checkpoint_dir)
 
         self.writer.close()
