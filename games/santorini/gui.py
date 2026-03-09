@@ -198,8 +198,9 @@ class GUI:
                 num_filters=filters,
             )
             checkpoint_dir = "checkpoints/santorini"
-            if net.load_latest(checkpoint_dir):
-                print("Loaded trained model.")
+            loaded_path = net.load_latest(checkpoint_dir)
+            if loaded_path:
+                print(f"Loaded model: {loaded_path}")
             else:
                 print("No checkpoint found, using untrained network.")
             self.mcts = MCTS(game, net)
@@ -228,8 +229,49 @@ class GUI:
 
     def _compute_ai_move(self):
         """Compute and execute AI move."""
+        import time
+        t0 = time.time()
         pi = self.mcts.get_policy(self.simulations, self.state)
+        elapsed = time.time() - t0
         move = int(np.argmax(pi))
+
+        # Debug: print MCTS stats
+        root = self.mcts.last_root
+        print(f"\n--- AI Move (player {'White' if self.state.player == -1 else 'Black'}) "
+              f"| {self.simulations} sims in {elapsed:.2f}s ---")
+        print(f"  Root N={root.n}  V={root.nnet_value:+.4f}")
+
+        # Decode and show top actions by visit count
+        actions_with_visits = []
+        children = root.children
+        for a in range(128):
+            child = children.get(a) if isinstance(children, dict) else children[a]
+            if child is not None and child.n > 0:
+                actions_with_visits.append((a, child.n, child.Q))
+
+        actions_with_visits.sort(key=lambda x: -x[1])
+        top = actions_with_visits[:10]
+
+        print(f"  {'Action':>6}  {'N':>6}  {'Q':>8}  {'P':>7}  {'pi':>7}  Description")
+        print(f"  {'------':>6}  {'---':>6}  {'---':>8}  {'---':>7}  {'---':>7}  -----------")
+        for a, n, q in top:
+            w_idx = a // 64
+            m_dir = (a % 64) // 8
+            b_dir = a % 8
+            my_workers = self.state._sorted_workers(self.state.player)
+            wr, wc = my_workers[w_idx]
+            dr, dc = DIRECTIONS[m_dir]
+            mr, mc = wr + dr, wc + dc
+            bdr, bdc = DIRECTIONS[b_dir]
+            br, bc = mr + bdr, mc + bdc
+            desc = f"W({wr},{wc})→({mr},{mc}) B({br},{bc})"
+            p_val = f"{root.P[a]:.4f}" if root.P[a] > 0.0001 else "  .   "
+            pi_val = f"{pi[a]:.4f}" if pi[a] > 0.001 else "  .   "
+            marker = " <--" if a == move else ""
+            print(f"  {a:>6}  {n:>6}  {q:>+8.4f}  {p_val:>7}  {pi_val:>7}  {desc}{marker}")
+
+        print(f"  Total unique actions visited: {len(actions_with_visits)}")
+
         self.state = game.step(self.state, move)
         self._reset_phase()
         self.ai_thinking = False
