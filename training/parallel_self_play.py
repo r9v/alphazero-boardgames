@@ -17,7 +17,7 @@ class BatchedSelfPlay:
     """
 
     def __init__(self, game, net, num_games, num_simulations,
-                 selects_per_round=1, vl_value=0.0):
+                 selects_per_round=1, vl_value=0.0, log_games=0):
         self.game = game
         self.net = net
         self.num_games = num_games
@@ -25,6 +25,7 @@ class BatchedSelfPlay:
         self.selects_per_round = selects_per_round
         self.vl_value = vl_value
         self.mcts = MCTS(game, net)
+        self.log_games = log_games  # how many games to log in detail
 
     def play_games(self):
         """Play num_games self-play games in parallel.
@@ -48,6 +49,13 @@ class BatchedSelfPlay:
         self._last_terminal_hits = 0
         self._last_min_batch = float('inf')
         self._last_max_batch = 0
+        self._encoding_checks = 0
+        self._encoding_errors = 0
+
+        # Diagnostic: per-move logs for a sample of games
+        # Each entry: {move, player, nnet_value, action, pi, child_Qs, child_Ns}
+        self._game_logs = [[] for _ in range(self.num_games)]
+        self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value) per move
 
         # Initialize all games
         states = [self.game.new_game() for _ in range(self.num_games)]
@@ -79,15 +87,41 @@ class BatchedSelfPlay:
                     if child is not None:
                         pi[action] = child.n / root.n
 
+                # Diagnostic: record per-move stats
+                self._game_value_preds[i].append((states[i].player, root.nnet_value))
+                if i < self.log_games:
+                    child_Qs = {}
+                    child_Ns = {}
+                    for a in root.available_actions:
+                        ch = children.get(a) if isinstance(children, dict) else children[a]
+                        if ch is not None:
+                            child_Qs[int(a)] = ch.Q
+                            child_Ns[int(a)] = ch.n
+                    self._game_logs[i].append({
+                        "move": len(examples[i]),
+                        "player": states[i].player,
+                        "nnet_value": root.nnet_value,
+                        "root_Q": root.Q,
+                        "root_N": root.n,
+                        "pi": pi.tolist(),
+                        "child_Qs": child_Qs,
+                        "child_Ns": child_Ns,
+                    })
+
                 action = np.random.choice(len(pi), p=pi)
-                examples[i].append([self.game.state_to_input(states[i]), pi])
+                examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player])
 
                 states[i] = self.game.step(states[i], action)
 
                 if states[i].terminal:
-                    # Game over — attach terminal value to all examples
+                    # Game over — compute training target for each position
+                    tv = states[i].terminal_value
+                    rel = getattr(self.game, 'relative_encoding', False)
                     for ex in examples[i]:
-                        ex.append(states[i].terminal_value)
+                        player_at_pos = ex[2]
+                        # Relative: target from current player's perspective
+                        # Absolute: same terminal_value for all positions
+                        ex[2] = tv * player_at_pos if rel else tv
                 else:
                     # Create new root for next move (deferred)
                     roots[i] = Node(None, states[i], self.game)
@@ -125,8 +159,52 @@ class BatchedSelfPlay:
             "terminal_hits": self._last_terminal_hits,
             "min_batch": self._last_min_batch if self._last_min_batch != float('inf') else 0,
             "max_batch": self._last_max_batch,
+            "encoding_checks": self._encoding_checks,
+            "encoding_errors": self._encoding_errors,
         }
+
+        # Compute self-play value prediction diagnostics
+        self._compute_value_diagnostics(results)
+
         return all_examples, results, game_lengths
+
+    def _compute_value_diagnostics(self, results):
+        """Compute statistics about NN value predictions during self-play."""
+        rel = getattr(self.game, 'relative_encoding', False)
+        all_preds = []   # (nnet_value, target_outcome, player)
+        for i, game_preds in enumerate(self._game_value_preds):
+            outcome = results[i]
+            for player, nnet_v in game_preds:
+                # For relative encoding, compare nnet (relative) against relative target
+                target = outcome * player if rel else outcome
+                all_preds.append((nnet_v, target, player))
+
+        if not all_preds:
+            self.value_diag = {}
+            return
+
+        nnet_vals = np.array([p[0] for p in all_preds])
+        targets = np.array([p[1] for p in all_preds])
+        players = np.array([p[2] for p in all_preds])
+
+        # Value prediction distribution
+        self.value_diag = {
+            "mean_nnet_value": float(nnet_vals.mean()),
+            "std_nnet_value": float(nnet_vals.std()),
+            "frac_saturated_pos": float((nnet_vals > 0.95).mean()),  # near +1
+            "frac_saturated_neg": float((nnet_vals < -0.95).mean()), # near -1
+            "frac_saturated_any": float((np.abs(nnet_vals) > 0.95).mean()),
+            # Prediction accuracy: does sign of prediction match target?
+            "sign_accuracy": float((np.sign(nnet_vals) == np.sign(targets)).mean()),
+            # Mean absolute error vs target
+            "mae_vs_outcome": float(np.abs(nnet_vals - targets).mean()),
+            # Per-player predictions
+            "mean_when_x_moves": float(nnet_vals[players == -1].mean()) if (players == -1).any() else 0,
+            "mean_when_o_moves": float(nnet_vals[players == 1].mean()) if (players == 1).any() else 0,
+            # Correlation between prediction and target
+            "pred_outcome_corr": float(np.corrcoef(nnet_vals, targets)[0, 1]) if len(nnet_vals) > 1 else 0,
+            "n_predictions": len(all_preds),
+        }
 
     def _run_simulations(self, roots, active):
         """Run num_simulations MCTS simulations for all active games.
@@ -209,6 +287,51 @@ class BatchedSelfPlay:
         t0 = time.time()
         state_inputs = [self.game.state_to_input(node.state) for node in nodes]
         preprocess_time = time.time() - t0
+
+        # Verify encoding consistency
+        rel = getattr(self.game, 'relative_encoding', False)
+        for node, inp in zip(nodes, state_inputs):
+            self._encoding_checks += 1
+            player = node.state.player
+            num_hist = getattr(self.game, 'num_history_states', 2)
+            c = 2 * num_hist  # channel offset for current board
+            player_ch6 = inp[c + 2].sum()
+            player_ch7 = inp[c + 3].sum()
+            board = node.state.board
+            board_area = board.shape[0] * board.shape[1]
+
+            errors = []
+            # Player channel check (same for both encodings)
+            if player == -1:
+                if player_ch6 != board_area or player_ch7 != 0:
+                    errors.append(f"player=-1 but ch6={player_ch6} ch7={player_ch7}")
+            else:
+                if player_ch6 != 0 or player_ch7 != board_area:
+                    errors.append(f"player=1 but ch6={player_ch6} ch7={player_ch7}")
+            # Piece count check
+            my_pieces_board = (board == player).sum()
+            opp_pieces_board = (board == -player).sum()
+            ch_c = inp[c].sum()
+            ch_c1 = inp[c + 1].sum()
+            if rel:
+                # Relative: ch[c] = my pieces, ch[c+1] = opponent pieces
+                if ch_c != my_pieces_board:
+                    errors.append(f"my pieces: board={my_pieces_board} enc={ch_c}")
+                if ch_c1 != opp_pieces_board:
+                    errors.append(f"opp pieces: board={opp_pieces_board} enc={ch_c1}")
+            else:
+                # Absolute: ch[c] = X pieces, ch[c+1] = O pieces
+                x_pieces = (board == -1).sum()
+                o_pieces = (board == 1).sum()
+                if ch_c != x_pieces:
+                    errors.append(f"X pieces: board={x_pieces} enc={ch_c}")
+                if ch_c1 != o_pieces:
+                    errors.append(f"O pieces: board={o_pieces} enc={ch_c1}")
+
+            if errors:
+                self._encoding_errors += 1
+                if self._encoding_errors <= 5:
+                    print(f"  [ENCODING ERROR] {'; '.join(errors)}")
 
         values, policies, detail = self.net.batch_predict(state_inputs, detailed_timing=True)
 

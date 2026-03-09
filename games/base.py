@@ -31,6 +31,7 @@ class Game(ABC):
     board_shape: tuple          # e.g. (3,3), (6,7)
     action_size: int            # length of the action mask
     num_history_states: int     # how many prev board states to encode
+    relative_encoding: bool = False  # True = "my pieces"/"their pieces" channels
 
     @abstractmethod
     def new_game(self) -> GameState:

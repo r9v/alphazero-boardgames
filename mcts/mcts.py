@@ -102,6 +102,8 @@ class MCTS:
     def _evaluate(self, node):
         if node.state.terminal:
             return -node.state.terminal_value * node.state.player
+        if getattr(self.game, 'relative_encoding', False):
+            return -node.nnet_value
         return -node.nnet_value * node.state.player
 
     def _backpropagate(self, value, node):

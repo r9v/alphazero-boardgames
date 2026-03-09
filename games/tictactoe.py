@@ -49,6 +49,7 @@ class TTTGame(Game):
     board_shape = (3, 3)
     action_size = 9
     num_history_states = 2
+    relative_encoding = True
 
     def new_game(self):
         return GameState(None)
@@ -68,6 +69,9 @@ class TTTGame(Game):
         channels = 2 * (self.num_history_states + 1) + 2  # 8 for 2 history
         inp = np.zeros((channels, 3, 3), dtype="float32")
 
+        me = state.player
+        opp = -me
+
         # Previous states (oldest first)
         s = state
         history = []
@@ -79,16 +83,17 @@ class TTTGame(Game):
                 history.append(np.zeros((3, 3), dtype="int"))
         history.reverse()
 
+        # Relative encoding: channel 0 = my pieces, channel 1 = opponent pieces
         for i, board in enumerate(history):
-            inp[2 * i] = (board == -1).astype("float32")
-            inp[2 * i + 1] = (board == 1).astype("float32")
+            inp[2 * i] = (board == me).astype("float32")
+            inp[2 * i + 1] = (board == opp).astype("float32")
 
         # Current state
         c = 2 * self.num_history_states
-        inp[c] = (state.board == -1).astype("float32")
-        inp[c + 1] = (state.board == 1).astype("float32")
+        inp[c] = (state.board == me).astype("float32")
+        inp[c + 1] = (state.board == opp).astype("float32")
 
-        # Player indicator
+        # Player indicator (which absolute player am I)
         if state.player == -1:
             inp[c + 2] = 1.0
         else:
