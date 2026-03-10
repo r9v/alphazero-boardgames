@@ -40,7 +40,9 @@ cdef class CSantoriniState:
     # Workers: [player_index][worker_index] where player_index 0=-1, 1=+1
     cdef int _wr[2][2]  # worker rows
     cdef int _wc[2][2]  # worker cols
+    cdef int _num_workers[2]  # workers placed per player-index (0-2)
     cdef public int player
+    cdef public int placed_count  # 0-4, placement complete when >= 4
     cdef public bint terminal
     cdef public int terminal_value
     cdef public bint last_turn_skipped
@@ -89,16 +91,23 @@ cdef class CSantoriniState:
     @property
     def workers(self):
         """Return workers as dict for GUI compatibility."""
-        return {
-            -1: [(self._wr[0][0], self._wc[0][0]),
-                 (self._wr[0][1], self._wc[0][1])],
-             1: [(self._wr[1][0], self._wc[1][0]),
-                 (self._wr[1][1], self._wc[1][1])],
-        }
+        cdef int pi, i
+        w = {}
+        for pi, player in enumerate((-1, 1)):
+            wlist = []
+            for i in range(self._num_workers[pi]):
+                wlist.append((self._wr[pi][i], self._wc[pi][i]))
+            w[player] = wlist
+        return w
 
     def _sorted_workers(self, int player):
         """Return workers sorted by (row, col) for consistent indexing."""
         cdef int pi = 0 if player == -1 else 1
+        cdef int nw = self._num_workers[pi]
+        if nw == 0:
+            return []
+        if nw == 1:
+            return [(self._wr[pi][0], self._wc[pi][0])]
         w0 = (self._wr[pi][0], self._wc[pi][0])
         w1 = (self._wr[pi][1], self._wc[pi][1])
         if w0 <= w1:
@@ -188,39 +197,112 @@ cdef void _compute_available(CSantoriniState state) noexcept:
             occupied[mr][mc] = 0
 
 
+cdef void _compute_available_placement(CSantoriniState state) noexcept:
+    """Compute available placement actions (0-24 = r*5+c for empty cells)."""
+    cdef int occupied[5][5]
+    cdef int r, c, pi, i
+
+    memset(state._actions, 0, ACTION_SIZE * sizeof(int))
+    memset(occupied, 0, 25 * sizeof(int))
+
+    # Mark occupied positions
+    for pi in range(2):
+        for i in range(state._num_workers[pi]):
+            occupied[state._wr[pi][i]][state._wc[pi][i]] = 1
+
+    # All empty cells are valid placement targets
+    for r in range(BOARD_SIZE):
+        for c in range(BOARD_SIZE):
+            if not occupied[r][c]:
+                state._actions[r * 5 + c] = 1
+
+
 cdef CSantoriniState _new_game():
-    """Create initial game state."""
+    """Create initial game state with placement phase."""
     cdef CSantoriniState s = CSantoriniState.__new__(CSantoriniState)
     memset(s._board, 0, 25 * sizeof(int))
-    # Player -1 workers (index 0): (0,1) and (0,3)
-    s._wr[0][0] = 0; s._wc[0][0] = 1
-    s._wr[0][1] = 0; s._wc[0][1] = 3
-    # Player +1 workers (index 1): (4,1) and (4,3)
-    s._wr[1][0] = 4; s._wc[1][0] = 1
-    s._wr[1][1] = 4; s._wc[1][1] = 3
+    s._num_workers[0] = 0
+    s._num_workers[1] = 0
+    # Sentinel values for unplaced workers
+    s._wr[0][0] = -1; s._wc[0][0] = -1
+    s._wr[0][1] = -1; s._wc[0][1] = -1
+    s._wr[1][0] = -1; s._wc[1][0] = -1
+    s._wr[1][1] = -1; s._wc[1][1] = -1
     s.player = -1
+    s.placed_count = 0
     s.last_turn_skipped = False
     s.prev_state = None
     s._board_np = None
     s._actions_np = None
 
-    _compute_available(s)
-    # Check terminal
-    cdef int total = 0
-    cdef int i
-    for i in range(ACTION_SIZE):
-        total += s._actions[i]
-    if total == 0:
-        s.terminal = True
-        s.terminal_value = s.player * -1
-    else:
-        s.terminal = False
-        s.terminal_value = 0
+    _compute_available_placement(s)
+    s.terminal = False
+    s.terminal_value = 0
     return s
+
+
+cdef CSantoriniState _step_placement(CSantoriniState state, int action):
+    """Place a worker on the board during placement phase."""
+    cdef CSantoriniState ns = CSantoriniState.__new__(CSantoriniState)
+    cdef int r = action // 5
+    cdef int c = action % 5
+    cdef int pi = _player_idx(state.player)
+    cdef int wi = state._num_workers[pi]
+    cdef int i, j, total
+
+    # Copy board (unchanged during placement)
+    memcpy(ns._board, state._board, 25 * sizeof(int))
+
+    # Copy workers
+    for i in range(2):
+        ns._num_workers[i] = state._num_workers[i]
+        for j in range(2):
+            ns._wr[i][j] = state._wr[i][j]
+            ns._wc[i][j] = state._wc[i][j]
+
+    # Place new worker
+    ns._wr[pi][wi] = r
+    ns._wc[pi][wi] = c
+    ns._num_workers[pi] = wi + 1
+
+    ns.placed_count = state.placed_count + 1
+    ns.prev_state = state
+    ns._board_np = None
+    ns._actions_np = None
+
+    if ns.placed_count == 1 or ns.placed_count == 3:
+        # Same player places again
+        ns.player = state.player
+        ns.last_turn_skipped = True
+    else:
+        # Switch player (placed_count becomes 2 or 4)
+        ns.player = state.player * -1
+        ns.last_turn_skipped = False
+
+    if ns.placed_count < 4:
+        _compute_available_placement(ns)
+        ns.terminal = False
+        ns.terminal_value = 0
+    else:
+        _compute_available(ns)
+        total = 0
+        for i in range(ACTION_SIZE):
+            total += ns._actions[i]
+        if total == 0:
+            ns.terminal = True
+            ns.terminal_value = ns.player * -1
+        else:
+            ns.terminal = False
+            ns.terminal_value = 0
+
+    return ns
 
 
 cdef CSantoriniState _step(CSantoriniState state, int action):
     """Apply action and return new state. No np.copy or deepcopy."""
+    if state.placed_count < 4:
+        return _step_placement(state, action)
+
     cdef CSantoriniState ns = CSantoriniState.__new__(CSantoriniState)
     cdef int pi = _player_idx(state.player)
     cdef int w_idx, m_dir, b_dir
@@ -256,8 +338,10 @@ cdef CSantoriniState _step(CSantoriniState state, int action):
     # Copy board
     memcpy(ns._board, state._board, 25 * sizeof(int))
 
-    # Copy workers
+    # Copy workers and placement state
+    ns.placed_count = 4
     for i in range(2):
+        ns._num_workers[i] = 2
         for j in range(2):
             ns._wr[i][j] = state._wr[i][j]
             ns._wc[i][j] = state._wc[i][j]
@@ -333,15 +417,19 @@ class CSantoriniGame:
                     else:
                         out[4, r, c] = 1.0  # 4+ = dome
 
-            # Channel 5: current player's workers
+            # Channel 5: current player's workers (0-2 during placement)
             pi = _player_idx(cs.player)
-            out[5, cs._wr[pi][0], cs._wc[pi][0]] = 1.0
-            out[5, cs._wr[pi][1], cs._wc[pi][1]] = 1.0
+            if cs._num_workers[pi] >= 1:
+                out[5, cs._wr[pi][0], cs._wc[pi][0]] = 1.0
+            if cs._num_workers[pi] >= 2:
+                out[5, cs._wr[pi][1], cs._wc[pi][1]] = 1.0
 
-            # Channel 6: opponent's workers
+            # Channel 6: opponent's workers (0-2 during placement)
             oi = 1 - pi
-            out[6, cs._wr[oi][0], cs._wc[oi][0]] = 1.0
-            out[6, cs._wr[oi][1], cs._wc[oi][1]] = 1.0
+            if cs._num_workers[oi] >= 1:
+                out[6, cs._wr[oi][0], cs._wc[oi][0]] = 1.0
+            if cs._num_workers[oi] >= 2:
+                out[6, cs._wr[oi][1], cs._wc[oi][1]] = 1.0
         else:
             # Fallback for Python GameState
             board = state.board

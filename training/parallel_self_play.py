@@ -17,7 +17,7 @@ class BatchedSelfPlay:
     """
 
     def __init__(self, game, net, num_games, num_simulations,
-                 selects_per_round=1, vl_value=0.0, log_games=0,
+                 selects_per_round=1, vl_value=0.0,
                  temp_threshold=15, c_puct=1.5):
         self.game = game
         self.net = net
@@ -27,7 +27,6 @@ class BatchedSelfPlay:
         self.vl_value = vl_value
         self.temp_threshold = temp_threshold
         self.mcts = MCTS(game, net, c_puct=c_puct)
-        self.log_games = log_games  # how many games to log in detail
 
         # Log backends once
         if not getattr(BatchedSelfPlay, '_backend_logged', False):
@@ -68,9 +67,6 @@ class BatchedSelfPlay:
         self._active_per_move = []  # track len(active) each move step
         self._accum_rounds = 0  # how many times accumulation path fired
 
-        # Diagnostic: per-move logs for a sample of games
-        # Each entry: {move, player, nnet_value, action, pi, child_Qs, child_Ns}
-        self._game_logs = [[] for _ in range(self.num_games)]
         self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value) per move
 
         # Initialize all games
@@ -107,24 +103,6 @@ class BatchedSelfPlay:
 
                 # Diagnostic: record per-move stats
                 self._game_value_preds[i].append((states[i].player, root.nnet_value))
-                if i < self.log_games:
-                    child_Qs = {}
-                    child_Ns = {}
-                    for a in root.available_actions:
-                        ch = children.get(a) if isinstance(children, dict) else children[a]
-                        if ch is not None:
-                            child_Qs[int(a)] = ch.Q
-                            child_Ns[int(a)] = ch.n
-                    self._game_logs[i].append({
-                        "move": len(examples[i]),
-                        "player": states[i].player,
-                        "nnet_value": root.nnet_value,
-                        "root_Q": root.Q,
-                        "root_N": root.n,
-                        "pi": pi.tolist(),
-                        "child_Qs": child_Qs,
-                        "child_Ns": child_Ns,
-                    })
 
                 # Temperature: explore early, exploit late
                 move_num = len(examples[i])

@@ -60,7 +60,7 @@ GAME_CONFIGS = {
         "max_train_steps": 12800,
         "target_epochs": 4,
         "buffer_size": 55000,
-        "value_loss_weight": 2.0, 
+        "value_loss_weight": 1.0, 
 
         # --- Self-play ---
         "default_iterations": 32,

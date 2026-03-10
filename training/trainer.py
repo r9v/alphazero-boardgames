@@ -389,13 +389,10 @@ class Trainer:
 
     def _self_play(self, iteration):
         """Run self-play games in parallel with batched evaluation."""
-        # Log first 2 games in detail every 5 iterations (or first iteration)
-        log_games = 2 if (iteration % 5 == 0 or iteration == 0) else 0
         self._batched = BatchedSelfPlay(
             self.game, self.net, self.games_per_iteration, self.num_simulations,
             selects_per_round=self.config.get("selects_per_round", 1),
             vl_value=self.config.get("vl_value", 0.0),
-            log_games=log_games,
             temp_threshold=self.config.get("temp_threshold", 15),
             c_puct=self.config.get("c_puct", 1.5),
         )
@@ -608,32 +605,6 @@ class Trainer:
                           f"v_when_O={vd['mean_when_o_moves']:+.3f} | "
                           f"sat+={vd['frac_saturated_pos']:.1%} "
                           f"sat-={vd['frac_saturated_neg']:.1%}")
-
-            # === Log detailed game trace (first logged game) ===
-            if hasattr(self, '_batched') and self._batched._game_logs:
-                for gi, glog in enumerate(self._batched._game_logs):
-                    if not glog:
-                        continue
-                    if gi >= 1:  # only print first logged game
-                        break
-                    outcome = results[gi]
-                    winner = "X" if outcome == -1 else ("O" if outcome == 1 else "draw")
-                    print(f"  GameTrace[{gi}]: {len(glog)} moves, winner={winner} (val={outcome})")
-                    for entry in glog:
-                        player_str = "X" if entry["player"] == -1 else "O"
-                        pi = entry["pi"]
-                        best_action = max(range(len(pi)), key=lambda a: pi[a])
-                        # Show NN value vs eventual outcome
-                        nnet_v = entry["nnet_value"]
-                        # Relative: target from this player's perspective
-                        target = outcome * entry["player"]
-                        err = abs(nnet_v - target)
-                        Qs_str = " ".join(f"{a}:{q:+.2f}" for a, q in sorted(entry["child_Qs"].items()))
-                        Ns_str = " ".join(f"{a}:{n}" for a, n in sorted(entry["child_Ns"].items()))
-                        print(f"    mv{entry['move']:>2} {player_str}: "
-                              f"V={nnet_v:+.3f} (err={err:.2f}) "
-                              f"act={best_action} | "
-                              f"Q=[{Qs_str}] N=[{Ns_str}]")
 
             # === Fixed diagnostic position evaluation ===
             self._eval_diagnostic_positions(iteration)

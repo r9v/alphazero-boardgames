@@ -133,6 +133,28 @@ def _transform_policy(policy, sym_idx, swap_workers):
     return new_policy
 
 
+def _is_placement(state_input):
+    """Detect placement phase from state tensor.
+
+    During placement, channels 5+6 have fewer than 4 total workers.
+    """
+    n_workers = int((state_input[5] > 0.5).sum() + (state_input[6] > 0.5).sum())
+    return n_workers < 4
+
+
+def _transform_placement_policy(policy, sym_idx):
+    """Remap placement policy (actions 0-24 = r*5+c) via position transform."""
+    new_policy = np.zeros(128, dtype=policy.dtype)
+    for action in range(25):
+        if policy[action] == 0:
+            continue
+        r, c = action // 5, action % 5
+        new_r, new_c = _transform_pos(r, c, sym_idx)
+        new_action = new_r * 5 + new_c
+        new_policy[new_action] = policy[action]
+    return new_policy
+
+
 def get_symmetries(state_input, policy):
     """Return all 8 D4 symmetries of (state_input, policy).
 
@@ -143,11 +165,18 @@ def get_symmetries(state_input, policy):
     Returns:
         List of 8 (transformed_state, transformed_policy) tuples.
         First element is always the identity (original).
+
+    Handles both placement phase (actions 0-24 = cell positions) and
+    normal play (actions 0-127 = worker*64 + move_dir*8 + build_dir).
     """
+    placement = _is_placement(state_input)
     result = []
     for sym_idx in range(8):
         new_state = _transform_state(state_input, sym_idx)
-        swap = _needs_worker_swap(state_input, sym_idx)
-        new_policy = _transform_policy(policy, sym_idx, swap)
+        if placement:
+            new_policy = _transform_placement_policy(policy, sym_idx)
+        else:
+            swap = _needs_worker_swap(state_input, sym_idx)
+            new_policy = _transform_policy(policy, sym_idx, swap)
         result.append((new_state, new_policy))
     return result

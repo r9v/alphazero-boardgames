@@ -20,17 +20,21 @@ def _in_bounds(r, c):
 
 class GameState(BaseGameState):
     def __init__(self, prev_state, board=None, workers=None, player=-1,
-                 win_by_climb=False):
+                 win_by_climb=False, placed_count=4, last_turn_skipped=False):
         if board is None:
             board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype="int")
         if workers is None:
-            workers = copy.deepcopy(INITIAL_WORKERS)
+            if placed_count < 4:
+                workers = {-1: [], 1: []}
+            else:
+                workers = copy.deepcopy(INITIAL_WORKERS)
 
         self.board = board
         self.workers = workers
         self.player = player
         self.prev_state = prev_state
-        self.last_turn_skipped = False
+        self.placed_count = placed_count
+        self.last_turn_skipped = last_turn_skipped
 
         if win_by_climb:
             # Previous player won by climbing to level 3
@@ -54,6 +58,9 @@ class GameState(BaseGameState):
         return positions
 
     def _available_actions(self):
+        if self.placed_count < 4:
+            return self._available_placement_actions()
+
         mask = np.zeros(128, dtype="int")
         occupied = self._all_worker_positions()
         my_workers = self._sorted_workers(self.player)
@@ -92,6 +99,16 @@ class GameState(BaseGameState):
 
         return mask
 
+    def _available_placement_actions(self):
+        """During placement: actions 0-24 = place worker at r*5+c."""
+        mask = np.zeros(128, dtype="int")
+        occupied = self._all_worker_positions()
+        for r in range(BOARD_SIZE):
+            for c in range(BOARD_SIZE):
+                if (r, c) not in occupied:
+                    mask[r * 5 + c] = 1
+        return mask
+
     def _over(self):
         if np.sum(self.available_actions) == 0:
             # Current player has no moves — opponent wins
@@ -106,13 +123,16 @@ class SantoriniGame(Game):
     input_channels = 7
 
     def new_game(self):
-        return GameState(None)
+        return GameState(None, placed_count=0)
 
     def step(self, state, action):
         if action < 0 or action >= 128:
             raise ValueError(f"Invalid action {action}")
         if state.available_actions[action] != 1:
             raise ValueError(f"Action {action} not available")
+
+        if state.placed_count < 4:
+            return self._step_placement(state, action)
 
         # Decode action
         w_idx = action // 64
@@ -150,6 +170,27 @@ class SantoriniGame(Game):
         return GameState(state, new_board, new_workers, state.player * -1,
                          win_by_climb=win)
 
+    def _step_placement(self, state, action):
+        """Place a worker on the board during placement phase."""
+        r, c = action // 5, action % 5
+
+        new_workers = copy.deepcopy(state.workers)
+        new_workers[state.player].append((r, c))
+
+        new_placed = state.placed_count + 1
+
+        if new_placed in (1, 3):
+            # Same player places again
+            new_player = state.player
+            skip = True
+        else:
+            # Switch player (placed_count becomes 2 or 4)
+            new_player = state.player * -1
+            skip = False
+
+        return GameState(state, np.copy(state.board), new_workers, new_player,
+                         placed_count=new_placed, last_turn_skipped=skip)
+
     def get_symmetries(self, state_input, policy):
         """D4 symmetry: 8 transforms (4 rotations + 4 reflections)."""
         return _get_symmetries(state_input, policy)
@@ -162,11 +203,11 @@ class SantoriniGame(Game):
         for level in range(5):
             inp[level] = (state.board == level).astype("float32")
 
-        # Channel 5: current player's workers
+        # Channel 5: current player's workers (0, 1, or 2 during placement)
         for r, c in state.workers[state.player]:
             inp[5][r][c] = 1.0
 
-        # Channel 6: opponent's workers
+        # Channel 6: opponent's workers (0, 1, or 2 during placement)
         opponent = state.player * -1
         for r, c in state.workers[opponent]:
             inp[6][r][c] = 1.0

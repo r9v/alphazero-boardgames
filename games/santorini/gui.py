@@ -75,6 +75,14 @@ def draw_board(screen, state, phase, selected_worker_pos, valid_targets,
             winner = "1 (White)" if state.terminal_value == -1 else "2 (Black)"
             status = f"Player {winner} wins!"
         color = WIN_COLOR
+    elif hasattr(state, 'placed_count') and state.placed_count < 4:
+        name = "1 (White)" if state.player == -1 else "2 (Black)"
+        worker_num = len(state.workers[state.player]) + 1
+        if ai_thinking:
+            status = f"Player {name}  —  AI placing worker..."
+        else:
+            status = f"Player {name}  —  place worker {worker_num}"
+        color = TEXT_COLOR
     else:
         name = "1 (White)" if state.player == -1 else "2 (Black)"
         if ai_thinking:
@@ -175,7 +183,7 @@ class GUI:
         pygame.display.set_caption("Santorini")
 
         self.state = game.new_game()
-        self.phase = "IDLE"
+        self.phase = "PLACEMENT"
         self.selected_worker_idx = None
         self.selected_worker_pos = None
         self.selected_move_dir = None
@@ -239,13 +247,25 @@ class GUI:
             print(f"  Turn: {turn}")
 
     def _draw(self):
-        targets = set(self.valid_targets.keys()) if self.valid_targets else None
-        draw_board(self.screen, self.state, self.phase,
-                   self.selected_worker_pos, targets,
-                   ai_thinking=self.ai_thinking)
+        if self.phase == "PLACEMENT":
+            # Highlight all empty cells as valid placement targets
+            targets = set()
+            for action in range(25):
+                if self.state.available_actions[action]:
+                    targets.add((action // 5, action % 5))
+            draw_board(self.screen, self.state, self.phase,
+                       None, targets, ai_thinking=self.ai_thinking)
+        else:
+            targets = set(self.valid_targets.keys()) if self.valid_targets else None
+            draw_board(self.screen, self.state, self.phase,
+                       self.selected_worker_pos, targets,
+                       ai_thinking=self.ai_thinking)
 
     def _reset_phase(self):
-        self.phase = "IDLE"
+        if hasattr(self.state, 'placed_count') and self.state.placed_count < 4:
+            self.phase = "PLACEMENT"
+        else:
+            self.phase = "IDLE"
         self.selected_worker_idx = None
         self.selected_worker_pos = None
         self.selected_move_dir = None
@@ -273,44 +293,77 @@ class GUI:
         elapsed = time.time() - t0
         move = int(np.argmax(pi))
 
+        is_placement = (hasattr(self.state, 'placed_count')
+                        and self.state.placed_count < 4)
+
         # Log AI move
         self.move_number += 1
         root = self.mcts.last_root
         player = "White(P1)" if self.state.player == -1 else "Black(P2)"
-        print(f"\n--- Move {self.move_number}: AI ({player}) action={move} "
-              f"| {self.simulations} sims in {elapsed:.2f}s ---")
-        print(f"  Root N={root.n}  V={root.nnet_value:+.4f}")
 
-        # Decode and show top actions by visit count
-        actions_with_visits = []
-        children = root.children
-        for a in range(128):
-            child = children.get(a) if isinstance(children, dict) else children[a]
-            if child is not None and child.n > 0:
-                actions_with_visits.append((a, child.n, child.Q))
+        if is_placement:
+            r, c = move // 5, move % 5
+            worker_num = len(self.state.workers[self.state.player]) + 1
+            print(f"\n--- Move {self.move_number}: AI ({player}) places "
+                  f"worker {worker_num} at ({r},{c}) "
+                  f"| {self.simulations} sims in {elapsed:.2f}s ---")
+            print(f"  Root N={root.n}  V={root.nnet_value:+.4f}")
 
-        actions_with_visits.sort(key=lambda x: -x[1])
-        top = actions_with_visits[:10]
+            # Show top placement actions
+            actions_with_visits = []
+            children = root.children
+            for a in range(25):
+                child = (children.get(a) if isinstance(children, dict)
+                         else children[a])
+                if child is not None and child.n > 0:
+                    actions_with_visits.append((a, child.n, child.Q))
+            actions_with_visits.sort(key=lambda x: -x[1])
+            for a, n, q in actions_with_visits[:10]:
+                ar, ac = a // 5, a % 5
+                marker = " <--" if a == move else ""
+                print(f"    ({ar},{ac}) N={n:>5} Q={q:+.4f}{marker}")
+        else:
+            print(f"\n--- Move {self.move_number}: AI ({player}) action={move} "
+                  f"| {self.simulations} sims in {elapsed:.2f}s ---")
+            print(f"  Root N={root.n}  V={root.nnet_value:+.4f}")
 
-        print(f"  {'Action':>6}  {'N':>6}  {'Q':>8}  {'P':>7}  {'pi':>7}  Description")
-        print(f"  {'------':>6}  {'---':>6}  {'---':>8}  {'---':>7}  {'---':>7}  -----------")
-        for a, n, q in top:
-            w_idx = a // 64
-            m_dir = (a % 64) // 8
-            b_dir = a % 8
-            my_workers = self.state._sorted_workers(self.state.player)
-            wr, wc = my_workers[w_idx]
-            dr, dc = DIRECTIONS[m_dir]
-            mr, mc = wr + dr, wc + dc
-            bdr, bdc = DIRECTIONS[b_dir]
-            br, bc = mr + bdr, mc + bdc
-            desc = f"W({wr},{wc})→({mr},{mc}) B({br},{bc})"
-            p_val = f"{root.P[a]:.4f}" if root.P[a] > 0.0001 else "  .   "
-            pi_val = f"{pi[a]:.4f}" if pi[a] > 0.001 else "  .   "
-            marker = " <--" if a == move else ""
-            print(f"  {a:>6}  {n:>6}  {q:>+8.4f}  {p_val:>7}  {pi_val:>7}  {desc}{marker}")
+            # Decode and show top actions by visit count
+            actions_with_visits = []
+            children = root.children
+            for a in range(128):
+                child = (children.get(a) if isinstance(children, dict)
+                         else children[a])
+                if child is not None and child.n > 0:
+                    actions_with_visits.append((a, child.n, child.Q))
 
-        print(f"  Total unique actions visited: {len(actions_with_visits)}")
+            actions_with_visits.sort(key=lambda x: -x[1])
+            top = actions_with_visits[:10]
+
+            print(f"  {'Action':>6}  {'N':>6}  {'Q':>8}  {'P':>7}  "
+                  f"{'pi':>7}  Description")
+            print(f"  {'------':>6}  {'---':>6}  {'---':>8}  {'---':>7}  "
+                  f"{'---':>7}  -----------")
+            for a, n, q in top:
+                w_idx = a // 64
+                m_dir = (a % 64) // 8
+                b_dir = a % 8
+                my_workers = self.state._sorted_workers(self.state.player)
+                wr, wc = my_workers[w_idx]
+                dr, dc = DIRECTIONS[m_dir]
+                mr, mc = wr + dr, wc + dc
+                bdr, bdc = DIRECTIONS[b_dir]
+                br, bc = mr + bdr, mc + bdc
+                desc = f"W({wr},{wc})→({mr},{mc}) B({br},{bc})"
+                p_val = (f"{root.P[a]:.4f}" if root.P[a] > 0.0001
+                         else "  .   ")
+                pi_val = (f"{pi[a]:.4f}" if pi[a] > 0.001
+                          else "  .   ")
+                marker = " <--" if a == move else ""
+                print(f"  {a:>6}  {n:>6}  {q:>+8.4f}  {p_val:>7}  "
+                      f"{pi_val:>7}  {desc}{marker}")
+
+            print(f"  Total unique actions visited: "
+                  f"{len(actions_with_visits)}")
 
         self.state = game.step(self.state, move)
         self._log_board()
@@ -330,7 +383,9 @@ class GUI:
 
         r, c = cell
 
-        if self.phase == "IDLE":
+        if self.phase == "PLACEMENT":
+            self._handle_placement(r, c)
+        elif self.phase == "IDLE":
             self._handle_idle(r, c)
         elif self.phase == "WORKER_SELECTED":
             self._handle_worker_selected(r, c)
@@ -338,6 +393,21 @@ class GUI:
             self._handle_move_selected(r, c)
 
         self._draw()
+
+    def _handle_placement(self, r, c):
+        """Click an empty cell to place a worker."""
+        action = r * 5 + c
+        if self.state.available_actions[action] != 1:
+            return
+
+        player = "White(P1)" if self.state.player == -1 else "Black(P2)"
+        worker_num = len(self.state.workers[self.state.player]) + 1
+        print(f"\n--- Placement: Human ({player}) worker {worker_num} "
+              f"at ({r},{c}) ---")
+
+        self.state = game.step(self.state, action)
+        self._log_board()
+        self._reset_phase()
 
     def _handle_idle(self, r, c):
         """Click a worker to select it."""
