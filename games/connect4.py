@@ -62,7 +62,7 @@ class GameState(BaseGameState):
 class Connect4Game(Game):
     board_shape = (ROW_COUNT, COLUMN_COUNT)
     action_size = COLUMN_COUNT
-    num_history_states = 2
+    num_history_states = 0
 
     def new_game(self):
         return GameState(None)
@@ -79,7 +79,7 @@ class Connect4Game(Game):
 
     def state_to_input(self, state):
         rows, cols = self.board_shape
-        channels = 2 * (self.num_history_states + 1)  # 6
+        channels = 2 * (self.num_history_states + 1)  # 2
         inp = np.zeros((channels, rows, cols), dtype="float32")
 
         me = state.player

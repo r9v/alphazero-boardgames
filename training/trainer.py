@@ -23,6 +23,7 @@ class Trainer:
         self.lr = self.config.get("lr", 0.001)
         self.device = self.config.get("device", "cpu")
         self.max_train_steps = self.config.get("max_train_steps", 1000)
+        self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
         self.optimizer = torch.optim.Adam(net.parameters(), lr=self.lr, weight_decay=1e-4)
 
@@ -88,7 +89,17 @@ class Trainer:
         early_cutoff = max(num_steps // 10, 1)
         late_start = num_steps - early_cutoff
 
+        # Cosine LR schedule: lr decays from initial to 10% over training steps
+        import math
+        lr_min = self.lr * 0.1
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.lr  # reset to initial at start of each iteration
+
         for step in range(num_steps):
+            # Cosine annealing: lr goes from self.lr -> lr_min
+            lr = lr_min + 0.5 * (self.lr - lr_min) * (1 + math.cos(math.pi * step / num_steps))
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = lr
             batch = random.choices(samples, k=self.batch_size)
 
             t0 = time.time()
@@ -102,7 +113,7 @@ class Trainer:
 
             value_loss = F.mse_loss(pred_vs, target_vs)
             policy_loss = -torch.mean(torch.sum(target_pis * torch.log(pred_pis + 1e-8), dim=1))
-            loss = value_loss + policy_loss
+            loss = self.value_loss_weight * value_loss + policy_loss
 
             self.optimizer.zero_grad()
             loss.backward()

@@ -48,7 +48,7 @@ class GameState(BaseGameState):
 class TTTGame(Game):
     board_shape = (3, 3)
     action_size = 9
-    num_history_states = 2
+    num_history_states = 0
 
     def new_game(self):
         return GameState(None)
@@ -65,7 +65,7 @@ class TTTGame(Game):
         return GameState(state, next_board, state.player * -1)
 
     def state_to_input(self, state):
-        channels = 2 * (self.num_history_states + 1)  # 6 for 2 history
+        channels = 2 * (self.num_history_states + 1)  # 2
         inp = np.zeros((channels, 3, 3), dtype="float32")
 
         me = state.player

@@ -83,6 +83,7 @@ def main():
         "max_train_steps": game_cfg.get("max_train_steps", 1000),
         "selects_per_round": game_cfg.get("selects_per_round", 1),
         "vl_value": game_cfg.get("vl_value", 0.0),
+        "value_loss_weight": game_cfg.get("value_loss_weight", 1.0),
     }
 
     trainer = Trainer(game, net, config)
