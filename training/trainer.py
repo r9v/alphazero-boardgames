@@ -98,6 +98,8 @@ class Trainer:
         # Linearly scale from 1 epoch (empty) to target_epochs (full)
         scaled_epochs = 1.0 + (self.target_epochs - 1.0) * fill_ratio
         target_steps = int(scaled_epochs * (n_samples // self.batch_size))
+        # Ramp value_loss_weight: 1.0 (empty) -> configured value (full)
+        effective_vlw = 1.0 + (self.value_loss_weight - 1.0) * fill_ratio
         num_steps = max(1, min(self.max_train_steps, target_steps))
         effective_epochs = (num_steps * self.batch_size) / n_samples
         early_cutoff = max(num_steps // 10, 1)
@@ -127,7 +129,7 @@ class Trainer:
 
             value_loss = F.mse_loss(pred_vs, target_vs)
             policy_loss = -torch.mean(torch.sum(target_pis * torch.log(pred_pis + 1e-8), dim=1))
-            loss = self.value_loss_weight * value_loss + policy_loss
+            loss = effective_vlw * value_loss + policy_loss
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -285,45 +287,44 @@ class Trainer:
         o_pred_avg = o_pred_sum / max(o_count, 1)
 
         # (V) Value head health: dead neurons, pre-tanh range, saturation
+        # Uses hooks on actual forward pass to avoid duplicating activation logic
         vh_diag = {}
         try:
             self.net.eval()
+            captured = {}
+            def hook_fc1(module, input, output):
+                captured['fc1_out'] = output
+            def hook_fc2(module, input, output):
+                captured['pre_tanh'] = output
+            h1 = self.net.value_fc1.register_forward_hook(hook_fc1)
+            h2 = self.net.value_fc2.register_forward_hook(hook_fc2)
             with torch.no_grad():
-                # Use a sample of training data
                 diag_batch = random.choices(samples, k=min(256, len(samples)))
                 diag_inp = torch.FloatTensor(
                     np.array([s[0] for s in diag_batch])
                 ).to(self.device)
+                v_out, _ = self.net(diag_inp)
+            h1.remove()
+            h2.remove()
 
-                # Run through backbone
-                x_bb = F.relu(self.net.bn(self.net.conv(diag_inp)))
-                for block in self.net.res_blocks:
-                    x_bb = block(x_bb)
+            fc1_np = captured['fc1_out'].cpu().numpy()
+            pre_tanh_np = captured['pre_tanh'].cpu().numpy().flatten()
+            out_np = v_out.cpu().numpy().flatten()
 
-                # Value head layers
-                v_conv = F.relu(self.net.value_bn(self.net.value_conv(x_bb)))
-                v_flat = v_conv.view(v_conv.size(0), -1)
-                v_fc1_out = F.relu(self.net.value_fc1(v_flat))
-                v_pre_tanh = self.net.value_fc2(v_fc1_out)
-                v_out = torch.tanh(v_pre_tanh)
+            n_total_neurons = fc1_np.shape[1]
+            # With LeakyReLU, "near-dead" = always near zero (abs < 0.01)
+            near_dead = (np.abs(fc1_np) < 0.01).all(axis=0)
+            n_dead = int(near_dead.sum())
 
-                fc1_np = v_fc1_out.cpu().numpy()
-                pre_tanh_np = v_pre_tanh.cpu().numpy().flatten()
-                out_np = v_out.cpu().numpy().flatten()
-
-                n_total_neurons = fc1_np.shape[1]
-                dead_mask = (fc1_np == 0).all(axis=0)
-                n_dead = int(dead_mask.sum())
-
-                vh_diag = {
-                    "dead_neurons": n_dead,
-                    "total_neurons": n_total_neurons,
-                    "pre_tanh_min": float(pre_tanh_np.min()),
-                    "pre_tanh_max": float(pre_tanh_np.max()),
-                    "pre_tanh_std": float(pre_tanh_np.std()),
-                    "out_saturated": float((np.abs(out_np) > 0.95).mean()),
-                    "out_abs_mean": float(np.abs(out_np).mean()),
-                }
+            vh_diag = {
+                "dead_neurons": n_dead,
+                "total_neurons": n_total_neurons,
+                "pre_tanh_min": float(pre_tanh_np.min()),
+                "pre_tanh_max": float(pre_tanh_np.max()),
+                "pre_tanh_std": float(pre_tanh_np.std()),
+                "out_saturated": float((np.abs(out_np) > 0.95).mean()),
+                "out_abs_mean": float(np.abs(out_np).mean()),
+            }
             self.net.train()
         except Exception:
             pass
@@ -354,6 +355,7 @@ class Trainer:
             "frac_neg": frac_neg,
             "frac_draw": frac_draw,
             "effective_epochs": effective_epochs,
+            "effective_vlw": effective_vlw,
             "num_steps": num_steps,
             "early_vloss": early_vloss,
             "early_ploss": early_ploss,
@@ -536,6 +538,7 @@ class Trainer:
                       f"draw={d['frac_draw']:.1%}")
                 overfit_gap = d['val_vloss'] - d['late_vloss']
                 print(f"  Diag: eff_epochs={d['effective_epochs']:.1f} "
+                      f"vlw={d['effective_vlw']:.2f} "
                       f"steps={d['num_steps']} | "
                       f"vloss train={d['late_vloss']:.4f} "
                       f"val={d['val_vloss']:.4f} "
@@ -635,10 +638,10 @@ class Trainer:
             # === Fixed diagnostic position evaluation ===
             self._eval_diagnostic_positions(iteration)
 
-            # Save every 15 iterations + always on the last one
+            # Save every 10 iterations + always on the last one
             # Also save iteration 0 if no checkpoint exists (quick sanity check)
             no_checkpoint = not os.path.exists(os.path.join(self.checkpoint_dir, "latest.txt"))
-            if (iteration + 1) % 15 == 0 or iteration == num_iterations - 1 or (iteration == 0 and no_checkpoint):
+            if (iteration + 1) % 10 == 0 or iteration == num_iterations - 1 or (iteration == 0 and no_checkpoint):
                 self.net.save(self.checkpoint_dir)
 
         self.writer.close()

@@ -38,9 +38,9 @@ python train.py --game tictactoe
 python train.py --game connect4
 
 # Santorini (larger network, more simulations)
-python train.py --game santorini --iterations 32 --games 128 --simulations 256
+python train.py --game santorini --iterations 32 --games 32 --simulations 256
 
-python -u train.py --game santorini --iterations 32 --games 64 --simulations 256 2>&1 | tee training_log.txt
+python -u train.py --game santorini --iterations 32 --games 32 --simulations 256 2>&1 | tee training_log.txt
 ```
 
 ## Supported Games

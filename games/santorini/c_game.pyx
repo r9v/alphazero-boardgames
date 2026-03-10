@@ -356,5 +356,6 @@ class CSantoriniGame:
         return inp
 
     def get_symmetries(self, state_input, policy):
-        """No symmetry augmentation for Santorini (action encoding is direction-based)."""
-        return [(state_input, policy)]
+        """D4 symmetry: 8 transforms (4 rotations + 4 reflections)."""
+        from .symmetry import get_symmetries as _get_symmetries
+        return _get_symmetries(state_input, policy)

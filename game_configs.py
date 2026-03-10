@@ -59,16 +59,16 @@ GAME_CONFIGS = {
         # --- Training ---
         "max_train_steps": 12800,
         "target_epochs": 4,
-        "buffer_size": 50000,
-        "value_loss_weight": 1.0,
+        "buffer_size": 55000,
+        "value_loss_weight": 2.0, 
 
         # --- Self-play ---
         "default_iterations": 32,
-        "default_games": 64,
+        "default_games": 32,
         "default_simulations": 256,
         "selects_per_round": 8,
         "vl_value": 3.0,
-        "temp_threshold": 20,
+        "temp_threshold": 15,
         "c_puct": 1.5,
 
         # --- Play (human vs AI) ---

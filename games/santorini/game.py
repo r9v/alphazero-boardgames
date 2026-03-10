@@ -1,6 +1,7 @@
 import numpy as np
 import copy
 from ..base import GameState as BaseGameState, Game
+from .symmetry import get_symmetries as _get_symmetries
 
 BOARD_SIZE = 5
 
@@ -148,6 +149,10 @@ class SantoriniGame(Game):
 
         return GameState(state, new_board, new_workers, state.player * -1,
                          win_by_climb=win)
+
+    def get_symmetries(self, state_input, policy):
+        """D4 symmetry: 8 transforms (4 rotations + 4 reflections)."""
+        return _get_symmetries(state_input, policy)
 
     def state_to_input(self, state):
         inp = np.zeros((self.input_channels, BOARD_SIZE, BOARD_SIZE),
