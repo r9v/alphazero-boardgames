@@ -96,6 +96,15 @@ cdef class CSantoriniState:
                  (self._wr[1][1], self._wc[1][1])],
         }
 
+    def _sorted_workers(self, int player):
+        """Return workers sorted by (row, col) for consistent indexing."""
+        cdef int pi = 0 if player == -1 else 1
+        w0 = (self._wr[pi][0], self._wc[pi][0])
+        w1 = (self._wr[pi][1], self._wc[pi][1])
+        if w0 <= w1:
+            return [w0, w1]
+        return [w1, w0]
+
 
 cdef int _player_idx(int player) noexcept nogil:
     """Convert player (-1 or 1) to index (0 or 1)."""
@@ -345,3 +354,7 @@ class CSantoriniGame:
                 inp[6][r2][c2] = 1.0
 
         return inp
+
+    def get_symmetries(self, state_input, policy):
+        """No symmetry augmentation for Santorini (action encoding is direction-based)."""
+        return [(state_input, policy)]

@@ -2,7 +2,8 @@ import argparse
 
 import torch
 
-from network import AlphaZeroNet, GAME_CONFIGS
+from network import AlphaZeroNet
+from game_configs import GAME_CONFIGS
 from training import Trainer
 
 

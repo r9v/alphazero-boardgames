@@ -29,6 +29,16 @@ class BatchedSelfPlay:
         self.mcts = MCTS(game, net, c_puct=c_puct)
         self.log_games = log_games  # how many games to log in detail
 
+        # Log backends once
+        if not getattr(BatchedSelfPlay, '_backend_logged', False):
+            mcts_mod = MCTS.__module__
+            mcts_label = "C/Cython" if "c_mcts" in mcts_mod else "Python"
+            game_mod = type(game).__module__
+            game_label = "C/Cython" if "c_game" in game_mod else "Python"
+            print(f"  MCTS backend: {mcts_label} ({mcts_mod})")
+            print(f"  Game backend: {game_label} ({game_mod})")
+            BatchedSelfPlay._backend_logged = True
+
     def play_games(self):
         """Play num_games self-play games in parallel.
 
@@ -53,6 +63,10 @@ class BatchedSelfPlay:
         self._last_max_batch = 0
         self._encoding_checks = 0
         self._encoding_errors = 0
+        self._last_encoding_time = 0.0
+        self._batch_histogram = [0, 0, 0, 0, 0]  # [1-4, 5-16, 17-32, 33-64, 65+]
+        self._active_per_move = []  # track len(active) each move step
+        self._accum_rounds = 0  # how many times accumulation path fired
 
         # Diagnostic: per-move logs for a sample of games
         # Each entry: {move, player, nnet_value, action, pi, child_Qs, child_Ns}
@@ -76,6 +90,7 @@ class BatchedSelfPlay:
             root.P = add_dirichlet_noise(root.P, 0.03, 0.25)
 
         while active:
+            self._active_per_move.append(len(active))
             # Run MCTS simulations for all active games
             self._run_simulations(roots, active)
 
@@ -181,6 +196,10 @@ class BatchedSelfPlay:
             "max_batch": self._last_max_batch,
             "encoding_checks": self._encoding_checks,
             "encoding_errors": self._encoding_errors,
+            "encoding_time": self._last_encoding_time,
+            "batch_histogram": self._batch_histogram,
+            "active_per_move": self._active_per_move,
+            "accum_rounds": self._accum_rounds,
         }
 
         # Compute self-play value prediction diagnostics
@@ -231,6 +250,9 @@ class BatchedSelfPlay:
         Uses K-select with virtual loss: each round selects K leaves per game,
         batches them for GPU eval, then backprops. Virtual loss ensures different
         selects explore different branches.
+
+        When few games remain active (< 8), accumulates leaves across multiple
+        simulation rounds before flushing to GPU to avoid tiny batches.
         """
         select_expand_time = 0.0
         backup_time = 0.0
@@ -238,60 +260,109 @@ class BatchedSelfPlay:
         terminal_hits = 0
         K = self.selects_per_round
         use_vl = K > 1
+        n_active = len(active)
+        MIN_BATCH_TARGET = 8
 
-        for _ in range(0, self.num_simulations, K):
-            pending = []  # (leaf, path) tuples
+        # Accumulation mode: when few games remain, gather multiple rounds
+        # to build a decent batch before hitting GPU
+        use_accum = n_active < MIN_BATCH_TARGET
+        if use_accum:
+            accum_vl = 3.0  # temporary VL for diverse selection during accumulation
+            rounds_per_flush = max(1, (MIN_BATCH_TARGET + n_active - 1) // n_active)
+            self._accum_rounds += 1
 
-            t0 = time.time()
-            if use_vl:
-                for i in active:
-                    for k in range(K):
-                        leaf, path = self.mcts.search_expand_vl(roots[i], self.vl_value)
-                        if leaf is not None:
-                            pending.append((leaf, path))
-                        else:
-                            terminal_hits += 1
-            else:
-                # K=1, no VL needed — use original fast path
-                for i in active:
-                    leaf = self.mcts.search_expand(roots[i])
-                    if leaf is not None:
-                        pending.append((leaf, None))
-                    else:
-                        terminal_hits += 1
-            select_expand_time += time.time() - t0
+        sims_done = 0
+        while sims_done < self.num_simulations:
+            if use_accum:
+                # Accumulation path: gather multiple rounds of leaves with VL
+                all_pending = []  # (leaf, path) tuples across rounds
+                rounds_this_flush = min(rounds_per_flush,
+                                        (self.num_simulations - sims_done + K - 1) // K)
+                t0 = time.time()
+                for _r in range(rounds_this_flush):
+                    for i in active:
+                        for _k in range(K):
+                            leaf, path = self.mcts.search_expand_vl(roots[i], accum_vl)
+                            if leaf is not None:
+                                all_pending.append((leaf, path))
+                            else:
+                                terminal_hits += 1
+                    sims_done += K
+                select_expand_time += time.time() - t0
 
-            if pending:
-                if use_vl:
-                    # Deduplicate by node id — same leaf selected twice
+                if all_pending:
+                    # Deduplicate
                     unique = {}
-                    for leaf, path in pending:
+                    for leaf, path in all_pending:
                         nid = id(leaf)
                         if nid not in unique:
                             unique[nid] = (leaf, path)
                         else:
-                            # Undo VL for duplicate
-                            self.mcts.undo_virtual_loss(leaf, path, self.vl_value)
-                            terminal_hits += 1  # count as handled
+                            self.mcts.undo_virtual_loss(leaf, path, accum_vl)
+                            terminal_hits += 1
 
                     leaves = [lp[0] for lp in unique.values()]
                     paths = [lp[1] for lp in unique.values()]
-                else:
-                    leaves = [lp[0] for lp in pending]
-                    paths = [None] * len(leaves)
 
-                t0 = time.time()
-                self._batch_evaluate_nodes(leaves)
-                nn_time += time.time() - t0
+                    t0 = time.time()
+                    self._batch_evaluate_nodes(leaves)
+                    nn_time += time.time() - t0
+
+                    t0 = time.time()
+                    for leaf, path in zip(leaves, paths):
+                        self.mcts.search_backup_vl(leaf, path, accum_vl)
+                    backup_time += time.time() - t0
+            else:
+                # Normal path: one round per flush
+                pending = []
 
                 t0 = time.time()
                 if use_vl:
-                    for leaf, path in zip(leaves, paths):
-                        self.mcts.search_backup_vl(leaf, path, self.vl_value)
+                    for i in active:
+                        for _k in range(K):
+                            leaf, path = self.mcts.search_expand_vl(roots[i], self.vl_value)
+                            if leaf is not None:
+                                pending.append((leaf, path))
+                            else:
+                                terminal_hits += 1
                 else:
-                    for node in leaves:
-                        self.mcts.search_backup(node)
-                backup_time += time.time() - t0
+                    for i in active:
+                        leaf = self.mcts.search_expand(roots[i])
+                        if leaf is not None:
+                            pending.append((leaf, None))
+                        else:
+                            terminal_hits += 1
+                select_expand_time += time.time() - t0
+                sims_done += K
+
+                if pending:
+                    if use_vl:
+                        unique = {}
+                        for leaf, path in pending:
+                            nid = id(leaf)
+                            if nid not in unique:
+                                unique[nid] = (leaf, path)
+                            else:
+                                self.mcts.undo_virtual_loss(leaf, path, self.vl_value)
+                                terminal_hits += 1
+                        leaves = [lp[0] for lp in unique.values()]
+                        paths = [lp[1] for lp in unique.values()]
+                    else:
+                        leaves = [lp[0] for lp in pending]
+                        paths = [None] * len(leaves)
+
+                    t0 = time.time()
+                    self._batch_evaluate_nodes(leaves)
+                    nn_time += time.time() - t0
+
+                    t0 = time.time()
+                    if use_vl:
+                        for leaf, path in zip(leaves, paths):
+                            self.mcts.search_backup_vl(leaf, path, self.vl_value)
+                    else:
+                        for node in leaves:
+                            self.mcts.search_backup(node)
+                    backup_time += time.time() - t0
 
         self._last_select_expand_time += select_expand_time
         self._last_backup_time += backup_time
@@ -307,29 +378,37 @@ class BatchedSelfPlay:
         state_inputs = [self.game.state_to_input(node.state) for node in nodes]
         preprocess_time = time.time() - t0
 
-        # Verify encoding consistency
-        for node, inp in zip(nodes, state_inputs):
-            self._encoding_checks += 1
-            player = node.state.player
-            num_hist = getattr(self.game, 'num_history_states', 2)
-            c = 2 * num_hist  # channel offset for current board
-            board = node.state.board
+        # Verify encoding consistency (sample 1 in 50 to reduce overhead)
+        # Only applies to games using the default history-based encoding
+        # (2 channels per history step). Games with custom input_channels
+        # (e.g. Santorini) use a different layout and skip this check.
+        t_enc = time.time()
+        if not hasattr(self.game, 'input_channels'):
+            for node, inp in zip(nodes, state_inputs):
+                self._encoding_checks += 1
+                if self._encoding_checks % 50 != 0:
+                    continue
+                player = node.state.player
+                num_hist = getattr(self.game, 'num_history_states', 2)
+                c = 2 * num_hist  # channel offset for current board
+                board = node.state.board
 
-            errors = []
-            # Piece count check: ch[c] = my pieces, ch[c+1] = opponent pieces
-            my_pieces_board = (board == player).sum()
-            opp_pieces_board = (board == -player).sum()
-            ch_c = inp[c].sum()
-            ch_c1 = inp[c + 1].sum()
-            if ch_c != my_pieces_board:
-                errors.append(f"my pieces: board={my_pieces_board} enc={ch_c}")
-            if ch_c1 != opp_pieces_board:
-                errors.append(f"opp pieces: board={opp_pieces_board} enc={ch_c1}")
+                errors = []
+                # Piece count check: ch[c] = my pieces, ch[c+1] = opponent pieces
+                my_pieces_board = (board == player).sum()
+                opp_pieces_board = (board == -player).sum()
+                ch_c = inp[c].sum()
+                ch_c1 = inp[c + 1].sum()
+                if ch_c != my_pieces_board:
+                    errors.append(f"my pieces: board={my_pieces_board} enc={ch_c}")
+                if ch_c1 != opp_pieces_board:
+                    errors.append(f"opp pieces: board={opp_pieces_board} enc={ch_c1}")
 
-            if errors:
-                self._encoding_errors += 1
-                if self._encoding_errors <= 5:
-                    print(f"  [ENCODING ERROR] {'; '.join(errors)}")
+                if errors:
+                    self._encoding_errors += 1
+                    if self._encoding_errors <= 5:
+                        print(f"  [ENCODING ERROR] {'; '.join(errors)}")
+        self._last_encoding_time += time.time() - t_enc
 
         values, policies, detail = self.net.batch_predict(state_inputs, detailed_timing=True)
 
@@ -347,3 +426,15 @@ class BatchedSelfPlay:
         self._last_sample_count += len(nodes)
         self._last_min_batch = min(self._last_min_batch, len(nodes))
         self._last_max_batch = max(self._last_max_batch, len(nodes))
+        # Batch histogram: [1-4, 5-16, 17-32, 33-64, 65+]
+        bs = len(nodes)
+        if bs <= 4:
+            self._batch_histogram[0] += 1
+        elif bs <= 16:
+            self._batch_histogram[1] += 1
+        elif bs <= 32:
+            self._batch_histogram[2] += 1
+        elif bs <= 64:
+            self._batch_histogram[3] += 1
+        else:
+            self._batch_histogram[4] += 1

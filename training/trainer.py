@@ -396,10 +396,26 @@ class Trainer:
                       f"batch_sz={perf['min_batch']}/{avg_batch:.0f}/{perf['max_batch']}")
                 enc_errs = perf.get("encoding_errors", 0)
                 enc_total = perf.get("encoding_checks", 0)
+                enc_time = perf.get("encoding_time", 0)
+                enc_sampled = enc_total // 50 if enc_total else 0
                 if enc_errs > 0:
-                    print(f"  [WARNING] Encoding errors: {enc_errs}/{enc_total}")
+                    print(f"  [WARNING] Encoding errors: {enc_errs}/{enc_sampled} sampled "
+                          f"({enc_total} total) {enc_time:.2f}s")
                 else:
-                    print(f"  Encoding: {enc_total} checks, all OK")
+                    print(f"  Encoding: {enc_sampled}/{enc_total} sampled, all OK, {enc_time:.2f}s")
+                # Batch size histogram
+                hist = perf.get("batch_histogram", [0]*5)
+                print(f"  BatchHist: [1-4]={hist[0]} [5-16]={hist[1]} "
+                      f"[17-32]={hist[2]} [33-64]={hist[3]} [65+]={hist[4]}")
+                # Active games per move step
+                apm = perf.get("active_per_move", [])
+                if apm:
+                    print(f"  ActiveGames: min={min(apm)} avg={np.mean(apm):.1f} "
+                          f"max={max(apm)} steps={len(apm)}")
+                # Accumulation rounds
+                accum = perf.get("accum_rounds", 0)
+                if accum > 0:
+                    print(f"  Accumulation: {accum} move-steps used batch accumulation")
             if hasattr(self, '_train_perf'):
                 tp = self._train_perf
                 self.writer.add_scalar("perf/train_data_prep", tp["data_prep_time"], iteration)

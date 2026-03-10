@@ -2,7 +2,8 @@ import argparse
 import pygame
 import sys
 import numpy as np
-from .game import SantoriniGame, DIRECTIONS, BOARD_SIZE
+from . import SantoriniGame           # Cython when available
+from .game import DIRECTIONS, BOARD_SIZE  # constants (not in Cython module)
 
 game = SantoriniGame()
 
@@ -167,7 +168,7 @@ def draw_board(screen, state, phase, selected_worker_pos, valid_targets,
 
 class GUI:
     def __init__(self, ai_player=None, simulations=100, filters=256,
-                 res_blocks=2):
+                 res_blocks=2, c_puct=1.5):
         pygame.init()
         self.screen = pygame.display.set_mode((WIN_W, WIN_H))
         pygame.display.set_caption("Santorini")
@@ -179,6 +180,7 @@ class GUI:
         self.selected_move_dir = None
         self.selected_move_target = None
         self.valid_targets = {}  # {(r,c): [dir_indices...]}
+        self.move_number = 0
 
         # AI setup
         self.ai_player = ai_player
@@ -203,10 +205,35 @@ class GUI:
                 print(f"Loaded model: {loaded_path}")
             else:
                 print("No checkpoint found, using untrained network.")
-            self.mcts = MCTS(game, net)
 
+            mcts_mod = MCTS.__module__
+            mcts_label = "C/Cython" if "c_mcts" in mcts_mod else "Python"
+            game_mod = type(game).__module__
+            game_label = "C/Cython" if "c_game" in game_mod else "Python"
+            human_side = "White (P1)" if ai_player == 1 else "Black (P2)"
+            print(f"Config: sims={simulations} c_puct={c_puct}")
+            print(f"  MCTS backend: {mcts_label} ({mcts_mod})")
+            print(f"  Game backend: {game_label} ({game_mod})")
+            print(f"  Human: {human_side}")
+            self.mcts = MCTS(game, net, c_puct=c_puct)
+
+        self._log_board()
         self._draw()
         self._run()
+
+    def _log_board(self):
+        """Print board state and worker positions to console."""
+        s = self.state
+        print(f"\n  Board (levels):")
+        for r in range(BOARD_SIZE):
+            row = " ".join(str(s.board[r][c]) for c in range(BOARD_SIZE))
+            print(f"    {row}")
+        for p, label in [(-1, "White(P1)"), (1, "Black(P2)")]:
+            ws = s.workers[p]
+            print(f"  {label} workers: {[(r,c) for r,c in ws]}")
+        if not s.terminal:
+            turn = "White(P1)" if s.player == -1 else "Black(P2)"
+            print(f"  Turn: {turn}")
 
     def _draw(self):
         targets = set(self.valid_targets.keys()) if self.valid_targets else None
@@ -222,6 +249,14 @@ class GUI:
         self.selected_move_target = None
         self.valid_targets = {}
 
+    def _log_terminal(self):
+        if self.state.terminal:
+            if self.state.terminal_value == 0:
+                print(f"\n=== GAME OVER: Draw ({self.move_number} moves) ===")
+            else:
+                winner = "White(P1)" if self.state.terminal_value == -1 else "Black(P2)"
+                print(f"\n=== GAME OVER: {winner} wins ({self.move_number} moves) ===")
+
     def _is_ai_turn(self):
         return (self.ai_player is not None
                 and not self.state.terminal
@@ -235,9 +270,11 @@ class GUI:
         elapsed = time.time() - t0
         move = int(np.argmax(pi))
 
-        # Debug: print MCTS stats
+        # Log AI move
+        self.move_number += 1
         root = self.mcts.last_root
-        print(f"\n--- AI Move (player {'White' if self.state.player == -1 else 'Black'}) "
+        player = "White(P1)" if self.state.player == -1 else "Black(P2)"
+        print(f"\n--- Move {self.move_number}: AI ({player}) action={move} "
               f"| {self.simulations} sims in {elapsed:.2f}s ---")
         print(f"  Root N={root.n}  V={root.nnet_value:+.4f}")
 
@@ -273,6 +310,8 @@ class GUI:
         print(f"  Total unique actions visited: {len(actions_with_visits)}")
 
         self.state = game.step(self.state, move)
+        self._log_board()
+        self._log_terminal()
         self._reset_phase()
         self.ai_thinking = False
 
@@ -364,7 +403,18 @@ class GUI:
     def _do_build(self, br, bc):
         b_dir = self.valid_targets[(br, bc)][0]
         action = self.selected_worker_idx * 64 + self.selected_move_dir * 8 + b_dir
+
+        # Log human move
+        self.move_number += 1
+        wr, wc = self.selected_worker_pos
+        mr, mc = self.selected_move_target
+        player = "White(P1)" if self.state.player == -1 else "Black(P2)"
+        print(f"\n--- Move {self.move_number}: Human ({player}) action={action} ---")
+        print(f"  W({wr},{wc})→({mr},{mc}) Build({br},{bc})")
+
         self.state = game.step(self.state, action)
+        self._log_board()
+        self._log_terminal()
         self._reset_phase()
 
     def _run(self):

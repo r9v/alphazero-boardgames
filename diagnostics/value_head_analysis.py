@@ -12,7 +12,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from network import AlphaZeroNet, GAME_CONFIGS
+from network import AlphaZeroNet
+from game_configs import GAME_CONFIGS
 from train import load_game
 from games.connect4 import GameState as C4State
 

@@ -1,7 +1,8 @@
 import argparse
 import numpy as np
 
-from network import AlphaZeroNet, GAME_CONFIGS
+from network import AlphaZeroNet
+from game_configs import GAME_CONFIGS
 from mcts import MCTS
 
 
@@ -40,7 +41,8 @@ def main():
     parser = argparse.ArgumentParser(description="Play against AlphaZero")
     parser.add_argument("--game", type=str, default="tictactoe",
                         choices=["tictactoe", "connect4", "santorini"])
-    parser.add_argument("--simulations", type=int, default=100)
+    parser.add_argument("--simulations", type=int, default=None,
+                        help="Override play-time simulations (default: from game config)")
     parser.add_argument("--human-first", action="store_true",
                         help="Human plays first (as X)")
     args = parser.parse_args()
@@ -49,12 +51,16 @@ def main():
     filters = net_cfg.get("num_filters", 256)
     res_blocks = net_cfg.get("num_res_blocks", 2)
 
+    # Resolve play-time config from game config
+    play_sims = args.simulations or net_cfg.get("play_simulations", 100)
+    play_c_puct = net_cfg.get("play_c_puct", 1.5)
+
     # Santorini launches the pygame GUI instead of terminal play
     if args.game == "santorini":
         from games.santorini.gui import GUI
         ai_player = 1 if args.human_first else -1
-        GUI(ai_player=ai_player, simulations=args.simulations,
-            filters=filters, res_blocks=res_blocks)
+        GUI(ai_player=ai_player, simulations=play_sims,
+            filters=filters, res_blocks=res_blocks, c_puct=play_c_puct)
         return
 
     from train import load_game
@@ -77,7 +83,14 @@ def main():
     else:
         print("No checkpoint found, using untrained network.")
 
-    mcts = MCTS(game, net)
+    mcts_mod = MCTS.__module__
+    mcts_label = "C/Cython" if "c_mcts" in mcts_mod else "Python"
+    game_mod = type(game).__module__
+    game_label = "C/Cython" if "c_game" in game_mod else "Python"
+    print(f"Config: sims={play_sims} c_puct={play_c_puct}")
+    print(f"  MCTS backend: {mcts_label} ({mcts_mod})")
+    print(f"  Game backend: {game_label} ({game_mod})")
+    mcts = MCTS(game, net, c_puct=play_c_puct)
     human_player = -1 if args.human_first else 1  # -1 goes first
 
     state = game.new_game()
@@ -99,7 +112,7 @@ def main():
             state = game.step(state, move)
         else:
             print("AI thinking...")
-            pi = mcts.get_policy(args.simulations, state)
+            pi = mcts.get_policy(play_sims, state)
             move = np.argmax(pi)
 
             # Debug: show MCTS stats per action

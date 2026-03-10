@@ -1,7 +1,8 @@
 """Debug script to analyze a specific Connect4 position where AI missed a diagonal threat."""
 import numpy as np
 from games.connect4 import Connect4Game, GameState
-from network import AlphaZeroNet, GAME_CONFIGS
+from network import AlphaZeroNet
+from game_configs import GAME_CONFIGS
 from mcts import MCTS
 
 

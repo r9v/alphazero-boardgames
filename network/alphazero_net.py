@@ -112,7 +112,16 @@ class AlphaZeroNet(nn.Module):
         fwd = getattr(self, '_compiled_forward', None) or self.forward
 
         t0 = time.time()
-        x = torch.FloatTensor(np.array(state_inputs)).to(device)
+        n = len(state_inputs)
+        inp_array = np.array(state_inputs)
+        # Pad to next multiple of 8 to reduce CUDAGraph recompilation
+        PAD_MULTIPLE = 8
+        padded_n = ((n + PAD_MULTIPLE - 1) // PAD_MULTIPLE) * PAD_MULTIPLE
+        if padded_n > n:
+            pad_shape = (padded_n - n,) + inp_array.shape[1:]
+            inp_array = np.concatenate([inp_array,
+                                        np.zeros(pad_shape, dtype=inp_array.dtype)])
+        x = torch.FloatTensor(inp_array).to(device)
         if use_fp16:
             x = x.half()
             torch.cuda.synchronize()
@@ -126,8 +135,8 @@ class AlphaZeroNet(nn.Module):
         forward_time = time.time() - t0
 
         t0 = time.time()
-        values = v.float().squeeze(1).cpu().numpy().tolist()
-        policies = p.float().cpu().numpy()
+        values = v.float().squeeze(1)[:n].cpu().numpy().tolist()
+        policies = p.float()[:n].cpu().numpy()
         result_time = time.time() - t0
 
         if detailed_timing:
