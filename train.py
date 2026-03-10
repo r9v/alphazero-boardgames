@@ -80,10 +80,14 @@ def main():
         "checkpoint_dir": checkpoint_dir,
         "game_name": args.game,
         "device": device,
-        "max_train_steps": game_cfg.get("max_train_steps", 1000),
+        "max_train_steps": game_cfg.get("max_train_steps", 5000),
+        "target_epochs": game_cfg.get("target_epochs", 4),
+        "buffer_size": game_cfg.get("buffer_size", 100000),
         "selects_per_round": game_cfg.get("selects_per_round", 1),
         "vl_value": game_cfg.get("vl_value", 0.0),
         "value_loss_weight": game_cfg.get("value_loss_weight", 1.0),
+        "temp_threshold": game_cfg.get("temp_threshold", 15),
+        "c_puct": game_cfg.get("c_puct", 1.5),
     }
 
     trainer = Trainer(game, net, config)

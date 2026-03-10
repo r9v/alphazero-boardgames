@@ -22,7 +22,8 @@ class Trainer:
         self.epochs = self.config.get("epochs", 10)
         self.lr = self.config.get("lr", 0.001)
         self.device = self.config.get("device", "cpu")
-        self.max_train_steps = self.config.get("max_train_steps", 1000)
+        self.max_train_steps = self.config.get("max_train_steps", 5000)
+        self.target_epochs = self.config.get("target_epochs", 4)
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
         self.optimizer = torch.optim.Adam(net.parameters(), lr=self.lr, weight_decay=1e-4)
@@ -82,9 +83,10 @@ class Trainer:
         grad_correct_count = 0
         grad_total_count = 0
 
-        # Use fixed number of training steps with random sampling
+        # Dynamic training steps: target N effective epochs, capped by max_train_steps
         n_samples = len(samples)
-        num_steps = min(self.max_train_steps, self.epochs * (n_samples // self.batch_size))
+        target_steps = self.target_epochs * (n_samples // self.batch_size)
+        num_steps = max(1, min(self.max_train_steps, target_steps))
         effective_epochs = (num_steps * self.batch_size) / n_samples
         early_cutoff = max(num_steps // 10, 1)
         late_start = num_steps - early_cutoff
@@ -190,6 +192,7 @@ class Trainer:
                 value_grad_norms.append(v_norm ** 0.5)
                 policy_grad_norms.append(p_norm ** 0.5)
 
+            torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
             self.optimizer.step()
             gradient_time += time.time() - t0
 
@@ -309,6 +312,8 @@ class Trainer:
             selects_per_round=self.config.get("selects_per_round", 1),
             vl_value=self.config.get("vl_value", 0.0),
             log_games=log_games,
+            temp_threshold=self.config.get("temp_threshold", 15),
+            c_puct=self.config.get("c_puct", 1.5),
         )
         return self._batched.play_games()
 
@@ -322,7 +327,12 @@ class Trainer:
             all_examples, results, game_lengths = self._self_play(iteration)
             self_play_time = time.time() - t0
 
-            self.buffer.insert_batch(all_examples)
+            # Augment with symmetries (e.g. left-right mirror for Connect4)
+            augmented = []
+            for ex in all_examples:
+                for sym_input, sym_policy in self.game.get_symmetries(ex[0], ex[1]):
+                    augmented.append([sym_input, sym_policy, ex[2]])
+            self.buffer.insert_batch(augmented)
 
             # Log self-play stats
             wins_p1 = results.count(-1)

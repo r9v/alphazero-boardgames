@@ -39,9 +39,10 @@ class Node:
 
 
 class MCTS:
-    def __init__(self, game, net):
+    def __init__(self, game, net, c_puct=1.5):
         self.game = game
         self.net = net
+        self.c_puct = c_puct
 
     def get_policy(self, num_simulations, state, add_dirichlet=False):
         if state.terminal:
@@ -88,7 +89,7 @@ class MCTS:
             if child is not None:
                 q = child.Q
                 n = child.n
-            puct = q + node.P[action] * math.sqrt(node.n) / (n + 1)
+            puct = q + self.c_puct * node.P[action] * math.sqrt(node.n) / (n + 1)
             if puct > best_puct:
                 best_puct = puct
                 best_action = action

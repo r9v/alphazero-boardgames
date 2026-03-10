@@ -17,14 +17,16 @@ class BatchedSelfPlay:
     """
 
     def __init__(self, game, net, num_games, num_simulations,
-                 selects_per_round=1, vl_value=0.0, log_games=0):
+                 selects_per_round=1, vl_value=0.0, log_games=0,
+                 temp_threshold=15, c_puct=1.5):
         self.game = game
         self.net = net
         self.num_games = num_games
         self.num_simulations = num_simulations
         self.selects_per_round = selects_per_round
         self.vl_value = vl_value
-        self.mcts = MCTS(game, net)
+        self.temp_threshold = temp_threshold
+        self.mcts = MCTS(game, net, c_puct=c_puct)
         self.log_games = log_games  # how many games to log in detail
 
     def play_games(self):
@@ -109,7 +111,13 @@ class BatchedSelfPlay:
                         "child_Ns": child_Ns,
                     })
 
-                action = np.random.choice(len(pi), p=pi)
+                # Temperature: explore early, exploit late
+                move_num = len(examples[i])
+                if move_num < self.temp_threshold:
+                    action = np.random.choice(len(pi), p=pi)
+                else:
+                    action = np.argmax(pi)
+                # Training target is always the full visit distribution
                 examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player])
 
                 states[i] = self.game.step(states[i], action)

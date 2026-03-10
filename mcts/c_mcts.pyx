@@ -99,7 +99,7 @@ cdef class CNode:
         return self._make_avail_array()
 
 
-cdef int _best_action(CNode node):
+cdef int _best_action(CNode node, double c_puct=1.5):
     """PUCT action selection — typed loop with numpy P access."""
     cdef int i, action, best_action
     cdef double puct, best_puct, q, sqrt_n, p_val
@@ -149,7 +149,7 @@ cdef int _best_action(CNode node):
             p_val = <double>(<float*>(P_data + action * 4))[0]
         else:
             p_val = (<double*>(P_data + action * 8))[0]
-        puct = q + p_val * sqrt_n / (<double>child_n + 1.0)
+        puct = q + c_puct * p_val * sqrt_n / (<double>child_n + 1.0)
         if puct > best_puct:
             best_puct = puct
             best_action = action
@@ -202,11 +202,13 @@ cdef class CMCTS:
     cdef public object game
     cdef public object net
     cdef public object last_root
+    cdef public double c_puct
 
-    def __init__(self, game, net):
+    def __init__(self, game, net, double c_puct=1.5):
         self.game = game
         self.net = net
         self.last_root = None
+        self.c_puct = c_puct
 
     def get_policy(self, int num_simulations, state, bint add_dirichlet=False):
         """Run MCTS and return visit-count policy."""
@@ -246,7 +248,7 @@ cdef class CMCTS:
         cdef int best
         cdef CNode child
         while not node.is_terminal:
-            best = _best_action(node)
+            best = _best_action(node, self.c_puct)
             if node.children[best] is None:
                 child = CNode(node, self.game.step(node.state, best),
                               self.game, self.net)
@@ -274,7 +276,7 @@ cdef class CMCTS:
         cdef int best
         cdef CNode child
         while not node.is_terminal:
-            best = _best_action(node)
+            best = _best_action(node, self.c_puct)
             if node.children[best] is None:
                 child = CNode(node, self.game.step(node.state, best),
                               self.game)  # net=None → deferred
@@ -299,7 +301,7 @@ cdef class CMCTS:
                 # Node created in a previous select this round, not yet evaluated
                 _apply_virtual_loss(node, vl_value)
                 return node, path
-            best = _best_action(node)
+            best = _best_action(node, self.c_puct)
             if node.children[best] is None:
                 child = CNode(node, self.game.step(node.state, best),
                               self.game)  # net=None → deferred

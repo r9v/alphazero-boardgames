@@ -47,3 +47,10 @@ class Game(ABC):
         Returns an array of shape (C, *board_shape) where C is the
         number of input channels (derived from num_history_states).
         """
+
+    def get_symmetries(self, state_input: np.ndarray, policy: np.ndarray):
+        """Return list of (state_input, policy) including original + symmetries.
+
+        Override in subclasses for games with board symmetries (e.g. mirror).
+        """
+        return [(state_input, policy)]
