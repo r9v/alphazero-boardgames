@@ -26,12 +26,12 @@ def main():
     parser = argparse.ArgumentParser(description="AlphaZero self-play training")
     parser.add_argument("--game", type=str, default="tictactoe",
                         choices=list(GAMES.keys()))
-    parser.add_argument("--simulations", type=int, default=50,
-                        help="MCTS simulations per move")
-    parser.add_argument("--games", type=int, default=2,
-                        help="Self-play games per iteration")
-    parser.add_argument("--iterations", type=int, default=1,
-                        help="Number of training iterations")
+    parser.add_argument("--simulations", type=int, default=None,
+                        help="MCTS simulations per move (default: per-game config)")
+    parser.add_argument("--games", type=int, default=None,
+                        help="Self-play games per iteration (default: per-game config)")
+    parser.add_argument("--iterations", type=int, default=None,
+                        help="Number of training iterations (default: per-game config)")
     parser.add_argument("--device", type=str, default="auto",
                         help="Device: 'cpu', 'cuda', or 'auto' (default)")
     args = parser.parse_args()
@@ -48,6 +48,11 @@ def main():
     game_cfg = GAME_CONFIGS.get(args.game, {})
     filters = game_cfg.get("num_filters", 256)
     res_blocks = game_cfg.get("num_res_blocks", 2)
+
+    # Use per-game defaults when CLI args not specified
+    num_iterations = args.iterations or game_cfg.get("default_iterations", 10)
+    num_games = args.games or game_cfg.get("default_games", 32)
+    num_simulations = args.simulations or game_cfg.get("default_simulations", 50)
 
     # Input channels: use game-specific value if available, else default formula
     input_channels = getattr(game, 'input_channels',
@@ -74,13 +79,16 @@ def main():
     if device == "cuda":
         net.compile_for_inference()
 
+    print(f"Config: {args.game} | iters={num_iterations} games={num_games} "
+          f"sims={num_simulations}")
+
     config = {
-        "num_simulations": args.simulations,
-        "games_per_iteration": args.games,
+        "num_simulations": num_simulations,
+        "games_per_iteration": num_games,
         "checkpoint_dir": checkpoint_dir,
         "game_name": args.game,
         "device": device,
-        "max_train_steps": game_cfg.get("max_train_steps", 5000),
+        "max_train_steps": game_cfg.get("max_train_steps", 6400),
         "target_epochs": game_cfg.get("target_epochs", 4),
         "buffer_size": game_cfg.get("buffer_size", 100000),
         "selects_per_round": game_cfg.get("selects_per_round", 1),
@@ -91,7 +99,7 @@ def main():
     }
 
     trainer = Trainer(game, net, config)
-    trainer.run(num_iterations=args.iterations)
+    trainer.run(num_iterations=num_iterations)
 
 
 if __name__ == "__main__":
