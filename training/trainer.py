@@ -67,6 +67,20 @@ class Trainer:
         value_grad_norms = []
         policy_grad_norms = []
 
+        # (A) Per-player value loss breakdown
+        x_vloss_sum = 0.0
+        o_vloss_sum = 0.0
+        x_count = 0
+        o_count = 0
+        x_target_sum = 0.0
+        o_target_sum = 0.0
+        x_pred_sum = 0.0
+        o_pred_sum = 0.0
+
+        # (F) Gradient direction tracking: does gradient push predictions toward targets?
+        grad_correct_count = 0
+        grad_total_count = 0
+
         # Use fixed number of training steps with random sampling
         n_samples = len(samples)
         num_steps = min(self.max_train_steps, self.epochs * (n_samples // self.batch_size))
@@ -92,6 +106,64 @@ class Trainer:
 
             self.optimizer.zero_grad()
             loss.backward()
+
+            # (A) Per-player loss breakdown every 10 steps
+            if step % 10 == 0:
+                with torch.no_grad():
+                    # Infer player from piece counts: equal pieces = X to move
+                    num_hist = getattr(self.game, 'num_history_states', 2)
+                    ch = 2 * num_hist
+                    my_counts = states[:, ch].sum(dim=(1, 2))
+                    opp_counts = states[:, ch + 1].sum(dim=(1, 2))
+                    is_x = (my_counts == opp_counts)  # X has equal pieces
+                    is_o = ~is_x
+
+                    per_sample_vloss = (pred_vs - target_vs).pow(2).squeeze(1)
+                    if is_x.any():
+                        x_vloss_sum += per_sample_vloss[is_x].mean().item()
+                        x_target_sum += target_vs[is_x].mean().item()
+                        x_pred_sum += pred_vs[is_x].mean().item()
+                        x_count += 1
+                    if is_o.any():
+                        o_vloss_sum += per_sample_vloss[is_o].mean().item()
+                        o_target_sum += target_vs[is_o].mean().item()
+                        o_pred_sum += pred_vs[is_o].mean().item()
+                        o_count += 1
+
+            # (F) Gradient direction check every 50 steps
+            if step % 50 == 0:
+                with torch.no_grad():
+                    # Check: does the gradient want to push pred_v toward target_v?
+                    # For MSE loss, grad w.r.t. pred = 2*(pred - target)
+                    # Correct direction means: sign(pred - target) should guide update
+                    # After optimizer.step(), pred should move toward target
+                    # We check: does pred_v have same sign error pattern as grad?
+                    error = (pred_vs - target_vs).squeeze(1)
+                    # Gradient is 2*error, optimizer subtracts lr*grad
+                    # So pred should decrease where error > 0, increase where error < 0
+                    # This is always correct for MSE — but we want to verify the
+                    # value head fc layers specifically get the right gradient sign
+                    grad_correct_count += 1  # MSE always has correct direction
+                    grad_total_count += 1
+                    # More useful: check if value head weights actually update correctly
+                    # Log the actual value head gradient statistics
+                    fc1_grad = self.net.value_fc1.weight.grad
+                    fc2_grad = self.net.value_fc2.weight.grad
+                    if fc1_grad is not None and fc2_grad is not None:
+                        # Store for later analysis
+                        if not hasattr(self, '_grad_stats'):
+                            self._grad_stats = []
+                        self._grad_stats.append({
+                            'fc1_grad_mean': fc1_grad.mean().item(),
+                            'fc1_grad_std': fc1_grad.std().item(),
+                            'fc1_grad_norm': fc1_grad.norm().item(),
+                            'fc2_grad_mean': fc2_grad.mean().item(),
+                            'fc2_grad_std': fc2_grad.std().item(),
+                            'fc2_grad_norm': fc2_grad.norm().item(),
+                            'pred_mean': pred_vs.mean().item(),
+                            'target_mean': target_vs.mean().item(),
+                            'error_mean': error.mean().item(),
+                        })
 
             # Sample gradient norms every 100 steps
             if step % 100 == 0:
@@ -156,6 +228,27 @@ class Trainer:
         # For binary ±1 targets, floor = 1 - mean^2
         val_loss_floor = val_std ** 2  # variance of targets = irreducible MSE
 
+        # (A) Per-player averages
+        x_vloss_avg = x_vloss_sum / max(x_count, 1)
+        o_vloss_avg = o_vloss_sum / max(o_count, 1)
+        x_target_avg = x_target_sum / max(x_count, 1)
+        o_target_avg = o_target_sum / max(o_count, 1)
+        x_pred_avg = x_pred_sum / max(x_count, 1)
+        o_pred_avg = o_pred_sum / max(o_count, 1)
+
+        # (F) Gradient stats summary
+        grad_stats_summary = {}
+        if hasattr(self, '_grad_stats') and self._grad_stats:
+            gs = self._grad_stats
+            grad_stats_summary = {
+                'fc1_grad_norm_mean': np.mean([g['fc1_grad_norm'] for g in gs]),
+                'fc2_grad_norm_mean': np.mean([g['fc2_grad_norm'] for g in gs]),
+                'fc1_grad_mean': np.mean([g['fc1_grad_mean'] for g in gs]),
+                'fc2_grad_mean': np.mean([g['fc2_grad_mean'] for g in gs]),
+                'error_mean_trend': [g['error_mean'] for g in gs],
+            }
+            self._grad_stats = []
+
         self._train_perf = {
             "data_prep_time": data_prep_time,
             "gradient_time": gradient_time,
@@ -184,6 +277,15 @@ class Trainer:
             "val_loss_floor": val_loss_floor,
             "avg_value_grad_norm": avg_value_grad,
             "avg_policy_grad_norm": avg_policy_grad,
+            # (A) Per-player breakdown
+            "x_vloss": x_vloss_avg,
+            "o_vloss": o_vloss_avg,
+            "x_target_mean": x_target_avg,
+            "o_target_mean": o_target_avg,
+            "x_pred_mean": x_pred_avg,
+            "o_pred_mean": o_pred_avg,
+            # (F) Gradient direction stats
+            "grad_stats": grad_stats_summary,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -330,6 +432,22 @@ class Trainer:
                       f"ratio={d['avg_value_grad_norm']/max(d['avg_policy_grad_norm'],1e-8):.2f}")
                 print(f"  Diag: p1_win={p1_win_pct:.1%} "
                       f"game_len={avg_length:.1f} ({min_length}-{max_length})")
+                # (A) Per-player value breakdown
+                print(f"  Diag[A]: X_vloss={d['x_vloss']:.4f} O_vloss={d['o_vloss']:.4f} | "
+                      f"X_target={d['x_target_mean']:+.3f} O_target={d['o_target_mean']:+.3f} | "
+                      f"X_pred={d['x_pred_mean']:+.3f} O_pred={d['o_pred_mean']:+.3f}")
+                # (F) Gradient direction
+                gs = d.get('grad_stats', {})
+                if gs:
+                    err_trend = gs.get('error_mean_trend', [])
+                    trend_str = ""
+                    if len(err_trend) >= 2:
+                        trend_str = f" err_trend={err_trend[0]:+.3f}->{err_trend[-1]:+.3f}"
+                    print(f"  Diag[F]: fc1_grad={gs.get('fc1_grad_norm_mean',0):.4f} "
+                          f"fc2_grad={gs.get('fc2_grad_norm_mean',0):.4f} | "
+                          f"fc1_mean={gs.get('fc1_grad_mean',0):+.6f} "
+                          f"fc2_mean={gs.get('fc2_grad_mean',0):+.6f}"
+                          f"{trend_str}")
 
             # === Self-play value prediction diagnostics ===
             if hasattr(self, '_batched') and hasattr(self._batched, 'value_diag'):
@@ -364,15 +482,14 @@ class Trainer:
                     outcome = results[gi]
                     winner = "X" if outcome == -1 else ("O" if outcome == 1 else "draw")
                     print(f"  GameTrace[{gi}]: {len(glog)} moves, winner={winner} (val={outcome})")
-                    rel = getattr(self.game, 'relative_encoding', False)
                     for entry in glog:
                         player_str = "X" if entry["player"] == -1 else "O"
                         pi = entry["pi"]
                         best_action = max(range(len(pi)), key=lambda a: pi[a])
                         # Show NN value vs eventual outcome
                         nnet_v = entry["nnet_value"]
-                        # For relative encoding, target is outcome from this player's perspective
-                        target = outcome * entry["player"] if rel else outcome
+                        # Relative: target from this player's perspective
+                        target = outcome * entry["player"]
                         err = abs(nnet_v - target)
                         Qs_str = " ".join(f"{a}:{q:+.2f}" for a, q in sorted(entry["child_Qs"].items()))
                         Ns_str = " ".join(f"{a}:{n}" for a, n in sorted(entry["child_Ns"].items()))
@@ -421,8 +538,6 @@ class Trainer:
         except ImportError:
             return positions
 
-        rel = getattr(self.game, 'relative_encoding', False)
-
         # Position 1: Empty board (X to move) - should be roughly neutral
         s = self.game.new_game()
         positions.append(("empty_board", self.game.state_to_input(s), "expect ~0"))
@@ -432,10 +547,7 @@ class Trainer:
         board[0][0:3] = -1  # X has 3 in row
         board[0][4] = 1     # some O piece
         s = C4State(None, board, player=-1)
-        # Relative: I'm X and winning -> expect > +0.5
-        # Absolute: X winning -> expect < -0.5
-        exp = "expect > +0.5 (I'm winning)" if rel else "expect < -0.5 (X wins)"
-        positions.append(("x_wins_next", self.game.state_to_input(s), exp))
+        positions.append(("x_wins_next", self.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
         # Position 3: O about to win horizontally (O to move)
         board = np.zeros((6, 7), dtype="int")
@@ -443,10 +555,7 @@ class Trainer:
         board[0][4] = -1    # some X piece
         board[1][4] = -1
         s = C4State(None, board, player=1)
-        # Relative: I'm O and winning -> expect > +0.5
-        # Absolute: O winning -> expect > +0.5
-        exp = "expect > +0.5 (I'm winning)" if rel else "expect > +0.5 (O wins)"
-        positions.append(("o_wins_next", self.game.state_to_input(s), exp))
+        positions.append(("o_wins_next", self.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
         # Position 4: The diagonal threat position from the bug report
         board = np.zeros((6, 7), dtype="int")
@@ -455,9 +564,7 @@ class Trainer:
         board[2] = [0, 1, -1, 1, 0, 0, 0]
         board[3] = [0, -1, 0, -1, 0, 0, 0]
         s = C4State(None, board, player=1)  # O to move, X threatens diagonal
-        # Relative: I'm O and losing -> expect < 0
-        exp = "expect < 0 (I'm losing)" if rel else "expect < 0 (X winning)"
-        positions.append(("diag_threat", self.game.state_to_input(s), exp))
+        positions.append(("diag_threat", self.game.state_to_input(s), "expect < 0 (I'm losing)"))
 
         # Position 5: X has strong center control (X to move)
         board = np.zeros((6, 7), dtype="int")
@@ -466,8 +573,6 @@ class Trainer:
         board[0][2] = 1
         board[0][4] = 1
         s = C4State(None, board, player=-1)
-        # Relative: I'm X with slight advantage -> expect > 0
-        exp = "expect > 0 (I'm slightly winning)" if rel else "expect < 0 (X slight advantage)"
-        positions.append(("x_center", self.game.state_to_input(s), exp))
+        positions.append(("x_center", self.game.state_to_input(s), "expect > 0 (I'm slightly winning)"))
 
         return positions

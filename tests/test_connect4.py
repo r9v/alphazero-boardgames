@@ -248,15 +248,11 @@ print("\n=== State Encoding Tests ===")
 # New game encoding
 s = game.new_game()
 inp = game.state_to_input(s)
-check("Input shape is (8, 6, 7)", inp.shape == (8, 6, 7))
+check("Input shape is (6, 6, 7)", inp.shape == (6, 6, 7))
 
-# No pieces on the board → channels 0-5 should all be zeros
+# No pieces on the board → all 6 channels should be zeros
 for ch in range(6):
     check(f"Channel {ch} is all zeros (empty board)", inp[ch].sum() == 0)
-
-# Player -1 to move → channel 6 is all 1s, channel 7 is all 0s
-check("Channel 6 (player -1 indicator) is all 1s", inp[6].sum() == 42)
-check("Channel 7 (player 1 indicator) is all 0s", inp[7].sum() == 0)
 
 # After one move by X -> state has player=O
 s1 = game.step(s, 3)  # X plays col 3
@@ -268,10 +264,6 @@ inp1 = game.state_to_input(s1)
 check("After X@(0,3): channel 4 (my=O pieces) is zeros", inp1[4].sum() == 0)
 check("After X@(0,3): channel 5 (opp=X pieces) has (0,3)", inp1[5][0][3] == 1.0)
 check("After X@(0,3): channel 5 sum is 1", inp1[5].sum() == 1)
-
-# Player is now 1 (O) -> channel 7 is all 1s, channel 6 is all 0s
-check("After X move: channel 6 (X indicator) is 0", inp1[6].sum() == 0)
-check("After X move: channel 7 (O indicator) is all 1s", inp1[7].sum() == 42)
 
 # History: channel 0-1 should be the state before the PREVIOUS state
 # Since s1 has prev_state=s (new game), and s has prev_state=None:
@@ -300,28 +292,6 @@ check("Two moves: history chan 1 (opp 2 ago) is zeros", inp2[1].sum() == 0)
 check("Two moves: history chan 2 (my=X prev) has (0,3)", inp2[2][0][3] == 1.0)
 check("Two moves: history chan 2 sum is 1", inp2[2].sum() == 1)
 check("Two moves: history chan 3 (opp=O prev) is zeros", inp2[3].sum() == 0)
-
-# Player is -1 again -> channel 6 all 1s
-check("After O move: channel 6 (X indicator) is all 1s", inp2[6].sum() == 42)
-check("After O move: channel 7 (O indicator) is 0", inp2[7].sum() == 0)
-
-
-# ============================================================
-# 8. Encoding consistency: player channel matches state.player
-# ============================================================
-print("\n=== Encoding-Player Consistency ===")
-s = game.new_game()
-for move_col in [3, 2, 4, 1, 5, 0, 6, 3, 2]:
-    if s.terminal:
-        break
-    inp = game.state_to_input(s)
-    if s.player == -1:
-        check(f"Move {move_col}: player=-1 -> ch6=1, ch7=0",
-              inp[6].sum() == 42 and inp[7].sum() == 0)
-    else:
-        check(f"Move {move_col}: player=1 -> ch6=0, ch7=1",
-              inp[6].sum() == 0 and inp[7].sum() == 42)
-    s = game.step(s, move_col)
 
 
 # ============================================================

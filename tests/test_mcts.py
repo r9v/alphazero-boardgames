@@ -55,7 +55,12 @@ class MockNet:
 
 
 class PositionAwareNet:
-    """Mock network that returns different values for different players."""
+    """Mock network that returns different values for different players.
+
+    With relative encoding (no player indicator channels), infers player
+    from piece counts: equal my/opp pieces = first mover (X) to move,
+    more my pieces = second mover (O) to move.
+    """
     def __init__(self, value_for_x_to_move=0.0, value_for_o_to_move=0.0):
         self.vx = value_for_x_to_move  # predicted when X (player=-1) to move
         self.vo = value_for_o_to_move  # predicted when O (player=1) to move
@@ -63,13 +68,15 @@ class PositionAwareNet:
 
     def predict(self, state_input):
         self.call_count += 1
-        # Determine player from channels 6,7
-        ch6_sum = state_input[6].sum()
-        ch7_sum = state_input[7].sum()
-        if ch6_sum > ch7_sum:
-            v = self.vx  # X to move
+        # With relative encoding: ch4 = my pieces, ch5 = opponent pieces
+        # (for Connect4 with 2 history states, current board at channels 4,5)
+        # X moves first, so equal piece counts = X to move
+        my_count = state_input[4].sum()
+        opp_count = state_input[5].sum()
+        if my_count == opp_count:
+            v = self.vx  # X to move (equal pieces = first mover's turn)
         else:
-            v = self.vo  # O to move
+            v = self.vo  # O to move (opp has one more = second mover's turn)
         return v, np.ones(7) / 7
 
     def batch_predict(self, state_inputs, detailed_timing=False):

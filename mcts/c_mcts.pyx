@@ -169,13 +169,11 @@ cdef void _backpropagate(double value, CNode node) noexcept:
         value = -value
 
 
-cdef double _evaluate(CNode node, bint relative_encoding) noexcept:
+cdef double _evaluate(CNode node) noexcept:
     """Get leaf node value."""
     if node.is_terminal:
         return -<double>node.terminal_value * <double>node.player
-    if relative_encoding:
-        return -node.nnet_value
-    return -node.nnet_value * <double>node.player
+    return -node.nnet_value
 
 
 cdef void _apply_virtual_loss(CNode node, double vl_value) noexcept:
@@ -204,13 +202,11 @@ cdef class CMCTS:
     cdef public object game
     cdef public object net
     cdef public object last_root
-    cdef public bint relative_encoding
 
     def __init__(self, game, net):
         self.game = game
         self.net = net
         self.last_root = None
-        self.relative_encoding = getattr(game, 'relative_encoding', False)
 
     def get_policy(self, int num_simulations, state, bint add_dirichlet=False):
         """Run MCTS and return visit-count policy."""
@@ -243,7 +239,7 @@ cdef class CMCTS:
 
     cdef void _search(self, CNode root):
         cdef CNode selected = self._tree_policy(root)
-        cdef double value = _evaluate(selected, self.relative_encoding)
+        cdef double value = _evaluate(selected)
         _backpropagate(value, selected)
 
     cdef CNode _tree_policy(self, CNode node):
@@ -265,13 +261,13 @@ cdef class CMCTS:
         """Select+expand phase for batched eval. Returns leaf or None."""
         cdef CNode leaf = self._tree_policy_deferred(root)
         if leaf.is_terminal or leaf.P is not None:
-            _backpropagate(_evaluate(leaf, self.relative_encoding), leaf)
+            _backpropagate(_evaluate(leaf), leaf)
             return None
         return leaf
 
     def search_backup(self, CNode node):
         """Complete evaluate + backpropagate for a resolved node."""
-        _backpropagate(_evaluate(node, self.relative_encoding), node)
+        _backpropagate(_evaluate(node), node)
 
     cdef CNode _tree_policy_deferred(self, CNode node):
         """Select+expand without neural net eval."""
@@ -316,7 +312,7 @@ cdef class CMCTS:
 
         # Terminal or already evaluated — no VL needed, handle immediately
         if node.is_terminal or node.P is not None:
-            _backpropagate(_evaluate(node, self.relative_encoding), node)
+            _backpropagate(_evaluate(node), node)
             return None, None
         # Shouldn't reach here, but handle gracefully
         _apply_virtual_loss(node, vl_value)
@@ -325,7 +321,7 @@ cdef class CMCTS:
     def search_backup_vl(self, CNode node, list path, double vl_value=3.0):
         """Undo virtual loss on path, then normal backprop."""
         _undo_virtual_loss(node, vl_value)
-        _backpropagate(_evaluate(node, self.relative_encoding), node)
+        _backpropagate(_evaluate(node), node)
 
     def undo_virtual_loss(self, CNode node, list path, double vl_value=3.0):
         """Just undo VL without backprop (cleanup/dedup)."""

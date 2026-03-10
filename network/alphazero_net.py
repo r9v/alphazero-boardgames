@@ -40,10 +40,10 @@ class AlphaZeroNet(nn.Module):
         )
 
         # Value head
-        self.value_conv = nn.Conv2d(num_filters, 1, 1)
-        self.value_bn = nn.BatchNorm2d(1)
-        self.value_fc1 = nn.Linear(board_area, 32)
-        self.value_fc2 = nn.Linear(32, 1)
+        self.value_conv = nn.Conv2d(num_filters, 2, 1)
+        self.value_bn = nn.BatchNorm2d(2)
+        self.value_fc1 = nn.Linear(2 * board_area, 64)
+        self.value_fc2 = nn.Linear(64, 1)
 
         # Policy head
         self.policy_conv = nn.Conv2d(num_filters, 2, 1)

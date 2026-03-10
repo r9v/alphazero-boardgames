@@ -87,7 +87,7 @@ def main():
     # Load the network
     cfg = GAME_CONFIGS["connect4"]
     net = AlphaZeroNet(
-        input_channels=2 * (game.num_history_states + 1) + 2,
+        input_channels=2 * (game.num_history_states + 1),
         board_shape=game.board_shape,
         action_size=game.action_size,
         num_res_blocks=cfg["num_res_blocks"],

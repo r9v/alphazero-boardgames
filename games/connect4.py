@@ -63,7 +63,6 @@ class Connect4Game(Game):
     board_shape = (ROW_COUNT, COLUMN_COUNT)
     action_size = COLUMN_COUNT
     num_history_states = 2
-    relative_encoding = True
 
     def new_game(self):
         return GameState(None)
@@ -80,7 +79,7 @@ class Connect4Game(Game):
 
     def state_to_input(self, state):
         rows, cols = self.board_shape
-        channels = 2 * (self.num_history_states + 1) + 2  # 8
+        channels = 2 * (self.num_history_states + 1)  # 6
         inp = np.zeros((channels, rows, cols), dtype="float32")
 
         me = state.player
@@ -104,11 +103,5 @@ class Connect4Game(Game):
         c = 2 * self.num_history_states
         inp[c] = (state.board == me).astype("float32")
         inp[c + 1] = (state.board == opp).astype("float32")
-
-        # Player indicator (which absolute player am I)
-        if state.player == -1:
-            inp[c + 2] = 1.0
-        else:
-            inp[c + 3] = 1.0
 
         return inp

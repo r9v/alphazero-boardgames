@@ -49,7 +49,6 @@ class TTTGame(Game):
     board_shape = (3, 3)
     action_size = 9
     num_history_states = 2
-    relative_encoding = True
 
     def new_game(self):
         return GameState(None)
@@ -66,7 +65,7 @@ class TTTGame(Game):
         return GameState(state, next_board, state.player * -1)
 
     def state_to_input(self, state):
-        channels = 2 * (self.num_history_states + 1) + 2  # 8 for 2 history
+        channels = 2 * (self.num_history_states + 1)  # 6 for 2 history
         inp = np.zeros((channels, 3, 3), dtype="float32")
 
         me = state.player
@@ -92,11 +91,5 @@ class TTTGame(Game):
         c = 2 * self.num_history_states
         inp[c] = (state.board == me).astype("float32")
         inp[c + 1] = (state.board == opp).astype("float32")
-
-        # Player indicator (which absolute player am I)
-        if state.player == -1:
-            inp[c + 2] = 1.0
-        else:
-            inp[c + 3] = 1.0
 
         return inp

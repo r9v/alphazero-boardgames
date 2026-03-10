@@ -102,7 +102,7 @@ class SantoriniGame(Game):
     board_shape = (BOARD_SIZE, BOARD_SIZE)
     action_size = 128
     num_history_states = 0
-    input_channels = 8
+    input_channels = 7
 
     def new_game(self):
         return GameState(None)
@@ -165,9 +165,5 @@ class SantoriniGame(Game):
         opponent = state.player * -1
         for r, c in state.workers[opponent]:
             inp[6][r][c] = 1.0
-
-        # Channel 7: player indicator
-        if state.player == -1:
-            inp[7] = 1.0
 
         return inp

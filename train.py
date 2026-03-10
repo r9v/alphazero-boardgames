@@ -51,7 +51,7 @@ def main():
 
     # Input channels: use game-specific value if available, else default formula
     input_channels = getattr(game, 'input_channels',
-                             2 * (game.num_history_states + 1) + 2)
+                             2 * (game.num_history_states + 1))
 
     net = AlphaZeroNet(
         input_channels=input_channels,

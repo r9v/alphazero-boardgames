@@ -60,6 +60,7 @@ class BatchedSelfPlay:
         # Initialize all games
         states = [self.game.new_game() for _ in range(self.num_games)]
         examples = [[] for _ in range(self.num_games)]
+        terminal_values = [0] * self.num_games  # raw terminal values per game
         active = list(range(self.num_games))  # indices of games still in progress
 
         # Create initial roots (deferred — no net eval yet)
@@ -114,14 +115,18 @@ class BatchedSelfPlay:
                 states[i] = self.game.step(states[i], action)
 
                 if states[i].terminal:
-                    # Game over — compute training target for each position
+                    # Game over — store raw terminal value and compute targets
                     tv = states[i].terminal_value
-                    rel = getattr(self.game, 'relative_encoding', False)
+                    terminal_values[i] = tv
                     for ex in examples[i]:
                         player_at_pos = ex[2]
                         # Relative: target from current player's perspective
-                        # Absolute: same terminal_value for all positions
-                        ex[2] = tv * player_at_pos if rel else tv
+                        target = tv * player_at_pos
+                        # Assertion: winner's positions should get +1, loser's -1
+                        if tv != 0:  # not a draw
+                            assert target in (-1.0, 1.0), \
+                                f"Bad target {target}: tv={tv}, player={player_at_pos}"
+                        ex[2] = target
                 else:
                     # Create new root for next move (deferred)
                     roots[i] = Node(None, states[i], self.game)
@@ -138,12 +143,19 @@ class BatchedSelfPlay:
 
         # Collect stats and flatten examples
         all_examples = []
-        results = []
+        results = []  # raw terminal values: -1=X wins, +1=O wins, 0=draw
         game_lengths = []
-        for game_examples in examples:
+        for i, game_examples in enumerate(examples):
             all_examples.extend(game_examples)
             game_lengths.append(len(game_examples))
-            results.append(game_examples[-1][2] if game_examples else 0)
+            results.append(terminal_values[i])
+
+        # Verify results contain raw terminal values, not transformed targets
+        n_x_wins = results.count(-1)
+        n_o_wins = results.count(1)
+        n_draws = results.count(0)
+        assert n_x_wins + n_o_wins + n_draws == len(results), \
+            f"Results contain unexpected values: {set(results)}"
 
         self.perf = {
             "select_expand_time": self._last_select_expand_time,
@@ -170,13 +182,12 @@ class BatchedSelfPlay:
 
     def _compute_value_diagnostics(self, results):
         """Compute statistics about NN value predictions during self-play."""
-        rel = getattr(self.game, 'relative_encoding', False)
         all_preds = []   # (nnet_value, target_outcome, player)
         for i, game_preds in enumerate(self._game_value_preds):
             outcome = results[i]
             for player, nnet_v in game_preds:
-                # For relative encoding, compare nnet (relative) against relative target
-                target = outcome * player if rel else outcome
+                # Relative: compare nnet against target from player's perspective
+                target = outcome * player
                 all_preds.append((nnet_v, target, player))
 
         if not all_preds:
@@ -289,44 +300,23 @@ class BatchedSelfPlay:
         preprocess_time = time.time() - t0
 
         # Verify encoding consistency
-        rel = getattr(self.game, 'relative_encoding', False)
         for node, inp in zip(nodes, state_inputs):
             self._encoding_checks += 1
             player = node.state.player
             num_hist = getattr(self.game, 'num_history_states', 2)
             c = 2 * num_hist  # channel offset for current board
-            player_ch6 = inp[c + 2].sum()
-            player_ch7 = inp[c + 3].sum()
             board = node.state.board
-            board_area = board.shape[0] * board.shape[1]
 
             errors = []
-            # Player channel check (same for both encodings)
-            if player == -1:
-                if player_ch6 != board_area or player_ch7 != 0:
-                    errors.append(f"player=-1 but ch6={player_ch6} ch7={player_ch7}")
-            else:
-                if player_ch6 != 0 or player_ch7 != board_area:
-                    errors.append(f"player=1 but ch6={player_ch6} ch7={player_ch7}")
-            # Piece count check
+            # Piece count check: ch[c] = my pieces, ch[c+1] = opponent pieces
             my_pieces_board = (board == player).sum()
             opp_pieces_board = (board == -player).sum()
             ch_c = inp[c].sum()
             ch_c1 = inp[c + 1].sum()
-            if rel:
-                # Relative: ch[c] = my pieces, ch[c+1] = opponent pieces
-                if ch_c != my_pieces_board:
-                    errors.append(f"my pieces: board={my_pieces_board} enc={ch_c}")
-                if ch_c1 != opp_pieces_board:
-                    errors.append(f"opp pieces: board={opp_pieces_board} enc={ch_c1}")
-            else:
-                # Absolute: ch[c] = X pieces, ch[c+1] = O pieces
-                x_pieces = (board == -1).sum()
-                o_pieces = (board == 1).sum()
-                if ch_c != x_pieces:
-                    errors.append(f"X pieces: board={x_pieces} enc={ch_c}")
-                if ch_c1 != o_pieces:
-                    errors.append(f"O pieces: board={o_pieces} enc={ch_c1}")
+            if ch_c != my_pieces_board:
+                errors.append(f"my pieces: board={my_pieces_board} enc={ch_c}")
+            if ch_c1 != opp_pieces_board:
+                errors.append(f"opp pieces: board={opp_pieces_board} enc={ch_c1}")
 
             if errors:
                 self._encoding_errors += 1

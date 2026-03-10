@@ -61,7 +61,7 @@ def main():
     game = load_game(args.game)
 
     input_channels = getattr(game, 'input_channels',
-                             2 * (game.num_history_states + 1) + 2)
+                             2 * (game.num_history_states + 1))
     net = AlphaZeroNet(
         input_channels=input_channels,
         board_shape=game.board_shape,
