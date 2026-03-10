@@ -76,6 +76,8 @@ def main():
         action_size=game.action_size,
         num_res_blocks=game_cfg.get("num_res_blocks", 3),
         num_filters=game_cfg.get("num_filters", 128),
+        value_head_channels=game_cfg.get("value_head_channels", 2),
+        value_head_fc_size=game_cfg.get("value_head_fc_size", 64),
     )
     device = "cuda" if torch.cuda.is_available() else "cpu"
     net.to(device)

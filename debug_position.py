@@ -93,6 +93,8 @@ def main():
         action_size=game.action_size,
         num_res_blocks=cfg["num_res_blocks"],
         num_filters=cfg["num_filters"],
+        value_head_channels=cfg.get("value_head_channels", 2),
+        value_head_fc_size=cfg.get("value_head_fc_size", 64),
     )
     loaded = net.load_latest("checkpoints/connect4")
     if loaded:

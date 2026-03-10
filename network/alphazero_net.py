@@ -24,7 +24,8 @@ class ResBlock(nn.Module):
 
 class AlphaZeroNet(nn.Module):
     def __init__(self, input_channels, board_shape, action_size,
-                 num_res_blocks=2, num_filters=256):
+                 num_res_blocks=2, num_filters=256,
+                 value_head_channels=2, value_head_fc_size=64):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
@@ -40,10 +41,11 @@ class AlphaZeroNet(nn.Module):
         )
 
         # Value head
-        self.value_conv = nn.Conv2d(num_filters, 2, 1)
-        self.value_bn = nn.BatchNorm2d(2)
-        self.value_fc1 = nn.Linear(2 * board_area, 64)
-        self.value_fc2 = nn.Linear(64, 1)
+        self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
+        self.value_bn = nn.BatchNorm2d(value_head_channels)
+        self.value_fc1 = nn.Linear(value_head_channels * board_area, value_head_fc_size)
+        self.value_dropout = nn.Dropout(p=0.2)
+        self.value_fc2 = nn.Linear(value_head_fc_size, 1)
 
         # Policy head
         self.policy_conv = nn.Conv2d(num_filters, 2, 1)
@@ -56,10 +58,11 @@ class AlphaZeroNet(nn.Module):
         for block in self.res_blocks:
             x = block(x)
 
-        # Value head
-        v = F.relu(self.value_bn(self.value_conv(x)))
+        # Value head (LeakyReLU prevents permanent neuron death)
+        v = F.leaky_relu(self.value_bn(self.value_conv(x)), negative_slope=0.01)
         v = v.view(v.size(0), -1)
-        v = F.relu(self.value_fc1(v))
+        v = F.leaky_relu(self.value_fc1(v), negative_slope=0.01)
+        v = self.value_dropout(v)
         v = torch.tanh(self.value_fc2(v))
 
         # Policy head

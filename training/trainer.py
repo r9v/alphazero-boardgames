@@ -48,6 +48,13 @@ class Trainer:
         frac_neg = (all_values < 0).mean()   # X wins
         frac_draw = (all_values == 0).mean()  # draws
 
+        # Split into train/val for overfitting detection (90/10)
+        random.shuffle(samples)
+        val_size = max(len(samples) // 10, self.batch_size)
+        val_samples = samples[:val_size]
+        train_samples = samples[val_size:]
+        samples = train_samples  # train on the 90%
+
         self.net.train()
         total_loss = 0
         total_value_loss = 0
@@ -84,8 +91,13 @@ class Trainer:
         grad_total_count = 0
 
         # Dynamic training steps: target N effective epochs, capped by max_train_steps
+        # Scale epochs with buffer fill to prevent memorization when buffer is small
         n_samples = len(samples)
-        target_steps = self.target_epochs * (n_samples // self.batch_size)
+        buffer_capacity = self.buffer.max_size
+        fill_ratio = min(n_samples / max(buffer_capacity, 1), 1.0)
+        # Linearly scale from 1 epoch (empty) to target_epochs (full)
+        scaled_epochs = 1.0 + (self.target_epochs - 1.0) * fill_ratio
+        target_steps = int(scaled_epochs * (n_samples // self.batch_size))
         num_steps = max(1, min(self.max_train_steps, target_steps))
         effective_epochs = (num_steps * self.batch_size) / n_samples
         early_cutoff = max(num_steps // 10, 1)
@@ -227,6 +239,28 @@ class Trainer:
         pred_v_std = pred_v_all.std()
         pred_v_abs_mean = np.abs(pred_v_all).mean()
 
+        # Held-out validation loss (overfitting detection)
+        val_vloss = 0.0
+        val_ploss = 0.0
+        self.net.eval()
+        with torch.no_grad():
+            val_batches = 0
+            for i in range(0, len(val_samples), self.batch_size):
+                vb = val_samples[i:i + self.batch_size]
+                if len(vb) < 2:
+                    continue
+                vs = torch.FloatTensor(np.array([s[0] for s in vb])).to(self.device)
+                vt_pi = torch.FloatTensor(np.array([s[1] for s in vb])).to(self.device)
+                vt_v = torch.FloatTensor(np.array([s[2] for s in vb])).unsqueeze(1).to(self.device)
+                pv, pp = self.net(vs)
+                val_vloss += F.mse_loss(pv, vt_v).item()
+                val_ploss += -torch.mean(torch.sum(vt_pi * torch.log(pp + 1e-8), dim=1)).item()
+                val_batches += 1
+            if val_batches > 0:
+                val_vloss /= val_batches
+                val_ploss /= val_batches
+        self.net.train()
+
         # Gradient dominance: what fraction of loss comes from policy
         policy_frac = avg_policy_loss / max(avg_loss, 1e-8)
 
@@ -249,6 +283,50 @@ class Trainer:
         o_target_avg = o_target_sum / max(o_count, 1)
         x_pred_avg = x_pred_sum / max(x_count, 1)
         o_pred_avg = o_pred_sum / max(o_count, 1)
+
+        # (V) Value head health: dead neurons, pre-tanh range, saturation
+        vh_diag = {}
+        try:
+            self.net.eval()
+            with torch.no_grad():
+                # Use a sample of training data
+                diag_batch = random.choices(samples, k=min(256, len(samples)))
+                diag_inp = torch.FloatTensor(
+                    np.array([s[0] for s in diag_batch])
+                ).to(self.device)
+
+                # Run through backbone
+                x_bb = F.relu(self.net.bn(self.net.conv(diag_inp)))
+                for block in self.net.res_blocks:
+                    x_bb = block(x_bb)
+
+                # Value head layers
+                v_conv = F.relu(self.net.value_bn(self.net.value_conv(x_bb)))
+                v_flat = v_conv.view(v_conv.size(0), -1)
+                v_fc1_out = F.relu(self.net.value_fc1(v_flat))
+                v_pre_tanh = self.net.value_fc2(v_fc1_out)
+                v_out = torch.tanh(v_pre_tanh)
+
+                fc1_np = v_fc1_out.cpu().numpy()
+                pre_tanh_np = v_pre_tanh.cpu().numpy().flatten()
+                out_np = v_out.cpu().numpy().flatten()
+
+                n_total_neurons = fc1_np.shape[1]
+                dead_mask = (fc1_np == 0).all(axis=0)
+                n_dead = int(dead_mask.sum())
+
+                vh_diag = {
+                    "dead_neurons": n_dead,
+                    "total_neurons": n_total_neurons,
+                    "pre_tanh_min": float(pre_tanh_np.min()),
+                    "pre_tanh_max": float(pre_tanh_np.max()),
+                    "pre_tanh_std": float(pre_tanh_np.std()),
+                    "out_saturated": float((np.abs(out_np) > 0.95).mean()),
+                    "out_abs_mean": float(np.abs(out_np).mean()),
+                }
+            self.net.train()
+        except Exception:
+            pass
 
         # (F) Gradient stats summary
         grad_stats_summary = {}
@@ -281,6 +359,8 @@ class Trainer:
             "early_ploss": early_ploss,
             "late_vloss": late_vloss,
             "late_ploss": late_ploss,
+            "val_vloss": val_vloss,
+            "val_ploss": val_ploss,
             "buffer_fill": buffer_fill,
             "buffer_capacity": self.buffer.max_size,
             "buffer_full": buffer_full,
@@ -300,6 +380,8 @@ class Trainer:
             "o_pred_mean": o_pred_avg,
             # (F) Gradient direction stats
             "grad_stats": grad_stats_summary,
+            # (V) Value head health
+            "vh_diag": vh_diag,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -452,13 +534,16 @@ class Trainer:
                       f"std={d['val_target_std']:.3f} | "
                       f"X={d['frac_neg']:.1%} O={d['frac_pos']:.1%} "
                       f"draw={d['frac_draw']:.1%}")
+                overfit_gap = d['val_vloss'] - d['late_vloss']
                 print(f"  Diag: eff_epochs={d['effective_epochs']:.1f} "
                       f"steps={d['num_steps']} | "
-                      f"vloss early={d['early_vloss']:.4f} "
-                      f"late={d['late_vloss']:.4f} "
-                      f"(delta={d['late_vloss']-d['early_vloss']:+.4f}) | "
+                      f"vloss train={d['late_vloss']:.4f} "
+                      f"val={d['val_vloss']:.4f} "
+                      f"(gap={overfit_gap:+.4f}) | "
                       f"buf={d['buffer_fill']}/{d['buffer_capacity']}"
                       f"{' FULL' if d['buffer_full'] else ''}")
+                self.writer.add_scalar("diag/val_vloss", d["val_vloss"], iteration)
+                self.writer.add_scalar("diag/val_ploss", d["val_ploss"], iteration)
                 print(f"  Diag: pred_v mean={d['pred_v_mean']:+.3f} "
                       f"std={d['pred_v_std']:.3f} "
                       f"|v|={d['pred_v_abs_mean']:.3f} | "
@@ -485,6 +570,18 @@ class Trainer:
                           f"fc1_mean={gs.get('fc1_grad_mean',0):+.6f} "
                           f"fc2_mean={gs.get('fc2_grad_mean',0):+.6f}"
                           f"{trend_str}")
+                # (V) Value head health
+                vh = d.get('vh_diag', {})
+                if vh:
+                    print(f"  Diag[V]: dead_neurons={vh['dead_neurons']}/{vh['total_neurons']} "
+                          f"pre_tanh=[{vh['pre_tanh_min']:+.2f},{vh['pre_tanh_max']:+.2f}] "
+                          f"std={vh['pre_tanh_std']:.3f} "
+                          f"saturated={vh['out_saturated']:.1%} "
+                          f"|v|={vh['out_abs_mean']:.3f}")
+                    self.writer.add_scalar("vh/dead_neurons", vh["dead_neurons"], iteration)
+                    self.writer.add_scalar("vh/pre_tanh_max", vh["pre_tanh_max"], iteration)
+                    self.writer.add_scalar("vh/pre_tanh_min", vh["pre_tanh_min"], iteration)
+                    self.writer.add_scalar("vh/saturated", vh["out_saturated"], iteration)
 
             # === Self-play value prediction diagnostics ===
             if hasattr(self, '_batched') and hasattr(self._batched, 'value_diag'):

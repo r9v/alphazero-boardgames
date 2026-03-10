@@ -60,7 +60,9 @@ def main():
         from games.santorini.gui import GUI
         ai_player = 1 if args.human_first else -1
         GUI(ai_player=ai_player, simulations=play_sims,
-            filters=filters, res_blocks=res_blocks, c_puct=play_c_puct)
+            filters=filters, res_blocks=res_blocks, c_puct=play_c_puct,
+            value_head_channels=net_cfg.get("value_head_channels", 2),
+            value_head_fc_size=net_cfg.get("value_head_fc_size", 64))
         return
 
     from train import load_game
@@ -74,6 +76,8 @@ def main():
         action_size=game.action_size,
         num_res_blocks=res_blocks,
         num_filters=filters,
+        value_head_channels=net_cfg.get("value_head_channels", 2),
+        value_head_fc_size=net_cfg.get("value_head_fc_size", 64),
     )
 
     checkpoint_dir = f"checkpoints/{args.game}"

@@ -141,14 +141,16 @@ class BatchedSelfPlay:
                     # Game over — store raw terminal value and compute targets
                     tv = states[i].terminal_value
                     terminal_values[i] = tv
-                    for ex in examples[i]:
+                    total_moves = len(examples[i])
+                    for move_idx, ex in enumerate(examples[i]):
                         player_at_pos = ex[2]
                         # Relative: target from current player's perspective
-                        target = tv * player_at_pos
-                        # Assertion: winner's positions should get +1, loser's -1
-                        if tv != 0:  # not a draw
-                            assert target in (-1.0, 1.0), \
-                                f"Bad target {target}: tv={tv}, player={player_at_pos}"
+                        raw_target = tv * player_at_pos
+                        # Discount by distance from end: early moves get smaller targets
+                        # γ^(moves_to_end) where γ=0.95
+                        moves_to_end = total_moves - 1 - move_idx
+                        discount = 0.95 ** moves_to_end
+                        target = raw_target * discount
                         ex[2] = target
                 else:
                     # Create new root for next move (deferred)
@@ -233,7 +235,10 @@ class BatchedSelfPlay:
             "frac_saturated_neg": float((nnet_vals < -0.95).mean()), # near -1
             "frac_saturated_any": float((np.abs(nnet_vals) > 0.95).mean()),
             # Prediction accuracy: does sign of prediction match target?
-            "sign_accuracy": float((np.sign(nnet_vals) == np.sign(targets)).mean()),
+            # Exclude draws (target=0) since np.sign(0)=0 always mismatches
+            "sign_accuracy": float(
+                (np.sign(nnet_vals[targets != 0]) == np.sign(targets[targets != 0])).mean()
+            ) if (targets != 0).any() else 0.5,
             # Mean absolute error vs target
             "mae_vs_outcome": float(np.abs(nnet_vals - targets).mean()),
             # Per-player predictions

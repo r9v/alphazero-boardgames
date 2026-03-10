@@ -53,12 +53,14 @@ GAME_CONFIGS = {
         # --- Network ---
         "num_filters": 256,
         "num_res_blocks": 3,
+        "value_head_channels": 8,
+        "value_head_fc_size": 128,
 
         # --- Training ---
         "max_train_steps": 12800,
         "target_epochs": 4,
         "buffer_size": 50000,
-        "value_loss_weight": 5.0,
+        "value_loss_weight": 1.0,
 
         # --- Self-play ---
         "default_iterations": 32,
