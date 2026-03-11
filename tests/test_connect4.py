@@ -245,53 +245,35 @@ check("step() returns new board", not np.array_equal(s.board, s2.board))
 # ============================================================
 print("\n=== State Encoding Tests ===")
 
-# New game encoding
+# New game encoding (2 channels: my pieces, opponent pieces)
 s = game.new_game()
 inp = game.state_to_input(s)
-check("Input shape is (6, 6, 7)", inp.shape == (6, 6, 7))
+check("Input shape is (2, 6, 7)", inp.shape == (2, 6, 7))
 
-# No pieces on the board → all 6 channels should be zeros
-for ch in range(6):
+# No pieces on the board → both channels should be zeros
+for ch in range(2):
     check(f"Channel {ch} is all zeros (empty board)", inp[ch].sum() == 0)
 
 # After one move by X -> state has player=O
 s1 = game.step(s, 3)  # X plays col 3
 inp1 = game.state_to_input(s1)
 
-# Relative encoding: channel 4 = my pieces (O), channel 5 = opponent pieces (X)
-# O hasn't played yet, so channel 4 (my=O) is empty
-# X played at (0,3), so channel 5 (opp=X) has it
-check("After X@(0,3): channel 4 (my=O pieces) is zeros", inp1[4].sum() == 0)
-check("After X@(0,3): channel 5 (opp=X pieces) has (0,3)", inp1[5][0][3] == 1.0)
-check("After X@(0,3): channel 5 sum is 1", inp1[5].sum() == 1)
-
-# History: channel 0-1 should be the state before the PREVIOUS state
-# Since s1 has prev_state=s (new game), and s has prev_state=None:
-# History[0] = s.prev_state (None -> zeros) -> channels 0,1 = zeros
-check("History channel 0 is zeros (no grandparent)", inp1[0].sum() == 0)
-check("History channel 1 is zeros (no grandparent)", inp1[1].sum() == 0)
-
-# History[1] = s (new game, empty board) -> channels 2,3 = zeros
-check("History channel 2 (prev my pieces) is zeros", inp1[2].sum() == 0)
-check("History channel 3 (prev opp pieces) is zeros", inp1[3].sum() == 0)
+# Relative encoding: channel 0 = my pieces (O), channel 1 = opponent pieces (X)
+# O hasn't played yet, so channel 0 (my=O) is empty
+# X played at (0,3), so channel 1 (opp=X) has it
+check("After X@(0,3): channel 0 (my=O pieces) is zeros", inp1[0].sum() == 0)
+check("After X@(0,3): channel 1 (opp=X pieces) has (0,3)", inp1[1][0][3] == 1.0)
+check("After X@(0,3): channel 1 sum is 1", inp1[1].sum() == 1)
 
 # After two moves -> state has player=X
 s2 = game.step(s1, 5)  # O plays col 5
 inp2 = game.state_to_input(s2)
 
-# Relative: channel 4 = my pieces (X), channel 5 = opponent pieces (O)
-check("After O@(0,5): channel 4 (my=X) has X at (0,3)", inp2[4][0][3] == 1.0)
-check("After O@(0,5): channel 5 (opp=O) has O at (0,5)", inp2[5][0][5] == 1.0)
-
-# History: prev_state is s1 (X at (0,3), player=O), prev_prev is s (empty)
-# channels 0,1 = s (empty, all relative to current player X) = zeros
-check("Two moves: history chan 0 (my 2 ago) is zeros", inp2[0].sum() == 0)
-check("Two moves: history chan 1 (opp 2 ago) is zeros", inp2[1].sum() == 0)
-# channels 2,3 = s1 board, encoded relative to current player (X)
-# s1 board has X at (0,3) -> my piece (X) -> channel 2
-check("Two moves: history chan 2 (my=X prev) has (0,3)", inp2[2][0][3] == 1.0)
-check("Two moves: history chan 2 sum is 1", inp2[2].sum() == 1)
-check("Two moves: history chan 3 (opp=O prev) is zeros", inp2[3].sum() == 0)
+# Relative: channel 0 = my pieces (X), channel 1 = opponent pieces (O)
+check("After O@(0,5): channel 0 (my=X) has X at (0,3)", inp2[0][0][3] == 1.0)
+check("After O@(0,5): channel 1 (opp=O) has O at (0,5)", inp2[1][0][5] == 1.0)
+check("After O@(0,5): channel 0 sum is 1", inp2[0].sum() == 1)
+check("After O@(0,5): channel 1 sum is 1", inp2[1].sum() == 1)
 
 
 # ============================================================

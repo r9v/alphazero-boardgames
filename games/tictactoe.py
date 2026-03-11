@@ -65,31 +65,8 @@ class TTTGame(Game):
         return GameState(state, next_board, state.player * -1)
 
     def state_to_input(self, state):
-        channels = 2 * (self.num_history_states + 1)  # 2
-        inp = np.zeros((channels, 3, 3), dtype="float32")
-
+        inp = np.zeros((2, 3, 3), dtype="float32")
         me = state.player
-        opp = -me
-
-        # Previous states (oldest first)
-        s = state
-        history = []
-        for _ in range(self.num_history_states):
-            if s.prev_state is not None:
-                s = s.prev_state
-                history.append(s.board)
-            else:
-                history.append(np.zeros((3, 3), dtype="int"))
-        history.reverse()
-
-        # Relative encoding: channel 0 = my pieces, channel 1 = opponent pieces
-        for i, board in enumerate(history):
-            inp[2 * i] = (board == me).astype("float32")
-            inp[2 * i + 1] = (board == opp).astype("float32")
-
-        # Current state
-        c = 2 * self.num_history_states
-        inp[c] = (state.board == me).astype("float32")
-        inp[c + 1] = (state.board == opp).astype("float32")
-
+        inp[0] = (state.board == me).astype("float32")
+        inp[1] = (state.board == -me).astype("float32")
         return inp

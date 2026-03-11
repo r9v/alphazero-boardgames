@@ -1,3 +1,4 @@
+import math
 import os
 import random
 import time
@@ -106,7 +107,6 @@ class Trainer:
         late_start = num_steps - early_cutoff
 
         # Cosine LR schedule: lr decays from initial to 10% over training steps
-        import math
         lr_min = self.lr * 0.1
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = self.lr  # reset to initial at start of each iteration
@@ -138,10 +138,9 @@ class Trainer:
             if step % 10 == 0:
                 with torch.no_grad():
                     # Infer player from piece counts: equal pieces = X to move
-                    num_hist = getattr(self.game, 'num_history_states', 2)
-                    ch = 2 * num_hist
-                    my_counts = states[:, ch].sum(dim=(1, 2))
-                    opp_counts = states[:, ch + 1].sum(dim=(1, 2))
+                    # Channel 0 = my pieces, channel 1 = opp pieces
+                    my_counts = states[:, 0].sum(dim=(1, 2))
+                    opp_counts = states[:, 1].sum(dim=(1, 2))
                     is_x = (my_counts == opp_counts)  # X has equal pieces
                     is_o = ~is_x
 

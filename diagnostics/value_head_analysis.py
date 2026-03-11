@@ -15,7 +15,6 @@ import torch.nn.functional as F
 from network import AlphaZeroNet
 from game_configs import GAME_CONFIGS
 from train import load_game
-from games.connect4 import GameState as C4State
 
 
 def generate_positions(game, num_games=100):
@@ -83,27 +82,28 @@ def analyze_value_head(net, examples, device):
     print("VALUE HEAD ACTIVATION STATISTICS")
     print("=" * 70)
 
-    # After value_conv + bn + relu (before flattening)
-    act_conv = F.relu(activations["value_bn"])
+    # After value_conv + bn + leaky_relu (before flattening)
+    act_conv = F.leaky_relu(activations["value_bn"], negative_slope=0.01)
     act_conv_flat = act_conv.view(act_conv.size(0), -1)
-    print(f"\n  After value_conv+bn+relu: shape={list(act_conv.shape)}")
+    print(f"\n  After value_conv+bn+leaky_relu: shape={list(act_conv.shape)}")
     print(f"    mean={act_conv_flat.mean():.4f} std={act_conv_flat.std():.4f}")
     print(f"    zeros (dead)={float((act_conv_flat == 0).float().mean()):.1%}")
     print(f"    range=[{act_conv_flat.min():.4f}, {act_conv_flat.max():.4f}]")
 
-    # After fc1 + relu
+    # After fc1 + leaky_relu
     act_fc1_pre = activations["value_fc1"]
-    act_fc1 = F.relu(act_fc1_pre)
-    print(f"\n  After value_fc1 (pre-relu): shape={list(act_fc1_pre.shape)}")
+    act_fc1 = F.leaky_relu(act_fc1_pre, negative_slope=0.01)
+    n_fc1 = act_fc1.shape[1]
+    print(f"\n  After value_fc1 (pre-activation): shape={list(act_fc1_pre.shape)}")
     print(f"    mean={act_fc1_pre.mean():.4f} std={act_fc1_pre.std():.4f}")
     print(f"    range=[{act_fc1_pre.min():.4f}, {act_fc1_pre.max():.4f}]")
-    print(f"  After value_fc1 (post-relu):")
+    print(f"  After value_fc1 (post-leaky_relu):")
     print(f"    mean={act_fc1.mean():.4f} std={act_fc1.std():.4f}")
-    dead_neurons = (act_fc1 == 0).float().mean(dim=0)  # per-neuron dead rate
-    print(f"    dead neurons (>99% zero across batch): {int((dead_neurons > 0.99).sum())}/32")
-    print(f"    mostly dead (>90% zero): {int((dead_neurons > 0.90).sum())}/32")
-    print(f"    mostly active (<10% zero): {int((dead_neurons < 0.10).sum())}/32")
-    print(f"    per-neuron dead rates: {dead_neurons.numpy().round(2).tolist()}")
+    near_dead = (act_fc1.abs() < 0.01).float().mean(dim=0)  # per-neuron near-dead rate
+    print(f"    near-dead neurons (>99% near-zero): {int((near_dead > 0.99).sum())}/{n_fc1}")
+    print(f"    mostly dead (>90% near-zero): {int((near_dead > 0.90).sum())}/{n_fc1}")
+    print(f"    mostly active (<10% near-zero): {int((near_dead < 0.10).sum())}/{n_fc1}")
+    print(f"    per-neuron near-dead rates: {near_dead.numpy().round(2).tolist()}")
 
     # After fc2 + tanh
     act_fc2 = activations["value_fc2"]
@@ -183,16 +183,16 @@ def analyze_value_head(net, examples, device):
     print(f"    max |corr|={np.abs(correlations).max():.3f}")
     print(f"    mean |corr|={np.abs(correlations).mean():.3f}")
     useful = (np.abs(correlations) > 0.1).sum()
-    print(f"    neurons with |corr|>0.1: {useful}/32")
+    print(f"    neurons with |corr|>0.1: {useful}/{n_fc1}")
 
     # === Summary ===
     print(f"\n{'='*70}")
     print("SUMMARY")
     print("=" * 70)
-    dead_count = int((dead_neurons > 0.99).sum())
-    print(f"  Dead neurons: {dead_count}/32")
+    dead_count = int((near_dead > 0.99).sum())
+    print(f"  Dead neurons: {dead_count}/{n_fc1}")
     print(f"  Effective rank: {effective_rank:.1f}/{min(fc1_w.shape)}")
-    print(f"  Useful neurons (|corr|>0.1): {useful}/32")
+    print(f"  Useful neurons (|corr|>0.1): {useful}/{n_fc1}")
     print(f"  Pred mean X={preds[x_mask].mean():+.3f} O={preds[o_mask].mean():+.3f}")
     print(f"  Target mean X={targets[x_mask].mean():+.3f} O={targets[o_mask].mean():+.3f}")
 

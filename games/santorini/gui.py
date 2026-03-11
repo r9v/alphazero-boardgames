@@ -312,8 +312,7 @@ class GUI:
             actions_with_visits = []
             children = root.children
             for a in range(25):
-                child = (children.get(a) if isinstance(children, dict)
-                         else children[a])
+                child = children[a]
                 if child is not None and child.n > 0:
                     actions_with_visits.append((a, child.n, child.Q))
             actions_with_visits.sort(key=lambda x: -x[1])
@@ -330,8 +329,7 @@ class GUI:
             actions_with_visits = []
             children = root.children
             for a in range(128):
-                child = (children.get(a) if isinstance(children, dict)
-                         else children[a])
+                child = children[a]
                 if child is not None and child.n > 0:
                     actions_with_visits.append((a, child.n, child.Q))
 

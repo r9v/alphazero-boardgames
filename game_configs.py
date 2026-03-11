@@ -64,7 +64,7 @@ GAME_CONFIGS = {
 
         # --- Self-play ---
         "default_iterations": 32,
-        "default_games": 32,
+        "default_games": 64,
         "default_simulations": 256,
         "selects_per_round": 8,
         "vl_value": 3.0,

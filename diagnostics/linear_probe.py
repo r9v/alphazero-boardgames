@@ -18,7 +18,6 @@ import torch.nn.functional as F
 from network import AlphaZeroNet
 from game_configs import GAME_CONFIGS
 from train import load_game
-from games.connect4 import GameState as C4State
 
 
 def extract_backbone_features(net, states_tensor, device):
@@ -32,7 +31,7 @@ def extract_backbone_features(net, states_tensor, device):
             x = block(x)
         # x is now (batch, num_filters, H, W)
         # Also extract value head intermediate
-        v = F.relu(net.value_bn(net.value_conv(x)))
+        v = F.leaky_relu(net.value_bn(net.value_conv(x)), negative_slope=0.01)
         v_flat = v.view(v.size(0), -1)  # (batch, H*W)
     return x.cpu(), v_flat.cpu()
 
@@ -142,15 +141,12 @@ def main():
     sign_acc = np.mean(np.sign(test_preds) == np.sign(test_targets))
     corr = np.corrcoef(test_preds, test_targets)[0, 1] if len(test_preds) > 1 else 0
 
-    # Per-player breakdown
+    # Per-player breakdown (channel 0 = my pieces, channel 1 = opp pieces)
     all_players = []
     for e in examples:
-        # Infer player from piece counts
         inp = e[0]
-        num_hist = getattr(game, 'num_history_states', 2)
-        ch = 2 * num_hist
-        my_count = inp[ch].sum()
-        opp_count = inp[ch + 1].sum()
+        my_count = inp[0].sum()
+        opp_count = inp[1].sum()
         all_players.append(-1 if my_count == opp_count else 1)
     all_players = np.array(all_players)
 

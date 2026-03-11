@@ -222,23 +222,20 @@ def test_overfit_vs_generalize(game, net, n_train_games=30, n_test_games=30):
     print("=" * 70)
 
     def generate_positions(n_games):
-        positions = []
+        all_positions = []
         for _ in range(n_games):
+            trajectory = []
             state = game.new_game()
             while not state.terminal:
-                positions.append((game.state_to_input(state), state.player))
+                trajectory.append((game.state_to_input(state), state.player))
                 mask = state.available_actions
                 actions = np.where(mask == 1)[0]
                 action = actions[np.random.randint(len(actions))]
                 state = game.step(state, action)
             tv = state.terminal_value
-            # Assign targets
-            result = []
-            for inp, player in positions[-len(positions):]:
-                target = tv * player
-                result.append((inp, target))
-            positions_with_targets = result
-        return positions_with_targets
+            for inp, player in trajectory:
+                all_positions.append((inp, tv * player))
+        return all_positions
 
     set_a = generate_positions(n_train_games)
     set_b = generate_positions(n_test_games)
@@ -301,9 +298,9 @@ def test_value_head_capacity(game, net):
             x = block(x)
 
         # Value head layers
-        v_conv = F.relu(net.value_bn(net.value_conv(x)))
+        v_conv = F.leaky_relu(net.value_bn(net.value_conv(x)), negative_slope=0.01)
         v_flat = v_conv.view(v_conv.size(0), -1)
-        v_fc1 = F.relu(net.value_fc1(v_flat))
+        v_fc1 = F.leaky_relu(net.value_fc1(v_flat), negative_slope=0.01)
         v_pre_tanh = net.value_fc2(v_fc1)
         v_out = torch.tanh(v_pre_tanh)
 

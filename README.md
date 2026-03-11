@@ -18,11 +18,10 @@ AlphaZero learns to play board games entirely from self-play, with no human know
 
 ```bash
 pip install -r requirements.txt
+python setup.py build_ext --inplace
 ```
 
-**Play against the AI:**
-
-Pretrained models are included in `checkpoints/` - no training required - just run the commands below.
+**Play against the AI** (pretrained models included in `checkpoints/`):
 
 ```bash
 python play.py --game tictactoe --human-first
@@ -34,46 +33,54 @@ python play.py --game santorini --human-first
 
 ```bash
 python train.py --game tictactoe
-
 python train.py --game connect4
+python train.py --game santorini
+```
 
-# Santorini (larger network, more simulations)
-python train.py --game santorini --iterations 32 --games 32 --simulations 256
+All training parameters (iterations, games per iteration, simulations, network size) have per-game defaults in `game_configs.py` and can be overridden via CLI:
 
-python -u train.py --game santorini --iterations 32 --games 32 --simulations 256 2>&1 | tee training_log.txt
+```bash
+python train.py --game connect4 --iterations 32 --games 64 --simulations 128
+python -u train.py --game santorini --iterations 32 --games 64 --simulations 256 2>&1 | tee training_log.txt
+```
+
+**Monitor training:**
+
+```bash
+tensorboard --logdir runs/
 ```
 
 ## Supported Games
 
-| Game            | Board | Action Space | Status                             |
-| --------------- | ----- | ------------ | ---------------------------------- |
-| **Tic-Tac-Toe** | 3×3   | 9            | Fully trained, playable            |
-| **Connect 4**   | 6×7   | 7            | Fully trained, playable            |
-| **Santorini**   | 5×5   | 128          | Game + pygame GUI, AlphaZero-ready |
-
-### A note on Hive
-
-Hive is a strategic insect-themed board game. It was originally implemented with full game logic and a GUI, but was abandoned for AlphaZero integration — Hive has a **variable, unbounded action space** and no fixed board grid, making it fundamentally incompatible with AlphaZero's fixed-size policy output. The game logic and GUI remain in the codebase for standalone play.
+| Game            | Board | Action Space | Status                  |
+| --------------- | ----- | ------------ | ----------------------- |
+| **Tic-Tac-Toe** | 3×3   | 9            | Fully trained, playable |
+| **Connect 4**   | 6×7   | 7            | Fully trained, playable |
+| **Santorini**   | 5×5   | 128          | Fully trained, playable |
 
 ## Architecture
 
 The neural network follows the AlphaZero design:
 
-- **Input**: Board state channels (game-specific encoding) + player indicator
-- **Backbone**: 1 convolutional layer (256 filters) followed by 2 residual blocks
+- **Input**: 2 channels — current player's pieces and opponent's pieces (relative encoding)
+- **Backbone**: 1 convolutional layer + N residual blocks (size varies per game)
 - **Policy head**: Outputs a probability distribution over legal moves
 - **Value head**: Outputs a scalar in [-1, 1] estimating the winning probability
 
 ```
-Input (board state channels + player indicator)
+Input (2 channels: my pieces, opponent pieces)
         │
   Conv2D + BatchNorm + ReLU
         │
-  Residual Block × N
-     ┌──┴──┐
-  Policy  Value
-  Head    Head
-(softmax) (tanh)
+  Residual Block x N
+   ┌────┴────┐
+ Policy    Value
+  Head      Head
+   |         |
+ Conv 1x1  Conv 1x1
+ BN+ReLU   BN+LeakyReLU
+ Linear    Linear+LeakyReLU
+ Softmax   Dropout+Linear+Tanh
 ```
 
 All games share the same configurable PyTorch `AlphaZeroNet` — only the input channels, board shape, and action size change per game.
@@ -83,31 +90,23 @@ All games share the same configurable PyTorch `AlphaZeroNet` — only the input 
 The search uses PUCT (Predictor + Upper Confidence bound for Trees):
 
 ```
-a* = argmax [ Q(s,a) + P(s,a) * sqrt(N(s)) / (1 + N(s,a)) ]
+a* = argmax [ Q(s,a) + c_puct * P(s,a) * sqrt(N(s)) / (1 + N(s,a)) ]
 ```
 
 - Neural network priors guide exploration
-- Dirichlet noise added at the root for exploration during training (alpha=0.03, epsilon=0.25)
-- 50 simulations per move
+- Dirichlet noise at root for training exploration (alpha=0.03, epsilon=0.25)
+- Virtual loss for parallel tree traversal (Santorini uses vl=3.0 with 8 selects/round)
+- Temperature annealing: proportional play early, greedy after `temp_threshold` moves
 
-## Project Structure
+MCTS and Santorini game logic are implemented in Cython for performance. The Cython extensions must be compiled before use (`python setup.py build_ext --inplace`).
 
-```
-games/
-  base.py              # Abstract Game / GameState interface
-  tictactoe.py         # Tic-Tac-Toe
-  connect4.py          # Connect 4
-  santorini/           # Santorini (game + pygame GUI)
-  hive/                # Hive (game + GUI, not AlphaZero-integrated)
-network/
-  alphazero_net.py     # Configurable dual-head ResNet (PyTorch)
-mcts/
-  mcts.py              # Monte Carlo Tree Search
-training/
-  trainer.py           # Self-play + network training loop
-  replay_buffer.py     # Ring buffer for training samples
-train.py               # CLI: train any game
-play.py                # CLI: play against trained model
+## Tests
+
+```bash
+python -m tests.test_connect4
+python -m tests.test_mcts
+python -m tests.test_santorini_placement
+python -m tests.test_santorini_symmetry
 ```
 
 ## References

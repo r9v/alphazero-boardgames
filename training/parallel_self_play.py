@@ -93,7 +93,7 @@ class BatchedSelfPlay:
                 pi = np.zeros(np.shape(root.available_actions_mask))
                 children = root.children
                 for action in root.available_actions:
-                    child = children.get(action) if isinstance(children, dict) else children[action]
+                    child = children[action]
                     if child is not None:
                         pi[action] = child.n / root.n
 

@@ -124,7 +124,7 @@ def main():
             print(f"\n  {'Col':>3}  {'N':>6}  {'Q':>7}  {'P':>7}  {'pi':>7}")
             print(f"  {'---':>3}  {'---':>6}  {'---':>7}  {'---':>7}  {'---':>7}")
             for a in range(len(pi)):
-                child = root.children.get(a) if isinstance(root.children, dict) else root.children[a]
+                child = root.children[a]
                 n = child.n if child else 0
                 q = f"{child.Q:+.3f}" if child else "  -   "
                 p = f"{root.P[a]:.3f}" if root.P[a] > 0.001 else "  .   "
