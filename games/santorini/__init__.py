@@ -1,4 +1,2 @@
-try:
-    from .c_game import CSantoriniGame as SantoriniGame
-except ImportError:
-    from .game import SantoriniGame
+from .c_game import CSantoriniGame as SantoriniGame
+from .c_game import _BOARD_SIZE as BOARD_SIZE, _DIRECTIONS as DIRECTIONS

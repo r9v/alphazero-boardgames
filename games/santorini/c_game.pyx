@@ -29,6 +29,10 @@ DIR_R[5] =  1; DIR_C[5] = -1  # SW
 DIR_R[6] =  0; DIR_C[6] = -1  # W
 DIR_R[7] = -1; DIR_C[7] = -1  # NW
 
+# Python-accessible constants (DEF versions are compile-time only)
+_BOARD_SIZE = 5
+_DIRECTIONS = [(-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1)]
+
 
 cdef inline bint _in_bounds(int r, int c) noexcept nogil:
     return 0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE
@@ -406,40 +410,29 @@ class CSantoriniGame:
         cdef int r, c, level, pi, oi
         cdef CSantoriniState cs
 
-        if isinstance(state, CSantoriniState):
-            cs = <CSantoriniState>state
-            # Channels 0-4: one-hot building levels
-            for r in range(BOARD_SIZE):
-                for c in range(BOARD_SIZE):
-                    level = cs._board[r][c]
-                    if level < 5:
-                        out[level, r, c] = 1.0
-                    else:
-                        out[4, r, c] = 1.0  # 4+ = dome
+        cs = <CSantoriniState>state
+        # Channels 0-4: one-hot building levels
+        for r in range(BOARD_SIZE):
+            for c in range(BOARD_SIZE):
+                level = cs._board[r][c]
+                if level < 5:
+                    out[level, r, c] = 1.0
+                else:
+                    out[4, r, c] = 1.0  # 4+ = dome
 
-            # Channel 5: current player's workers (0-2 during placement)
-            pi = _player_idx(cs.player)
-            if cs._num_workers[pi] >= 1:
-                out[5, cs._wr[pi][0], cs._wc[pi][0]] = 1.0
-            if cs._num_workers[pi] >= 2:
-                out[5, cs._wr[pi][1], cs._wc[pi][1]] = 1.0
+        # Channel 5: current player's workers (0-2 during placement)
+        pi = _player_idx(cs.player)
+        if cs._num_workers[pi] >= 1:
+            out[5, cs._wr[pi][0], cs._wc[pi][0]] = 1.0
+        if cs._num_workers[pi] >= 2:
+            out[5, cs._wr[pi][1], cs._wc[pi][1]] = 1.0
 
-            # Channel 6: opponent's workers (0-2 during placement)
-            oi = 1 - pi
-            if cs._num_workers[oi] >= 1:
-                out[6, cs._wr[oi][0], cs._wc[oi][0]] = 1.0
-            if cs._num_workers[oi] >= 2:
-                out[6, cs._wr[oi][1], cs._wc[oi][1]] = 1.0
-        else:
-            # Fallback for Python GameState
-            board = state.board
-            for level in range(5):
-                inp[level] = (board == level).astype(np.float32)
-            for r2, c2 in state.workers[state.player]:
-                inp[5][r2][c2] = 1.0
-            opponent = state.player * -1
-            for r2, c2 in state.workers[opponent]:
-                inp[6][r2][c2] = 1.0
+        # Channel 6: opponent's workers (0-2 during placement)
+        oi = 1 - pi
+        if cs._num_workers[oi] >= 1:
+            out[6, cs._wr[oi][0], cs._wc[oi][0]] = 1.0
+        if cs._num_workers[oi] >= 2:
+            out[6, cs._wr[oi][1], cs._wc[oi][1]] = 1.0
 
         return inp
 

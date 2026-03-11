@@ -3,7 +3,7 @@
 Run: python -m tests.test_santorini_symmetry
 """
 import numpy as np
-from games.santorini.game import SantoriniGame, GameState, DIRECTIONS
+from games.santorini import SantoriniGame, DIRECTIONS
 from games.santorini.symmetry import (
     get_symmetries, _transform_state, _transform_pos, _transform_policy,
     _needs_worker_swap, DIR_PERMS, _ACTION_REMAP, BOARD_SIZE,

@@ -1,11 +1,7 @@
 import time
 import numpy as np
 
-try:
-    from mcts.c_mcts import CMCTS as MCTS, CNode as Node
-    from mcts.mcts import add_dirichlet_noise
-except ImportError:
-    from mcts.mcts import MCTS, Node, add_dirichlet_noise
+from mcts import MCTS, Node, add_dirichlet_noise
 
 
 class BatchedSelfPlay:

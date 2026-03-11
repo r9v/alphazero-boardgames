@@ -1,7 +1,7 @@
 """Tests for Santorini worker placement phase."""
 import pytest
 import numpy as np
-from games.santorini.game import SantoriniGame, GameState, BOARD_SIZE
+from games.santorini import SantoriniGame, BOARD_SIZE
 
 
 @pytest.fixture

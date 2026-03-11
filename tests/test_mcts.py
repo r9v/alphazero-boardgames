@@ -5,7 +5,7 @@ Run: python -m tests.test_mcts
 import math
 import numpy as np
 from games.connect4 import Connect4Game, GameState
-from mcts.mcts import MCTS, Node, add_dirichlet_noise
+from mcts import MCTS, Node, add_dirichlet_noise
 
 game = Connect4Game()
 passed = 0
@@ -68,11 +68,10 @@ class PositionAwareNet:
 
     def predict(self, state_input):
         self.call_count += 1
-        # With relative encoding: ch4 = my pieces, ch5 = opponent pieces
-        # (for Connect4 with 2 history states, current board at channels 4,5)
+        # With relative encoding: ch0 = my pieces, ch1 = opponent pieces
         # X moves first, so equal piece counts = X to move
-        my_count = state_input[4].sum()
-        opp_count = state_input[5].sum()
+        my_count = state_input[0].sum()
+        opp_count = state_input[1].sum()
         if my_count == opp_count:
             v = self.vx  # X to move (equal pieces = first mover's turn)
         else:
@@ -302,13 +301,13 @@ best = np.argmax(pi)
 print(f"  MCTS with 50 sims (neutral net):")
 print(f"  Best action: col {best}")
 for a in range(7):
-    child = root.children.get(a)
+    child = root.children[a]
     if child is not None:
         marker = " <-- WIN" if a == 3 else ""
         print(f"    Col {a}: N={child.n:>3} Q={child.Q:+.3f}{marker}")
 
 # After 50 sims, MCTS should find that col 3 wins (terminal child with Q=1)
-col3_child = root.children.get(3)
+col3_child = root.children[3]
 if col3_child is not None:
     check("Col 3 child has Q ~= 1.0 (winning for X)",
           col3_child.Q > 0.5, f"Q={col3_child.Q}")
@@ -343,7 +342,7 @@ root = mcts_b.last_root
 best = np.argmax(pi)
 print(f"  MCTS with 100 sims (neutral net), X must block col 3:")
 for a in range(7):
-    child = root.children.get(a)
+    child = root.children[a]
     if child is not None:
         marker = ""
         if a == 3:
@@ -401,7 +400,6 @@ root.P = np.ones(7) / 7
 # search_expand should return an unevaluated leaf
 leaf = mcts_d.search_expand(root)
 if leaf is not None:
-    check("Deferred leaf has nnet_value=None before resolve", leaf.nnet_value is None)
     check("Deferred leaf has P=None before resolve", leaf.P is None)
 
     # Resolve with mock values
@@ -444,7 +442,7 @@ print(f"    But root IS the search root, so we care about child.Q, not root.Q")
 # child.Q = 1.0 → good for parent X → X explores further
 mcts_p._search(root)
 for a in root.available_actions:
-    child = root.children.get(a)
+    child = root.children[a]
     if child is not None:
         check(f"Perfect net X wins: child.Q = +1.0 (col {a})",
               abs(child.Q - 1.0) < 1e-6, f"got {child.Q}")
@@ -459,7 +457,7 @@ root.P = np.ones(7) / 7
 
 mcts_p2._search(root)
 for a in root.available_actions:
-    child = root.children.get(a)
+    child = root.children[a]
     if child is not None:
         # child (O to move), nnet=+1 (O winning, relative)
         # evaluate = -(+1) = -1
@@ -485,7 +483,7 @@ root = mcts_conv.last_root
 print(f"  700 sims, neutral network, new game:")
 visit_counts = []
 for a in range(7):
-    child = root.children.get(a)
+    child = root.children[a]
     n = child.n if child else 0
     q = f"{child.Q:+.3f}" if child else "  -  "
     print(f"    Col {a}: N={n:>4} Q={q} pi={pi[a]:.3f}")

@@ -3410,7 +3410,6 @@ static PyObject *contiguous = 0;
 static PyObject *indirect_contiguous = 0;
 static int __pyx_memoryview_thread_locks_used;
 static PyThread_type_lock __pyx_memoryview_thread_locks[8];
-static PyArrayObject *__pyx_f_4mcts_6c_mcts__dirichlet_noise(PyArrayObject *, double, double); /*proto*/
 static int __pyx_f_4mcts_6c_mcts__best_action(struct __pyx_obj_4mcts_6c_mcts_CNode *, struct __pyx_opt_args_4mcts_6c_mcts__best_action *__pyx_optional_args); /*proto*/
 static void __pyx_f_4mcts_6c_mcts__backpropagate(double, struct __pyx_obj_4mcts_6c_mcts_CNode *); /*proto*/
 static double __pyx_f_4mcts_6c_mcts__evaluate(struct __pyx_obj_4mcts_6c_mcts_CNode *); /*proto*/
@@ -3519,6 +3518,7 @@ static void __pyx_memoryviewslice___pyx_pf_15View_dot_MemoryView_16_memoryviewsl
 static PyObject *__pyx_pf___pyx_memoryviewslice___reduce_cython__(CYTHON_UNUSED struct __pyx_memoryviewslice_obj *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf___pyx_memoryviewslice_2__setstate_cython__(CYTHON_UNUSED struct __pyx_memoryviewslice_obj *__pyx_v_self, CYTHON_UNUSED PyObject *__pyx_v___pyx_state); /* proto */
 static PyObject *__pyx_pf_15View_dot_MemoryView___pyx_unpickle_Enum(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v___pyx_type, long __pyx_v___pyx_checksum, PyObject *__pyx_v___pyx_state); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_add_dirichlet_noise(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_arr, double __pyx_v_alpha, double __pyx_v_epsilon); /* proto */
 static int __pyx_pf_4mcts_6c_mcts_5CNode___init__(struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_parent, PyObject *__pyx_v_state, PyObject *__pyx_v_game, PyObject *__pyx_v_net); /* proto */
 static PyObject *__pyx_pf_4mcts_6c_mcts_5CNode_2resolve(struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_self, double __pyx_v_value, PyObject *__pyx_v_policy); /* proto */
 static PyObject *__pyx_pf_4mcts_6c_mcts_5CNode_22available_actions_mask___get__(struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_self); /* proto */
@@ -3562,6 +3562,12 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_6search_backup(CYTHON_UNUSED stru
 static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_8search_expand_vl(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_root, double __pyx_v_vl_value); /* proto */
 static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_10search_backup_vl(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node, CYTHON_UNUSED PyObject *__pyx_v_path, double __pyx_v_vl_value); /* proto */
 static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_12undo_virtual_loss(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node, CYTHON_UNUSED PyObject *__pyx_v_path, double __pyx_v_vl_value); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_14_search(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_root); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_16_evaluate(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_18_backpropagate(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, double __pyx_v_value, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_20_best_action(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_22_apply_virtual_loss(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node, double __pyx_v_vl_value); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_24_undo_virtual_loss(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node, double __pyx_v_vl_value); /* proto */
 static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_4game___get__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self); /* proto */
 static int __pyx_pf_4mcts_6c_mcts_5CMCTS_4game_2__set__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, PyObject *__pyx_v_value); /* proto */
 static int __pyx_pf_4mcts_6c_mcts_5CMCTS_4game_4__del__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self); /* proto */
@@ -3573,10 +3579,10 @@ static int __pyx_pf_4mcts_6c_mcts_5CMCTS_9last_root_2__set__(struct __pyx_obj_4m
 static int __pyx_pf_4mcts_6c_mcts_5CMCTS_9last_root_4__del__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_6c_puct___get__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self); /* proto */
 static int __pyx_pf_4mcts_6c_mcts_5CMCTS_6c_puct_2__set__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, PyObject *__pyx_v_value); /* proto */
-static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_14__reduce_cython__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self); /* proto */
-static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_16__setstate_cython__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, PyObject *__pyx_v___pyx_state); /* proto */
-static PyObject *__pyx_pf_4mcts_6c_mcts___pyx_unpickle_CNode(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v___pyx_type, long __pyx_v___pyx_checksum, PyObject *__pyx_v___pyx_state); /* proto */
-static PyObject *__pyx_pf_4mcts_6c_mcts_2__pyx_unpickle_CMCTS(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v___pyx_type, long __pyx_v___pyx_checksum, PyObject *__pyx_v___pyx_state); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_26__reduce_cython__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_28__setstate_cython__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, PyObject *__pyx_v___pyx_state); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_2__pyx_unpickle_CNode(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v___pyx_type, long __pyx_v___pyx_checksum, PyObject *__pyx_v___pyx_state); /* proto */
+static PyObject *__pyx_pf_4mcts_6c_mcts_4__pyx_unpickle_CMCTS(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v___pyx_type, long __pyx_v___pyx_checksum, PyObject *__pyx_v___pyx_state); /* proto */
 static PyObject *__pyx_tp_new_4mcts_6c_mcts_CNode(PyTypeObject *t, PyObject *a, PyObject *k); /*proto*/
 static PyObject *__pyx_tp_new_4mcts_6c_mcts_CMCTS(PyTypeObject *t, PyObject *a, PyObject *k); /*proto*/
 static PyObject *__pyx_tp_new_array(PyTypeObject *t, PyObject *a, PyObject *k); /*proto*/
@@ -3636,9 +3642,9 @@ typedef struct {
   __Pyx_CachedCFunction __pyx_umethod_PyDict_Type_values;
   PyObject *__pyx_slice[1];
   PyObject *__pyx_tuple[4];
-  PyObject *__pyx_codeobj_tab[13];
-  PyObject *__pyx_string_tab[196];
-  PyObject *__pyx_number_tab[7];
+  PyObject *__pyx_codeobj_tab[20];
+  PyObject *__pyx_string_tab[221];
+  PyObject *__pyx_number_tab[9];
 /* #### Code section: module_state_contents ### */
 /* CommonTypesMetaclass.module_state_decls */
 PyTypeObject *__pyx_CommonTypesMetaclassType;
@@ -3732,156 +3738,183 @@ static __pyx_mstatetype * const __pyx_mstate_global = &__pyx_mstate_global_stati
 #define __pyx_n_u_CMCTS __pyx_string_tab[50]
 #define __pyx_n_u_CMCTS___reduce_cython __pyx_string_tab[51]
 #define __pyx_n_u_CMCTS___setstate_cython __pyx_string_tab[52]
-#define __pyx_n_u_CMCTS_get_policy __pyx_string_tab[53]
-#define __pyx_n_u_CMCTS_search_backup __pyx_string_tab[54]
-#define __pyx_n_u_CMCTS_search_backup_vl __pyx_string_tab[55]
-#define __pyx_n_u_CMCTS_search_expand __pyx_string_tab[56]
-#define __pyx_n_u_CMCTS_search_expand_vl __pyx_string_tab[57]
-#define __pyx_n_u_CMCTS_undo_virtual_loss __pyx_string_tab[58]
-#define __pyx_n_u_CNode __pyx_string_tab[59]
-#define __pyx_n_u_CNode___reduce_cython __pyx_string_tab[60]
-#define __pyx_n_u_CNode___setstate_cython __pyx_string_tab[61]
-#define __pyx_n_u_CNode_resolve __pyx_string_tab[62]
-#define __pyx_n_u_Ellipsis __pyx_string_tab[63]
-#define __pyx_n_u_Pyx_PyDict_NextRef __pyx_string_tab[64]
-#define __pyx_n_u_Sequence __pyx_string_tab[65]
-#define __pyx_n_u_View_MemoryView __pyx_string_tab[66]
-#define __pyx_n_u_abc __pyx_string_tab[67]
-#define __pyx_n_u_action __pyx_string_tab[68]
-#define __pyx_n_u_action_size __pyx_string_tab[69]
-#define __pyx_n_u_add_dirichlet __pyx_string_tab[70]
-#define __pyx_n_u_allocate_buffer __pyx_string_tab[71]
-#define __pyx_n_u_array __pyx_string_tab[72]
-#define __pyx_n_u_ascontiguousarray __pyx_string_tab[73]
-#define __pyx_n_u_asyncio_coroutines __pyx_string_tab[74]
-#define __pyx_n_u_available_actions __pyx_string_tab[75]
-#define __pyx_n_u_base __pyx_string_tab[76]
-#define __pyx_n_u_best __pyx_string_tab[77]
-#define __pyx_n_u_c __pyx_string_tab[78]
-#define __pyx_n_u_c_puct __pyx_string_tab[79]
-#define __pyx_n_u_child __pyx_string_tab[80]
-#define __pyx_n_u_class __pyx_string_tab[81]
-#define __pyx_n_u_class_getitem __pyx_string_tab[82]
-#define __pyx_n_u_cline_in_traceback __pyx_string_tab[83]
-#define __pyx_n_u_count __pyx_string_tab[84]
-#define __pyx_n_u_dict __pyx_string_tab[85]
-#define __pyx_n_u_dict_2 __pyx_string_tab[86]
-#define __pyx_n_u_dirichlet __pyx_string_tab[87]
-#define __pyx_n_u_dtype __pyx_string_tab[88]
-#define __pyx_n_u_dtype_is_object __pyx_string_tab[89]
-#define __pyx_n_u_empty __pyx_string_tab[90]
-#define __pyx_n_u_encode __pyx_string_tab[91]
-#define __pyx_n_u_enumerate __pyx_string_tab[92]
-#define __pyx_n_u_error __pyx_string_tab[93]
-#define __pyx_n_u_flags __pyx_string_tab[94]
-#define __pyx_n_u_float32 __pyx_string_tab[95]
-#define __pyx_n_u_float64 __pyx_string_tab[96]
-#define __pyx_n_u_format __pyx_string_tab[97]
-#define __pyx_n_u_fortran __pyx_string_tab[98]
-#define __pyx_n_u_func __pyx_string_tab[99]
-#define __pyx_n_u_game __pyx_string_tab[100]
-#define __pyx_n_u_get_policy __pyx_string_tab[101]
-#define __pyx_n_u_getstate __pyx_string_tab[102]
-#define __pyx_n_u_i __pyx_string_tab[103]
-#define __pyx_n_u_id __pyx_string_tab[104]
-#define __pyx_n_u_import __pyx_string_tab[105]
-#define __pyx_n_u_index __pyx_string_tab[106]
-#define __pyx_n_u_intc __pyx_string_tab[107]
-#define __pyx_n_u_is_coroutine __pyx_string_tab[108]
-#define __pyx_n_u_items __pyx_string_tab[109]
-#define __pyx_n_u_itemsize __pyx_string_tab[110]
-#define __pyx_n_u_last_turn_skipped __pyx_string_tab[111]
-#define __pyx_n_u_leaf __pyx_string_tab[112]
-#define __pyx_n_u_main __pyx_string_tab[113]
-#define __pyx_n_u_mcts_c_mcts __pyx_string_tab[114]
-#define __pyx_n_u_memview __pyx_string_tab[115]
-#define __pyx_n_u_mode __pyx_string_tab[116]
-#define __pyx_n_u_module __pyx_string_tab[117]
-#define __pyx_n_u_name __pyx_string_tab[118]
-#define __pyx_n_u_name_2 __pyx_string_tab[119]
-#define __pyx_n_u_ndim __pyx_string_tab[120]
-#define __pyx_n_u_net __pyx_string_tab[121]
-#define __pyx_n_u_new __pyx_string_tab[122]
-#define __pyx_n_u_node __pyx_string_tab[123]
-#define __pyx_n_u_np __pyx_string_tab[124]
-#define __pyx_n_u_num_simulations __pyx_string_tab[125]
-#define __pyx_n_u_numpy __pyx_string_tab[126]
-#define __pyx_n_u_obj __pyx_string_tab[127]
-#define __pyx_n_u_ones __pyx_string_tab[128]
-#define __pyx_n_u_pack __pyx_string_tab[129]
-#define __pyx_n_u_parent __pyx_string_tab[130]
-#define __pyx_n_u_path __pyx_string_tab[131]
-#define __pyx_n_u_pi __pyx_string_tab[132]
-#define __pyx_n_u_pi_view __pyx_string_tab[133]
-#define __pyx_n_u_player __pyx_string_tab[134]
-#define __pyx_n_u_policy __pyx_string_tab[135]
-#define __pyx_n_u_pop __pyx_string_tab[136]
-#define __pyx_n_u_predict __pyx_string_tab[137]
-#define __pyx_n_u_pyx_checksum __pyx_string_tab[138]
-#define __pyx_n_u_pyx_result __pyx_string_tab[139]
-#define __pyx_n_u_pyx_state __pyx_string_tab[140]
-#define __pyx_n_u_pyx_type __pyx_string_tab[141]
-#define __pyx_n_u_pyx_unpickle_CMCTS __pyx_string_tab[142]
-#define __pyx_n_u_pyx_unpickle_CNode __pyx_string_tab[143]
-#define __pyx_n_u_pyx_unpickle_Enum __pyx_string_tab[144]
-#define __pyx_n_u_pyx_vtable __pyx_string_tab[145]
-#define __pyx_n_u_qualname __pyx_string_tab[146]
-#define __pyx_n_u_random __pyx_string_tab[147]
-#define __pyx_n_u_reduce __pyx_string_tab[148]
-#define __pyx_n_u_reduce_cython __pyx_string_tab[149]
-#define __pyx_n_u_reduce_ex __pyx_string_tab[150]
-#define __pyx_n_u_register __pyx_string_tab[151]
-#define __pyx_n_u_resolve __pyx_string_tab[152]
-#define __pyx_n_u_root __pyx_string_tab[153]
-#define __pyx_n_u_search_backup __pyx_string_tab[154]
-#define __pyx_n_u_search_backup_vl __pyx_string_tab[155]
-#define __pyx_n_u_search_expand __pyx_string_tab[156]
-#define __pyx_n_u_search_expand_vl __pyx_string_tab[157]
-#define __pyx_n_u_self __pyx_string_tab[158]
-#define __pyx_n_u_set_name __pyx_string_tab[159]
-#define __pyx_n_u_setdefault __pyx_string_tab[160]
-#define __pyx_n_u_setstate __pyx_string_tab[161]
-#define __pyx_n_u_setstate_cython __pyx_string_tab[162]
-#define __pyx_n_u_shape __pyx_string_tab[163]
-#define __pyx_n_u_sim __pyx_string_tab[164]
-#define __pyx_n_u_size __pyx_string_tab[165]
-#define __pyx_n_u_start __pyx_string_tab[166]
-#define __pyx_n_u_state __pyx_string_tab[167]
-#define __pyx_n_u_state_to_input __pyx_string_tab[168]
-#define __pyx_n_u_step __pyx_string_tab[169]
-#define __pyx_n_u_stop __pyx_string_tab[170]
-#define __pyx_n_u_struct __pyx_string_tab[171]
-#define __pyx_n_u_terminal __pyx_string_tab[172]
-#define __pyx_n_u_terminal_value __pyx_string_tab[173]
-#define __pyx_n_u_test __pyx_string_tab[174]
-#define __pyx_n_u_undo_virtual_loss __pyx_string_tab[175]
-#define __pyx_n_u_unpack __pyx_string_tab[176]
-#define __pyx_n_u_update __pyx_string_tab[177]
-#define __pyx_n_u_use_setstate __pyx_string_tab[178]
-#define __pyx_n_u_value __pyx_string_tab[179]
-#define __pyx_n_u_values __pyx_string_tab[180]
-#define __pyx_n_u_vl_value __pyx_string_tab[181]
-#define __pyx_n_u_x __pyx_string_tab[182]
-#define __pyx_n_u_zeros __pyx_string_tab[183]
-#define __pyx_kp_b_iso88591_1F __pyx_string_tab[184]
-#define __pyx_kp_b_iso88591_1_d_a_q_t3c_1F_vQ_q_d_t9AV3a_Qf __pyx_string_tab[185]
-#define __pyx_kp_b_iso88591_A_4AQ_4_Ct3gQ_9AWA_1_q __pyx_string_tab[186]
-#define __pyx_kp_b_iso88591_A_N_E_QhfBa __pyx_string_tab[187]
-#define __pyx_kp_b_iso88591_A_ay __pyx_string_tab[188]
-#define __pyx_kp_b_iso88591_Fa_6_ay __pyx_string_tab[189]
-#define __pyx_kp_b_iso88591_Gq_6 __pyx_string_tab[190]
-#define __pyx_kp_b_iso88591_H_5_AQ_q_gT_A_1_Qd_fA_G5_s_4q_R __pyx_string_tab[191]
-#define __pyx_kp_b_iso88591_T_T_T_T_nDHYY_hhllzz_S_S_W_W __pyx_string_tab[192]
-#define __pyx_kp_b_iso88591_T_gT_T_G1F_a_vWE_Q_q_t6_S_Kwe3d __pyx_string_tab[193]
-#define __pyx_kp_b_iso88591_q_0_kQR_5_7_q_a_1 __pyx_string_tab[194]
-#define __pyx_n_b_O __pyx_string_tab[195]
+#define __pyx_n_u_CMCTS__apply_virtual_loss __pyx_string_tab[53]
+#define __pyx_n_u_CMCTS__backpropagate __pyx_string_tab[54]
+#define __pyx_n_u_CMCTS__best_action __pyx_string_tab[55]
+#define __pyx_n_u_CMCTS__evaluate __pyx_string_tab[56]
+#define __pyx_n_u_CMCTS__search __pyx_string_tab[57]
+#define __pyx_n_u_CMCTS__undo_virtual_loss __pyx_string_tab[58]
+#define __pyx_n_u_CMCTS_get_policy __pyx_string_tab[59]
+#define __pyx_n_u_CMCTS_search_backup __pyx_string_tab[60]
+#define __pyx_n_u_CMCTS_search_backup_vl __pyx_string_tab[61]
+#define __pyx_n_u_CMCTS_search_expand __pyx_string_tab[62]
+#define __pyx_n_u_CMCTS_search_expand_vl __pyx_string_tab[63]
+#define __pyx_n_u_CMCTS_undo_virtual_loss __pyx_string_tab[64]
+#define __pyx_n_u_CNode __pyx_string_tab[65]
+#define __pyx_n_u_CNode___reduce_cython __pyx_string_tab[66]
+#define __pyx_n_u_CNode___setstate_cython __pyx_string_tab[67]
+#define __pyx_n_u_CNode_resolve __pyx_string_tab[68]
+#define __pyx_n_u_Ellipsis __pyx_string_tab[69]
+#define __pyx_n_u_Pyx_PyDict_NextRef __pyx_string_tab[70]
+#define __pyx_n_u_Sequence __pyx_string_tab[71]
+#define __pyx_n_u_View_MemoryView __pyx_string_tab[72]
+#define __pyx_n_u_abc __pyx_string_tab[73]
+#define __pyx_n_u_action __pyx_string_tab[74]
+#define __pyx_n_u_action_size __pyx_string_tab[75]
+#define __pyx_n_u_add_dirichlet __pyx_string_tab[76]
+#define __pyx_n_u_add_dirichlet_noise __pyx_string_tab[77]
+#define __pyx_n_u_allocate_buffer __pyx_string_tab[78]
+#define __pyx_n_u_alpha __pyx_string_tab[79]
+#define __pyx_n_u_apply_virtual_loss __pyx_string_tab[80]
+#define __pyx_n_u_arr __pyx_string_tab[81]
+#define __pyx_n_u_array __pyx_string_tab[82]
+#define __pyx_n_u_ascontiguousarray __pyx_string_tab[83]
+#define __pyx_n_u_asyncio_coroutines __pyx_string_tab[84]
+#define __pyx_n_u_available_actions __pyx_string_tab[85]
+#define __pyx_n_u_backpropagate __pyx_string_tab[86]
+#define __pyx_n_u_base __pyx_string_tab[87]
+#define __pyx_n_u_best __pyx_string_tab[88]
+#define __pyx_n_u_best_action __pyx_string_tab[89]
+#define __pyx_n_u_c __pyx_string_tab[90]
+#define __pyx_n_u_c_puct __pyx_string_tab[91]
+#define __pyx_n_u_child __pyx_string_tab[92]
+#define __pyx_n_u_class __pyx_string_tab[93]
+#define __pyx_n_u_class_getitem __pyx_string_tab[94]
+#define __pyx_n_u_cline_in_traceback __pyx_string_tab[95]
+#define __pyx_n_u_count __pyx_string_tab[96]
+#define __pyx_n_u_dict __pyx_string_tab[97]
+#define __pyx_n_u_dict_2 __pyx_string_tab[98]
+#define __pyx_n_u_dirichlet __pyx_string_tab[99]
+#define __pyx_n_u_dtype __pyx_string_tab[100]
+#define __pyx_n_u_dtype_is_object __pyx_string_tab[101]
+#define __pyx_n_u_empty __pyx_string_tab[102]
+#define __pyx_n_u_encode __pyx_string_tab[103]
+#define __pyx_n_u_enumerate __pyx_string_tab[104]
+#define __pyx_n_u_epsilon __pyx_string_tab[105]
+#define __pyx_n_u_error __pyx_string_tab[106]
+#define __pyx_n_u_evaluate __pyx_string_tab[107]
+#define __pyx_n_u_flags __pyx_string_tab[108]
+#define __pyx_n_u_float32 __pyx_string_tab[109]
+#define __pyx_n_u_float64 __pyx_string_tab[110]
+#define __pyx_n_u_format __pyx_string_tab[111]
+#define __pyx_n_u_fortran __pyx_string_tab[112]
+#define __pyx_n_u_func __pyx_string_tab[113]
+#define __pyx_n_u_game __pyx_string_tab[114]
+#define __pyx_n_u_get_policy __pyx_string_tab[115]
+#define __pyx_n_u_getstate __pyx_string_tab[116]
+#define __pyx_n_u_i __pyx_string_tab[117]
+#define __pyx_n_u_id __pyx_string_tab[118]
+#define __pyx_n_u_import __pyx_string_tab[119]
+#define __pyx_n_u_index __pyx_string_tab[120]
+#define __pyx_n_u_intc __pyx_string_tab[121]
+#define __pyx_n_u_is_coroutine __pyx_string_tab[122]
+#define __pyx_n_u_items __pyx_string_tab[123]
+#define __pyx_n_u_itemsize __pyx_string_tab[124]
+#define __pyx_n_u_last_turn_skipped __pyx_string_tab[125]
+#define __pyx_n_u_leaf __pyx_string_tab[126]
+#define __pyx_n_u_main __pyx_string_tab[127]
+#define __pyx_n_u_mcts_c_mcts __pyx_string_tab[128]
+#define __pyx_n_u_memview __pyx_string_tab[129]
+#define __pyx_n_u_mode __pyx_string_tab[130]
+#define __pyx_n_u_module __pyx_string_tab[131]
+#define __pyx_n_u_name __pyx_string_tab[132]
+#define __pyx_n_u_name_2 __pyx_string_tab[133]
+#define __pyx_n_u_ndim __pyx_string_tab[134]
+#define __pyx_n_u_net __pyx_string_tab[135]
+#define __pyx_n_u_new __pyx_string_tab[136]
+#define __pyx_n_u_node __pyx_string_tab[137]
+#define __pyx_n_u_noise __pyx_string_tab[138]
+#define __pyx_n_u_np __pyx_string_tab[139]
+#define __pyx_n_u_num_simulations __pyx_string_tab[140]
+#define __pyx_n_u_numpy __pyx_string_tab[141]
+#define __pyx_n_u_obj __pyx_string_tab[142]
+#define __pyx_n_u_ones __pyx_string_tab[143]
+#define __pyx_n_u_pack __pyx_string_tab[144]
+#define __pyx_n_u_parent __pyx_string_tab[145]
+#define __pyx_n_u_path __pyx_string_tab[146]
+#define __pyx_n_u_pi __pyx_string_tab[147]
+#define __pyx_n_u_pi_view __pyx_string_tab[148]
+#define __pyx_n_u_player __pyx_string_tab[149]
+#define __pyx_n_u_policy __pyx_string_tab[150]
+#define __pyx_n_u_pop __pyx_string_tab[151]
+#define __pyx_n_u_predict __pyx_string_tab[152]
+#define __pyx_n_u_pyx_checksum __pyx_string_tab[153]
+#define __pyx_n_u_pyx_result __pyx_string_tab[154]
+#define __pyx_n_u_pyx_state __pyx_string_tab[155]
+#define __pyx_n_u_pyx_type __pyx_string_tab[156]
+#define __pyx_n_u_pyx_unpickle_CMCTS __pyx_string_tab[157]
+#define __pyx_n_u_pyx_unpickle_CNode __pyx_string_tab[158]
+#define __pyx_n_u_pyx_unpickle_Enum __pyx_string_tab[159]
+#define __pyx_n_u_pyx_vtable __pyx_string_tab[160]
+#define __pyx_n_u_qualname __pyx_string_tab[161]
+#define __pyx_n_u_random __pyx_string_tab[162]
+#define __pyx_n_u_reduce __pyx_string_tab[163]
+#define __pyx_n_u_reduce_cython __pyx_string_tab[164]
+#define __pyx_n_u_reduce_ex __pyx_string_tab[165]
+#define __pyx_n_u_register __pyx_string_tab[166]
+#define __pyx_n_u_resolve __pyx_string_tab[167]
+#define __pyx_n_u_root __pyx_string_tab[168]
+#define __pyx_n_u_search __pyx_string_tab[169]
+#define __pyx_n_u_search_backup __pyx_string_tab[170]
+#define __pyx_n_u_search_backup_vl __pyx_string_tab[171]
+#define __pyx_n_u_search_expand __pyx_string_tab[172]
+#define __pyx_n_u_search_expand_vl __pyx_string_tab[173]
+#define __pyx_n_u_selected __pyx_string_tab[174]
+#define __pyx_n_u_self __pyx_string_tab[175]
+#define __pyx_n_u_set_name __pyx_string_tab[176]
+#define __pyx_n_u_setdefault __pyx_string_tab[177]
+#define __pyx_n_u_setstate __pyx_string_tab[178]
+#define __pyx_n_u_setstate_cython __pyx_string_tab[179]
+#define __pyx_n_u_shape __pyx_string_tab[180]
+#define __pyx_n_u_sim __pyx_string_tab[181]
+#define __pyx_n_u_size __pyx_string_tab[182]
+#define __pyx_n_u_start __pyx_string_tab[183]
+#define __pyx_n_u_state __pyx_string_tab[184]
+#define __pyx_n_u_state_to_input __pyx_string_tab[185]
+#define __pyx_n_u_step __pyx_string_tab[186]
+#define __pyx_n_u_stop __pyx_string_tab[187]
+#define __pyx_n_u_struct __pyx_string_tab[188]
+#define __pyx_n_u_terminal __pyx_string_tab[189]
+#define __pyx_n_u_terminal_value __pyx_string_tab[190]
+#define __pyx_n_u_test __pyx_string_tab[191]
+#define __pyx_n_u_undo_virtual_loss __pyx_string_tab[192]
+#define __pyx_n_u_undo_virtual_loss_2 __pyx_string_tab[193]
+#define __pyx_n_u_unpack __pyx_string_tab[194]
+#define __pyx_n_u_update __pyx_string_tab[195]
+#define __pyx_n_u_use_setstate __pyx_string_tab[196]
+#define __pyx_n_u_value __pyx_string_tab[197]
+#define __pyx_n_u_values __pyx_string_tab[198]
+#define __pyx_n_u_vl_value __pyx_string_tab[199]
+#define __pyx_n_u_x __pyx_string_tab[200]
+#define __pyx_n_u_zeros __pyx_string_tab[201]
+#define __pyx_kp_b_iso88591_1F __pyx_string_tab[202]
+#define __pyx_kp_b_iso88591_1_d_a_q_t3c_1F_vQ_q_d_t9AV3a_Qf __pyx_string_tab[203]
+#define __pyx_kp_b_iso88591_A_1F __pyx_string_tab[204]
+#define __pyx_kp_b_iso88591_A_1F_a __pyx_string_tab[205]
+#define __pyx_kp_b_iso88591_A_4AQ_4_Ct3gQ_9AWA_1_q __pyx_string_tab[206]
+#define __pyx_kp_b_iso88591_A_6 __pyx_string_tab[207]
+#define __pyx_kp_b_iso88591_A_N_E_QhfBa __pyx_string_tab[208]
+#define __pyx_kp_b_iso88591_A_awa __pyx_string_tab[209]
+#define __pyx_kp_b_iso88591_A_ay __pyx_string_tab[210]
+#define __pyx_kp_b_iso88591_A_d_q_IQa_awa __pyx_string_tab[211]
+#define __pyx_kp_b_iso88591_A_y __pyx_string_tab[212]
+#define __pyx_kp_b_iso88591_BgZq_q_1F_A_4s_b_82Q __pyx_string_tab[213]
+#define __pyx_kp_b_iso88591_Fa_6_ay __pyx_string_tab[214]
+#define __pyx_kp_b_iso88591_Gq_6 __pyx_string_tab[215]
+#define __pyx_kp_b_iso88591_H_5_AQ_q_gT_A_1_T_q_G5_s_4q_RvQ __pyx_string_tab[216]
+#define __pyx_kp_b_iso88591_T_T_T_T_nDHYY_hhllzz_S_S_W_W __pyx_string_tab[217]
+#define __pyx_kp_b_iso88591_T_gT_T_G1F_a_vWE_Q_q_t6_S_Kwe3d __pyx_string_tab[218]
+#define __pyx_kp_b_iso88591_q_0_kQR_5_7_q_a_1 __pyx_string_tab[219]
+#define __pyx_n_b_O __pyx_string_tab[220]
 #define __pyx_float_3_0 __pyx_number_tab[0]
-#define __pyx_int_0 __pyx_number_tab[1]
-#define __pyx_int_neg_1 __pyx_number_tab[2]
-#define __pyx_int_1 __pyx_number_tab[3]
-#define __pyx_int_126638917 __pyx_number_tab[4]
-#define __pyx_int_133196531 __pyx_number_tab[5]
-#define __pyx_int_136983863 __pyx_number_tab[6]
+#define __pyx_float_0_03 __pyx_number_tab[1]
+#define __pyx_float_0_25 __pyx_number_tab[2]
+#define __pyx_int_0 __pyx_number_tab[3]
+#define __pyx_int_neg_1 __pyx_number_tab[4]
+#define __pyx_int_1 __pyx_number_tab[5]
+#define __pyx_int_126638917 __pyx_number_tab[6]
+#define __pyx_int_133196531 __pyx_number_tab[7]
+#define __pyx_int_136983863 __pyx_number_tab[8]
 /* #### Code section: module_state_clear ### */
 #if CYTHON_USE_MODULE_STATE
 static CYTHON_SMALL_CODE int __pyx_m_clear(PyObject *m) {
@@ -3926,9 +3959,9 @@ static CYTHON_SMALL_CODE int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_type___pyx_memoryviewslice);
   for (int i=0; i<1; ++i) { Py_CLEAR(clear_module_state->__pyx_slice[i]); }
   for (int i=0; i<4; ++i) { Py_CLEAR(clear_module_state->__pyx_tuple[i]); }
-  for (int i=0; i<13; ++i) { Py_CLEAR(clear_module_state->__pyx_codeobj_tab[i]); }
-  for (int i=0; i<196; ++i) { Py_CLEAR(clear_module_state->__pyx_string_tab[i]); }
-  for (int i=0; i<7; ++i) { Py_CLEAR(clear_module_state->__pyx_number_tab[i]); }
+  for (int i=0; i<20; ++i) { Py_CLEAR(clear_module_state->__pyx_codeobj_tab[i]); }
+  for (int i=0; i<221; ++i) { Py_CLEAR(clear_module_state->__pyx_string_tab[i]); }
+  for (int i=0; i<9; ++i) { Py_CLEAR(clear_module_state->__pyx_number_tab[i]); }
 /* #### Code section: module_state_clear_contents ### */
 /* CommonTypesMetaclass.module_state_clear */
 Py_CLEAR(clear_module_state->__pyx_CommonTypesMetaclassType);
@@ -3981,9 +4014,9 @@ static CYTHON_SMALL_CODE int __pyx_m_traverse(PyObject *m, visitproc visit, void
   Py_VISIT(traverse_module_state->__pyx_type___pyx_memoryviewslice);
   for (int i=0; i<1; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_slice[i]); }
   for (int i=0; i<4; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_tuple[i]); }
-  for (int i=0; i<13; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_codeobj_tab[i]); }
-  for (int i=0; i<196; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_string_tab[i]); }
-  for (int i=0; i<7; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_number_tab[i]); }
+  for (int i=0; i<20; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_codeobj_tab[i]); }
+  for (int i=0; i<221; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_string_tab[i]); }
+  for (int i=0; i<9; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_number_tab[i]); }
 /* #### Code section: module_state_traverse_contents ### */
 /* CommonTypesMetaclass.module_state_traverse */
 Py_VISIT(traverse_module_state->__pyx_CommonTypesMetaclassType);
@@ -19543,14 +19576,116 @@ static CYTHON_INLINE NPY_DATETIMEUNIT __pyx_f_5numpy_get_datetime64_unit(PyObjec
 /* "mcts/c_mcts.pyx":17
  * 
  * 
- * cdef cnp.ndarray _dirichlet_noise(cnp.ndarray arr, double alpha, double epsilon):             # <<<<<<<<<<<<<<
+ * def add_dirichlet_noise(arr, double alpha, double epsilon):             # <<<<<<<<<<<<<<
  *     """Add Dirichlet noise to a policy array."""
  *     noise = np.random.dirichlet(np.ones(len(arr)) * alpha)
 */
 
-static PyArrayObject *__pyx_f_4mcts_6c_mcts__dirichlet_noise(PyArrayObject *__pyx_v_arr, double __pyx_v_alpha, double __pyx_v_epsilon) {
+/* Python wrapper */
+static PyObject *__pyx_pw_4mcts_6c_mcts_1add_dirichlet_noise(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+PyDoc_STRVAR(__pyx_doc_4mcts_6c_mcts_add_dirichlet_noise, "Add Dirichlet noise to a policy array.");
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_1add_dirichlet_noise = {"add_dirichlet_noise", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_1add_dirichlet_noise, __Pyx_METH_FASTCALL|METH_KEYWORDS, __pyx_doc_4mcts_6c_mcts_add_dirichlet_noise};
+static PyObject *__pyx_pw_4mcts_6c_mcts_1add_dirichlet_noise(PyObject *__pyx_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  PyObject *__pyx_v_arr = 0;
+  double __pyx_v_alpha;
+  double __pyx_v_epsilon;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED Py_ssize_t __pyx_nargs;
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues;
+  PyObject* values[3] = {0,0,0};
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("add_dirichlet_noise (wrapper)", 0);
+  #if !CYTHON_METH_FASTCALL
+  #if CYTHON_ASSUME_SAFE_SIZE
+  __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #else
+  __pyx_nargs = PyTuple_Size(__pyx_args); if (unlikely(__pyx_nargs < 0)) return NULL;
+  #endif
+  #endif
+  __pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  {
+    PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_arr,&__pyx_mstate_global->__pyx_n_u_alpha,&__pyx_mstate_global->__pyx_n_u_epsilon,0};
+    const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 17, __pyx_L3_error)
+    if (__pyx_kwds_len > 0) {
+      switch (__pyx_nargs) {
+        case  3:
+        values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 17, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  2:
+        values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 17, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  1:
+        values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 17, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      const Py_ssize_t kwd_pos_args = __pyx_nargs;
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "add_dirichlet_noise", 0) < (0)) __PYX_ERR(0, 17, __pyx_L3_error)
+      for (Py_ssize_t i = __pyx_nargs; i < 3; i++) {
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("add_dirichlet_noise", 1, 3, 3, i); __PYX_ERR(0, 17, __pyx_L3_error) }
+      }
+    } else if (unlikely(__pyx_nargs != 3)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 17, __pyx_L3_error)
+      values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 17, __pyx_L3_error)
+      values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 17, __pyx_L3_error)
+    }
+    __pyx_v_arr = values[0];
+    __pyx_v_alpha = __Pyx_PyFloat_AsDouble(values[1]); if (unlikely((__pyx_v_alpha == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 17, __pyx_L3_error)
+    __pyx_v_epsilon = __Pyx_PyFloat_AsDouble(values[2]); if (unlikely((__pyx_v_epsilon == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 17, __pyx_L3_error)
+  }
+  goto __pyx_L6_skip;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("add_dirichlet_noise", 1, 3, 3, __pyx_nargs); __PYX_ERR(0, 17, __pyx_L3_error)
+  __pyx_L6_skip:;
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L3_error:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __Pyx_AddTraceback("mcts.c_mcts.add_dirichlet_noise", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_add_dirichlet_noise(__pyx_self, __pyx_v_arr, __pyx_v_alpha, __pyx_v_epsilon);
+
+  /* function exit code */
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_4mcts_6c_mcts_add_dirichlet_noise(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_arr, double __pyx_v_alpha, double __pyx_v_epsilon) {
   PyObject *__pyx_v_noise = NULL;
-  PyArrayObject *__pyx_r = NULL;
+  PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
   PyObject *__pyx_t_2 = NULL;
@@ -19564,10 +19699,10 @@ static PyArrayObject *__pyx_f_4mcts_6c_mcts__dirichlet_noise(PyArrayObject *__py
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("_dirichlet_noise", 0);
+  __Pyx_RefNannySetupContext("add_dirichlet_noise", 0);
 
   /* "mcts/c_mcts.pyx":19
- * cdef cnp.ndarray _dirichlet_noise(cnp.ndarray arr, double alpha, double epsilon):
+ * def add_dirichlet_noise(arr, double alpha, double epsilon):
  *     """Add Dirichlet noise to a policy array."""
  *     noise = np.random.dirichlet(np.ones(len(arr)) * alpha)             # <<<<<<<<<<<<<<
  *     return arr * (1.0 - epsilon) + epsilon * noise
@@ -19586,7 +19721,7 @@ static PyArrayObject *__pyx_f_4mcts_6c_mcts__dirichlet_noise(PyArrayObject *__py
   __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_ones); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 19, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_8 = PyObject_Length(((PyObject *)__pyx_v_arr)); if (unlikely(__pyx_t_8 == ((Py_ssize_t)-1))) __PYX_ERR(0, 19, __pyx_L1_error)
+  __pyx_t_8 = PyObject_Length(__pyx_v_arr); if (unlikely(__pyx_t_8 == ((Py_ssize_t)-1))) __PYX_ERR(0, 19, __pyx_L1_error)
   __pyx_t_6 = PyLong_FromSsize_t(__pyx_t_8); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 19, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
   __pyx_t_9 = 1;
@@ -19636,10 +19771,10 @@ static PyArrayObject *__pyx_f_4mcts_6c_mcts__dirichlet_noise(PyArrayObject *__py
  * 
  * 
 */
-  __Pyx_XDECREF((PyObject *)__pyx_r);
+  __Pyx_XDECREF(__pyx_r);
   __pyx_t_1 = PyFloat_FromDouble((1.0 - __pyx_v_epsilon)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 20, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
-  __pyx_t_4 = PyNumber_Multiply(((PyObject *)__pyx_v_arr), __pyx_t_1); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 20, __pyx_L1_error)
+  __pyx_t_4 = PyNumber_Multiply(__pyx_v_arr, __pyx_t_1); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 20, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
   __pyx_t_1 = PyFloat_FromDouble(__pyx_v_epsilon); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 20, __pyx_L1_error)
@@ -19651,15 +19786,14 @@ static PyArrayObject *__pyx_f_4mcts_6c_mcts__dirichlet_noise(PyArrayObject *__py
   __Pyx_GOTREF(__pyx_t_1);
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 20, __pyx_L1_error)
-  __pyx_r = ((PyArrayObject *)__pyx_t_1);
+  __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
   /* "mcts/c_mcts.pyx":17
  * 
  * 
- * cdef cnp.ndarray _dirichlet_noise(cnp.ndarray arr, double alpha, double epsilon):             # <<<<<<<<<<<<<<
+ * def add_dirichlet_noise(arr, double alpha, double epsilon):             # <<<<<<<<<<<<<<
  *     """Add Dirichlet noise to a policy array."""
  *     noise = np.random.dirichlet(np.ones(len(arr)) * alpha)
 */
@@ -19673,11 +19807,11 @@ static PyArrayObject *__pyx_f_4mcts_6c_mcts__dirichlet_noise(PyArrayObject *__py
   __Pyx_XDECREF(__pyx_t_5);
   __Pyx_XDECREF(__pyx_t_6);
   __Pyx_XDECREF(__pyx_t_7);
-  __Pyx_AddTraceback("mcts.c_mcts._dirichlet_noise", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_r = 0;
+  __Pyx_AddTraceback("mcts.c_mcts.add_dirichlet_noise", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = NULL;
   __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_noise);
-  __Pyx_XGIVEREF((PyObject *)__pyx_r);
+  __Pyx_XGIVEREF(__pyx_r);
   __Pyx_RefNannyFinishContext();
   return __pyx_r;
 }
@@ -23694,11 +23828,11 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
   int __pyx_t_2;
   PyObject *__pyx_t_3 = NULL;
   size_t __pyx_t_4;
-  int __pyx_t_5;
+  PyObject *__pyx_t_5 = NULL;
   int __pyx_t_6;
   int __pyx_t_7;
-  Py_ssize_t __pyx_t_8;
-  PyObject *__pyx_t_9 = NULL;
+  int __pyx_t_8;
+  Py_ssize_t __pyx_t_9;
   PyObject *__pyx_t_10 = NULL;
   PyObject *__pyx_t_11 = NULL;
   PyObject *__pyx_t_12 = NULL;
@@ -23756,7 +23890,7 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
  * 
  *         cdef CNode root = CNode(None, state, self.game, self.net)             # <<<<<<<<<<<<<<
  *         if add_dirichlet:
- *             root.P = _dirichlet_noise(root.P, 0.03, 0.25)
+ *             root.P = add_dirichlet_noise(root.P, 0.03, 0.25)
 */
   __pyx_t_3 = NULL;
   __pyx_t_4 = 1;
@@ -23774,7 +23908,7 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
  * 
  *         cdef CNode root = CNode(None, state, self.game, self.net)
  *         if add_dirichlet:             # <<<<<<<<<<<<<<
- *             root.P = _dirichlet_noise(root.P, 0.03, 0.25)
+ *             root.P = add_dirichlet_noise(root.P, 0.03, 0.25)
  * 
 */
   if (__pyx_v_add_dirichlet) {
@@ -23782,27 +23916,44 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
     /* "mcts/c_mcts.pyx":220
  *         cdef CNode root = CNode(None, state, self.game, self.net)
  *         if add_dirichlet:
- *             root.P = _dirichlet_noise(root.P, 0.03, 0.25)             # <<<<<<<<<<<<<<
+ *             root.P = add_dirichlet_noise(root.P, 0.03, 0.25)             # <<<<<<<<<<<<<<
  * 
  *         cdef int sim
 */
-    __pyx_t_1 = __pyx_v_root->P;
-    __Pyx_INCREF(__pyx_t_1);
-    if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 220, __pyx_L1_error)
-    __pyx_t_3 = ((PyObject *)__pyx_f_4mcts_6c_mcts__dirichlet_noise(((PyArrayObject *)__pyx_t_1), 0.03, 0.25)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 220, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_3);
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    __Pyx_GIVEREF(__pyx_t_3);
+    __pyx_t_3 = NULL;
+    __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_add_dirichlet_noise); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 220, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_5);
+    __pyx_t_4 = 1;
+    #if CYTHON_UNPACK_METHODS
+    if (unlikely(PyMethod_Check(__pyx_t_5))) {
+      __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_5);
+      assert(__pyx_t_3);
+      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_5);
+      __Pyx_INCREF(__pyx_t_3);
+      __Pyx_INCREF(__pyx__function);
+      __Pyx_DECREF_SET(__pyx_t_5, __pyx__function);
+      __pyx_t_4 = 0;
+    }
+    #endif
+    {
+      PyObject *__pyx_callargs[4] = {__pyx_t_3, __pyx_v_root->P, __pyx_mstate_global->__pyx_float_0_03, __pyx_mstate_global->__pyx_float_0_25};
+      __pyx_t_1 = __Pyx_PyObject_FastCall((PyObject*)__pyx_t_5, __pyx_callargs+__pyx_t_4, (4-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+      __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 220, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_1);
+    }
+    __Pyx_GIVEREF(__pyx_t_1);
     __Pyx_GOTREF(__pyx_v_root->P);
     __Pyx_DECREF(__pyx_v_root->P);
-    __pyx_v_root->P = __pyx_t_3;
-    __pyx_t_3 = 0;
+    __pyx_v_root->P = __pyx_t_1;
+    __pyx_t_1 = 0;
 
     /* "mcts/c_mcts.pyx":219
  * 
  *         cdef CNode root = CNode(None, state, self.game, self.net)
  *         if add_dirichlet:             # <<<<<<<<<<<<<<
- *             root.P = _dirichlet_noise(root.P, 0.03, 0.25)
+ *             root.P = add_dirichlet_noise(root.P, 0.03, 0.25)
  * 
 */
   }
@@ -23814,10 +23965,10 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
  *             self._search(root)
  * 
 */
-  __pyx_t_5 = __pyx_v_num_simulations;
-  __pyx_t_6 = __pyx_t_5;
-  for (__pyx_t_7 = 0; __pyx_t_7 < __pyx_t_6; __pyx_t_7+=1) {
-    __pyx_v_sim = __pyx_t_7;
+  __pyx_t_6 = __pyx_v_num_simulations;
+  __pyx_t_7 = __pyx_t_6;
+  for (__pyx_t_8 = 0; __pyx_t_8 < __pyx_t_7; __pyx_t_8+=1) {
+    __pyx_v_sim = __pyx_t_8;
 
     /* "mcts/c_mcts.pyx":224
  *         cdef int sim
@@ -23826,7 +23977,17 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
  * 
  *         # Build policy from visit counts
 */
-    ((struct __pyx_vtabstruct_4mcts_6c_mcts_CMCTS *)__pyx_v_self->__pyx_vtab)->_search(__pyx_v_self, __pyx_v_root); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 224, __pyx_L1_error)
+    __pyx_t_5 = ((PyObject *)__pyx_v_self);
+    __Pyx_INCREF(__pyx_t_5);
+    __pyx_t_4 = 0;
+    {
+      PyObject *__pyx_callargs[2] = {__pyx_t_5, ((PyObject *)__pyx_v_root)};
+      __pyx_t_1 = __Pyx_PyObject_FastCallMethod((PyObject*)__pyx_mstate_global->__pyx_n_u_search, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (1*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+      __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
+      if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 224, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_1);
+    }
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
   }
 
   /* "mcts/c_mcts.pyx":227
@@ -23836,11 +23997,11 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
  *         pi = np.zeros(action_size, dtype=np.float64)
  *         cdef double[:] pi_view = pi
 */
-  __pyx_t_3 = __pyx_v_root->_avail_mask;
-  __Pyx_INCREF(__pyx_t_3);
-  __pyx_t_8 = PyObject_Length(__pyx_t_3); if (unlikely(__pyx_t_8 == ((Py_ssize_t)-1))) __PYX_ERR(0, 227, __pyx_L1_error)
-  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __pyx_v_action_size = __pyx_t_8;
+  __pyx_t_1 = __pyx_v_root->_avail_mask;
+  __Pyx_INCREF(__pyx_t_1);
+  __pyx_t_9 = PyObject_Length(__pyx_t_1); if (unlikely(__pyx_t_9 == ((Py_ssize_t)-1))) __PYX_ERR(0, 227, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  __pyx_v_action_size = __pyx_t_9;
 
   /* "mcts/c_mcts.pyx":228
  *         # Build policy from visit counts
@@ -23849,14 +24010,14 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
  *         cdef double[:] pi_view = pi
  *         cdef int i, action
 */
-  __pyx_t_1 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_9, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 228, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_9);
-  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_9, __pyx_mstate_global->__pyx_n_u_zeros); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 228, __pyx_L1_error)
+  __pyx_t_5 = NULL;
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 228, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_zeros); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 228, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
-  __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-  __pyx_t_9 = __Pyx_PyLong_From_int(__pyx_v_action_size); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 228, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_9);
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __pyx_t_3 = __Pyx_PyLong_From_int(__pyx_v_action_size); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 228, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
   __Pyx_GetModuleGlobalName(__pyx_t_11, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 228, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_11);
   __pyx_t_12 = __Pyx_PyObject_GetAttrStr(__pyx_t_11, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 228, __pyx_L1_error)
@@ -23865,31 +24026,31 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
   __pyx_t_4 = 1;
   #if CYTHON_UNPACK_METHODS
   if (unlikely(PyMethod_Check(__pyx_t_10))) {
-    __pyx_t_1 = PyMethod_GET_SELF(__pyx_t_10);
-    assert(__pyx_t_1);
+    __pyx_t_5 = PyMethod_GET_SELF(__pyx_t_10);
+    assert(__pyx_t_5);
     PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_10);
-    __Pyx_INCREF(__pyx_t_1);
+    __Pyx_INCREF(__pyx_t_5);
     __Pyx_INCREF(__pyx__function);
     __Pyx_DECREF_SET(__pyx_t_10, __pyx__function);
     __pyx_t_4 = 0;
   }
   #endif
   {
-    PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_1, __pyx_t_9};
+    PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_5, __pyx_t_3};
     __pyx_t_11 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 228, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_11);
     if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_12, __pyx_t_11, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 228, __pyx_L1_error)
-    __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_10, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_11);
-    __Pyx_XDECREF(__pyx_t_1); __pyx_t_1 = 0;
-    __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
+    __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_10, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_11);
+    __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
+    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
     __Pyx_DECREF(__pyx_t_11); __pyx_t_11 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 228, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_3);
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 228, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_1);
   }
-  __pyx_v_pi = __pyx_t_3;
-  __pyx_t_3 = 0;
+  __pyx_v_pi = __pyx_t_1;
+  __pyx_t_1 = 0;
 
   /* "mcts/c_mcts.pyx":229
  *         cdef int action_size = len(root._avail_mask)
@@ -23910,10 +24071,10 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
  *             action = root._avail[i]
  *             child = <CNode>root.children[action]
 */
-  __pyx_t_5 = __pyx_v_root->_num_available;
-  __pyx_t_6 = __pyx_t_5;
-  for (__pyx_t_7 = 0; __pyx_t_7 < __pyx_t_6; __pyx_t_7+=1) {
-    __pyx_v_i = __pyx_t_7;
+  __pyx_t_6 = __pyx_v_root->_num_available;
+  __pyx_t_7 = __pyx_t_6;
+  for (__pyx_t_8 = 0; __pyx_t_8 < __pyx_t_7; __pyx_t_8+=1) {
+    __pyx_v_i = __pyx_t_8;
 
     /* "mcts/c_mcts.pyx":234
  * 
@@ -23935,10 +24096,10 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
       __PYX_ERR(0, 235, __pyx_L1_error)
     }
-    __pyx_t_3 = __Pyx_PyList_GET_ITEM(__pyx_v_root->children, __pyx_v_action);
-    __Pyx_INCREF(__pyx_t_3);
-    __Pyx_XDECREF_SET(__pyx_v_child, ((struct __pyx_obj_4mcts_6c_mcts_CNode *)__pyx_t_3));
-    __pyx_t_3 = 0;
+    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_root->children, __pyx_v_action);
+    __Pyx_INCREF(__pyx_t_1);
+    __Pyx_XDECREF_SET(__pyx_v_child, ((struct __pyx_obj_4mcts_6c_mcts_CNode *)__pyx_t_1));
+    __pyx_t_1 = 0;
 
     /* "mcts/c_mcts.pyx":236
  *             action = root._avail[i]
@@ -24007,7 +24168,7 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_2get_policy(struct __pyx_obj_4mct
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_1);
   __Pyx_XDECREF(__pyx_t_3);
-  __Pyx_XDECREF(__pyx_t_9);
+  __Pyx_XDECREF(__pyx_t_5);
   __Pyx_XDECREF(__pyx_t_10);
   __Pyx_XDECREF(__pyx_t_11);
   __Pyx_XDECREF(__pyx_t_12);
@@ -25613,6 +25774,8 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_12undo_virtual_loss(CYTHON_UNUSED
  *     def undo_virtual_loss(self, CNode node, list path, double vl_value=3.0):
  *         """Just undo VL without backprop (cleanup/dedup)."""
  *         _undo_virtual_loss(node, vl_value)             # <<<<<<<<<<<<<<
+ * 
+ *     # --- Test helpers (thin wrappers for cdef functions) ---
 */
   __pyx_f_4mcts_6c_mcts__undo_virtual_loss(__pyx_v_node, __pyx_v_vl_value);
 
@@ -25621,6 +25784,883 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_12undo_virtual_loss(CYTHON_UNUSED
  * 
  *     def undo_virtual_loss(self, CNode node, list path, double vl_value=3.0):             # <<<<<<<<<<<<<<
  *         """Just undo VL without backprop (cleanup/dedup)."""
+ *         _undo_virtual_loss(node, vl_value)
+*/
+
+  /* function exit code */
+  __pyx_r = Py_None; __Pyx_INCREF(Py_None);
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "mcts/c_mcts.pyx":334
+ *     # --- Test helpers (thin wrappers for cdef functions) ---
+ * 
+ *     def _search(self, CNode root):             # <<<<<<<<<<<<<<
+ *         cdef CNode selected = self._tree_policy(root)
+ *         cdef double value = _evaluate(selected)
+*/
+
+/* Python wrapper */
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_15_search(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_15_search = {"_search", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_15_search, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_15_search(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_root = 0;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED Py_ssize_t __pyx_nargs;
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues;
+  PyObject* values[1] = {0};
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("_search (wrapper)", 0);
+  #if !CYTHON_METH_FASTCALL
+  #if CYTHON_ASSUME_SAFE_SIZE
+  __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #else
+  __pyx_nargs = PyTuple_Size(__pyx_args); if (unlikely(__pyx_nargs < 0)) return NULL;
+  #endif
+  #endif
+  __pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  {
+    PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_root,0};
+    const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 334, __pyx_L3_error)
+    if (__pyx_kwds_len > 0) {
+      switch (__pyx_nargs) {
+        case  1:
+        values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 334, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      const Py_ssize_t kwd_pos_args = __pyx_nargs;
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "_search", 0) < (0)) __PYX_ERR(0, 334, __pyx_L3_error)
+      for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("_search", 1, 1, 1, i); __PYX_ERR(0, 334, __pyx_L3_error) }
+      }
+    } else if (unlikely(__pyx_nargs != 1)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 334, __pyx_L3_error)
+    }
+    __pyx_v_root = ((struct __pyx_obj_4mcts_6c_mcts_CNode *)values[0]);
+  }
+  goto __pyx_L6_skip;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("_search", 1, 1, 1, __pyx_nargs); __PYX_ERR(0, 334, __pyx_L3_error)
+  __pyx_L6_skip:;
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L3_error:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __Pyx_AddTraceback("mcts.c_mcts.CMCTS._search", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_root), __pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CNode, 1, "root", 0))) __PYX_ERR(0, 334, __pyx_L1_error)
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_14_search(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self), __pyx_v_root);
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __pyx_r = NULL;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  goto __pyx_L7_cleaned_up;
+  __pyx_L0:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __pyx_L7_cleaned_up:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_14_search(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_root) {
+  struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_selected = 0;
+  double __pyx_v_value;
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_search", 0);
+
+  /* "mcts/c_mcts.pyx":335
+ * 
+ *     def _search(self, CNode root):
+ *         cdef CNode selected = self._tree_policy(root)             # <<<<<<<<<<<<<<
+ *         cdef double value = _evaluate(selected)
+ *         _backpropagate(value, selected)
+*/
+  __pyx_t_1 = ((PyObject *)((struct __pyx_vtabstruct_4mcts_6c_mcts_CMCTS *)__pyx_v_self->__pyx_vtab)->_tree_policy(__pyx_v_self, __pyx_v_root)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 335, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __pyx_v_selected = ((struct __pyx_obj_4mcts_6c_mcts_CNode *)__pyx_t_1);
+  __pyx_t_1 = 0;
+
+  /* "mcts/c_mcts.pyx":336
+ *     def _search(self, CNode root):
+ *         cdef CNode selected = self._tree_policy(root)
+ *         cdef double value = _evaluate(selected)             # <<<<<<<<<<<<<<
+ *         _backpropagate(value, selected)
+ * 
+*/
+  __pyx_v_value = __pyx_f_4mcts_6c_mcts__evaluate(__pyx_v_selected);
+
+  /* "mcts/c_mcts.pyx":337
+ *         cdef CNode selected = self._tree_policy(root)
+ *         cdef double value = _evaluate(selected)
+ *         _backpropagate(value, selected)             # <<<<<<<<<<<<<<
+ * 
+ *     def _evaluate(self, CNode node):
+*/
+  __pyx_f_4mcts_6c_mcts__backpropagate(__pyx_v_value, __pyx_v_selected);
+
+  /* "mcts/c_mcts.pyx":334
+ *     # --- Test helpers (thin wrappers for cdef functions) ---
+ * 
+ *     def _search(self, CNode root):             # <<<<<<<<<<<<<<
+ *         cdef CNode selected = self._tree_policy(root)
+ *         cdef double value = _evaluate(selected)
+*/
+
+  /* function exit code */
+  __pyx_r = Py_None; __Pyx_INCREF(Py_None);
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_AddTraceback("mcts.c_mcts.CMCTS._search", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_XDECREF((PyObject *)__pyx_v_selected);
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "mcts/c_mcts.pyx":339
+ *         _backpropagate(value, selected)
+ * 
+ *     def _evaluate(self, CNode node):             # <<<<<<<<<<<<<<
+ *         return _evaluate(node)
+ * 
+*/
+
+/* Python wrapper */
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_17_evaluate(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_17_evaluate = {"_evaluate", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_17_evaluate, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_17_evaluate(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node = 0;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED Py_ssize_t __pyx_nargs;
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues;
+  PyObject* values[1] = {0};
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("_evaluate (wrapper)", 0);
+  #if !CYTHON_METH_FASTCALL
+  #if CYTHON_ASSUME_SAFE_SIZE
+  __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #else
+  __pyx_nargs = PyTuple_Size(__pyx_args); if (unlikely(__pyx_nargs < 0)) return NULL;
+  #endif
+  #endif
+  __pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  {
+    PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_node,0};
+    const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 339, __pyx_L3_error)
+    if (__pyx_kwds_len > 0) {
+      switch (__pyx_nargs) {
+        case  1:
+        values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 339, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      const Py_ssize_t kwd_pos_args = __pyx_nargs;
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "_evaluate", 0) < (0)) __PYX_ERR(0, 339, __pyx_L3_error)
+      for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("_evaluate", 1, 1, 1, i); __PYX_ERR(0, 339, __pyx_L3_error) }
+      }
+    } else if (unlikely(__pyx_nargs != 1)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 339, __pyx_L3_error)
+    }
+    __pyx_v_node = ((struct __pyx_obj_4mcts_6c_mcts_CNode *)values[0]);
+  }
+  goto __pyx_L6_skip;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("_evaluate", 1, 1, 1, __pyx_nargs); __PYX_ERR(0, 339, __pyx_L3_error)
+  __pyx_L6_skip:;
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L3_error:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __Pyx_AddTraceback("mcts.c_mcts.CMCTS._evaluate", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_node), __pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CNode, 1, "node", 0))) __PYX_ERR(0, 339, __pyx_L1_error)
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_16_evaluate(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self), __pyx_v_node);
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __pyx_r = NULL;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  goto __pyx_L7_cleaned_up;
+  __pyx_L0:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __pyx_L7_cleaned_up:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_16_evaluate(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_evaluate", 0);
+
+  /* "mcts/c_mcts.pyx":340
+ * 
+ *     def _evaluate(self, CNode node):
+ *         return _evaluate(node)             # <<<<<<<<<<<<<<
+ * 
+ *     def _backpropagate(self, double value, CNode node):
+*/
+  __Pyx_XDECREF(__pyx_r);
+  __pyx_t_1 = PyFloat_FromDouble(__pyx_f_4mcts_6c_mcts__evaluate(__pyx_v_node)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 340, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __pyx_r = __pyx_t_1;
+  __pyx_t_1 = 0;
+  goto __pyx_L0;
+
+  /* "mcts/c_mcts.pyx":339
+ *         _backpropagate(value, selected)
+ * 
+ *     def _evaluate(self, CNode node):             # <<<<<<<<<<<<<<
+ *         return _evaluate(node)
+ * 
+*/
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_AddTraceback("mcts.c_mcts.CMCTS._evaluate", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "mcts/c_mcts.pyx":342
+ *         return _evaluate(node)
+ * 
+ *     def _backpropagate(self, double value, CNode node):             # <<<<<<<<<<<<<<
+ *         _backpropagate(value, node)
+ * 
+*/
+
+/* Python wrapper */
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_19_backpropagate(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_19_backpropagate = {"_backpropagate", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_19_backpropagate, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_19_backpropagate(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  double __pyx_v_value;
+  struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node = 0;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED Py_ssize_t __pyx_nargs;
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues;
+  PyObject* values[2] = {0,0};
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("_backpropagate (wrapper)", 0);
+  #if !CYTHON_METH_FASTCALL
+  #if CYTHON_ASSUME_SAFE_SIZE
+  __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #else
+  __pyx_nargs = PyTuple_Size(__pyx_args); if (unlikely(__pyx_nargs < 0)) return NULL;
+  #endif
+  #endif
+  __pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  {
+    PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_value,&__pyx_mstate_global->__pyx_n_u_node,0};
+    const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 342, __pyx_L3_error)
+    if (__pyx_kwds_len > 0) {
+      switch (__pyx_nargs) {
+        case  2:
+        values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 342, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  1:
+        values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 342, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      const Py_ssize_t kwd_pos_args = __pyx_nargs;
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "_backpropagate", 0) < (0)) __PYX_ERR(0, 342, __pyx_L3_error)
+      for (Py_ssize_t i = __pyx_nargs; i < 2; i++) {
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("_backpropagate", 1, 2, 2, i); __PYX_ERR(0, 342, __pyx_L3_error) }
+      }
+    } else if (unlikely(__pyx_nargs != 2)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 342, __pyx_L3_error)
+      values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 342, __pyx_L3_error)
+    }
+    __pyx_v_value = __Pyx_PyFloat_AsDouble(values[0]); if (unlikely((__pyx_v_value == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 342, __pyx_L3_error)
+    __pyx_v_node = ((struct __pyx_obj_4mcts_6c_mcts_CNode *)values[1]);
+  }
+  goto __pyx_L6_skip;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("_backpropagate", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 342, __pyx_L3_error)
+  __pyx_L6_skip:;
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L3_error:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __Pyx_AddTraceback("mcts.c_mcts.CMCTS._backpropagate", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_node), __pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CNode, 1, "node", 0))) __PYX_ERR(0, 342, __pyx_L1_error)
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_18_backpropagate(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self), __pyx_v_value, __pyx_v_node);
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __pyx_r = NULL;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  goto __pyx_L7_cleaned_up;
+  __pyx_L0:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __pyx_L7_cleaned_up:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_18_backpropagate(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, double __pyx_v_value, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("_backpropagate", 0);
+
+  /* "mcts/c_mcts.pyx":343
+ * 
+ *     def _backpropagate(self, double value, CNode node):
+ *         _backpropagate(value, node)             # <<<<<<<<<<<<<<
+ * 
+ *     def _best_action(self, CNode node):
+*/
+  __pyx_f_4mcts_6c_mcts__backpropagate(__pyx_v_value, __pyx_v_node);
+
+  /* "mcts/c_mcts.pyx":342
+ *         return _evaluate(node)
+ * 
+ *     def _backpropagate(self, double value, CNode node):             # <<<<<<<<<<<<<<
+ *         _backpropagate(value, node)
+ * 
+*/
+
+  /* function exit code */
+  __pyx_r = Py_None; __Pyx_INCREF(Py_None);
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "mcts/c_mcts.pyx":345
+ *         _backpropagate(value, node)
+ * 
+ *     def _best_action(self, CNode node):             # <<<<<<<<<<<<<<
+ *         return _best_action(node, self.c_puct)
+ * 
+*/
+
+/* Python wrapper */
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_21_best_action(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_21_best_action = {"_best_action", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_21_best_action, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_21_best_action(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node = 0;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED Py_ssize_t __pyx_nargs;
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues;
+  PyObject* values[1] = {0};
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("_best_action (wrapper)", 0);
+  #if !CYTHON_METH_FASTCALL
+  #if CYTHON_ASSUME_SAFE_SIZE
+  __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #else
+  __pyx_nargs = PyTuple_Size(__pyx_args); if (unlikely(__pyx_nargs < 0)) return NULL;
+  #endif
+  #endif
+  __pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  {
+    PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_node,0};
+    const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 345, __pyx_L3_error)
+    if (__pyx_kwds_len > 0) {
+      switch (__pyx_nargs) {
+        case  1:
+        values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 345, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      const Py_ssize_t kwd_pos_args = __pyx_nargs;
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "_best_action", 0) < (0)) __PYX_ERR(0, 345, __pyx_L3_error)
+      for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("_best_action", 1, 1, 1, i); __PYX_ERR(0, 345, __pyx_L3_error) }
+      }
+    } else if (unlikely(__pyx_nargs != 1)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 345, __pyx_L3_error)
+    }
+    __pyx_v_node = ((struct __pyx_obj_4mcts_6c_mcts_CNode *)values[0]);
+  }
+  goto __pyx_L6_skip;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("_best_action", 1, 1, 1, __pyx_nargs); __PYX_ERR(0, 345, __pyx_L3_error)
+  __pyx_L6_skip:;
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L3_error:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __Pyx_AddTraceback("mcts.c_mcts.CMCTS._best_action", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_node), __pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CNode, 1, "node", 0))) __PYX_ERR(0, 345, __pyx_L1_error)
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_20_best_action(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self), __pyx_v_node);
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __pyx_r = NULL;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  goto __pyx_L7_cleaned_up;
+  __pyx_L0:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __pyx_L7_cleaned_up:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_20_best_action(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  int __pyx_t_1;
+  struct __pyx_opt_args_4mcts_6c_mcts__best_action __pyx_t_2;
+  PyObject *__pyx_t_3 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_best_action", 0);
+
+  /* "mcts/c_mcts.pyx":346
+ * 
+ *     def _best_action(self, CNode node):
+ *         return _best_action(node, self.c_puct)             # <<<<<<<<<<<<<<
+ * 
+ *     def _apply_virtual_loss(self, CNode node, double vl_value):
+*/
+  __Pyx_XDECREF(__pyx_r);
+  __pyx_t_2.__pyx_n = 1;
+  __pyx_t_2.c_puct = __pyx_v_self->c_puct;
+  __pyx_t_1 = __pyx_f_4mcts_6c_mcts__best_action(__pyx_v_node, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1) && PyErr_Occurred())) __PYX_ERR(0, 346, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyLong_From_int(__pyx_t_1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 346, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __pyx_r = __pyx_t_3;
+  __pyx_t_3 = 0;
+  goto __pyx_L0;
+
+  /* "mcts/c_mcts.pyx":345
+ *         _backpropagate(value, node)
+ * 
+ *     def _best_action(self, CNode node):             # <<<<<<<<<<<<<<
+ *         return _best_action(node, self.c_puct)
+ * 
+*/
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_3);
+  __Pyx_AddTraceback("mcts.c_mcts.CMCTS._best_action", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = NULL;
+  __pyx_L0:;
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "mcts/c_mcts.pyx":348
+ *         return _best_action(node, self.c_puct)
+ * 
+ *     def _apply_virtual_loss(self, CNode node, double vl_value):             # <<<<<<<<<<<<<<
+ *         _apply_virtual_loss(node, vl_value)
+ * 
+*/
+
+/* Python wrapper */
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_23_apply_virtual_loss(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_23_apply_virtual_loss = {"_apply_virtual_loss", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_23_apply_virtual_loss, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_23_apply_virtual_loss(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node = 0;
+  double __pyx_v_vl_value;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED Py_ssize_t __pyx_nargs;
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues;
+  PyObject* values[2] = {0,0};
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("_apply_virtual_loss (wrapper)", 0);
+  #if !CYTHON_METH_FASTCALL
+  #if CYTHON_ASSUME_SAFE_SIZE
+  __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #else
+  __pyx_nargs = PyTuple_Size(__pyx_args); if (unlikely(__pyx_nargs < 0)) return NULL;
+  #endif
+  #endif
+  __pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  {
+    PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_node,&__pyx_mstate_global->__pyx_n_u_vl_value,0};
+    const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 348, __pyx_L3_error)
+    if (__pyx_kwds_len > 0) {
+      switch (__pyx_nargs) {
+        case  2:
+        values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 348, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  1:
+        values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 348, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      const Py_ssize_t kwd_pos_args = __pyx_nargs;
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "_apply_virtual_loss", 0) < (0)) __PYX_ERR(0, 348, __pyx_L3_error)
+      for (Py_ssize_t i = __pyx_nargs; i < 2; i++) {
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("_apply_virtual_loss", 1, 2, 2, i); __PYX_ERR(0, 348, __pyx_L3_error) }
+      }
+    } else if (unlikely(__pyx_nargs != 2)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 348, __pyx_L3_error)
+      values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 348, __pyx_L3_error)
+    }
+    __pyx_v_node = ((struct __pyx_obj_4mcts_6c_mcts_CNode *)values[0]);
+    __pyx_v_vl_value = __Pyx_PyFloat_AsDouble(values[1]); if (unlikely((__pyx_v_vl_value == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 348, __pyx_L3_error)
+  }
+  goto __pyx_L6_skip;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("_apply_virtual_loss", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 348, __pyx_L3_error)
+  __pyx_L6_skip:;
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L3_error:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __Pyx_AddTraceback("mcts.c_mcts.CMCTS._apply_virtual_loss", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_node), __pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CNode, 1, "node", 0))) __PYX_ERR(0, 348, __pyx_L1_error)
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_22_apply_virtual_loss(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self), __pyx_v_node, __pyx_v_vl_value);
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __pyx_r = NULL;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  goto __pyx_L7_cleaned_up;
+  __pyx_L0:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __pyx_L7_cleaned_up:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_22_apply_virtual_loss(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node, double __pyx_v_vl_value) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("_apply_virtual_loss", 0);
+
+  /* "mcts/c_mcts.pyx":349
+ * 
+ *     def _apply_virtual_loss(self, CNode node, double vl_value):
+ *         _apply_virtual_loss(node, vl_value)             # <<<<<<<<<<<<<<
+ * 
+ *     def _undo_virtual_loss(self, CNode node, double vl_value):
+*/
+  __pyx_f_4mcts_6c_mcts__apply_virtual_loss(__pyx_v_node, __pyx_v_vl_value);
+
+  /* "mcts/c_mcts.pyx":348
+ *         return _best_action(node, self.c_puct)
+ * 
+ *     def _apply_virtual_loss(self, CNode node, double vl_value):             # <<<<<<<<<<<<<<
+ *         _apply_virtual_loss(node, vl_value)
+ * 
+*/
+
+  /* function exit code */
+  __pyx_r = Py_None; __Pyx_INCREF(Py_None);
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "mcts/c_mcts.pyx":351
+ *         _apply_virtual_loss(node, vl_value)
+ * 
+ *     def _undo_virtual_loss(self, CNode node, double vl_value):             # <<<<<<<<<<<<<<
+ *         _undo_virtual_loss(node, vl_value)
+*/
+
+/* Python wrapper */
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_25_undo_virtual_loss(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+); /*proto*/
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_25_undo_virtual_loss = {"_undo_virtual_loss", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_25_undo_virtual_loss, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_25_undo_virtual_loss(PyObject *__pyx_v_self, 
+#if CYTHON_METH_FASTCALL
+PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
+#else
+PyObject *__pyx_args, PyObject *__pyx_kwds
+#endif
+) {
+  struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node = 0;
+  double __pyx_v_vl_value;
+  #if !CYTHON_METH_FASTCALL
+  CYTHON_UNUSED Py_ssize_t __pyx_nargs;
+  #endif
+  CYTHON_UNUSED PyObject *const *__pyx_kwvalues;
+  PyObject* values[2] = {0,0};
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  PyObject *__pyx_r = 0;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("_undo_virtual_loss (wrapper)", 0);
+  #if !CYTHON_METH_FASTCALL
+  #if CYTHON_ASSUME_SAFE_SIZE
+  __pyx_nargs = PyTuple_GET_SIZE(__pyx_args);
+  #else
+  __pyx_nargs = PyTuple_Size(__pyx_args); if (unlikely(__pyx_nargs < 0)) return NULL;
+  #endif
+  #endif
+  __pyx_kwvalues = __Pyx_KwValues_FASTCALL(__pyx_args, __pyx_nargs);
+  {
+    PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_node,&__pyx_mstate_global->__pyx_n_u_vl_value,0};
+    const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 351, __pyx_L3_error)
+    if (__pyx_kwds_len > 0) {
+      switch (__pyx_nargs) {
+        case  2:
+        values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 351, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  1:
+        values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 351, __pyx_L3_error)
+        CYTHON_FALLTHROUGH;
+        case  0: break;
+        default: goto __pyx_L5_argtuple_error;
+      }
+      const Py_ssize_t kwd_pos_args = __pyx_nargs;
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "_undo_virtual_loss", 0) < (0)) __PYX_ERR(0, 351, __pyx_L3_error)
+      for (Py_ssize_t i = __pyx_nargs; i < 2; i++) {
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("_undo_virtual_loss", 1, 2, 2, i); __PYX_ERR(0, 351, __pyx_L3_error) }
+      }
+    } else if (unlikely(__pyx_nargs != 2)) {
+      goto __pyx_L5_argtuple_error;
+    } else {
+      values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 351, __pyx_L3_error)
+      values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 351, __pyx_L3_error)
+    }
+    __pyx_v_node = ((struct __pyx_obj_4mcts_6c_mcts_CNode *)values[0]);
+    __pyx_v_vl_value = __Pyx_PyFloat_AsDouble(values[1]); if (unlikely((__pyx_v_vl_value == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 351, __pyx_L3_error)
+  }
+  goto __pyx_L6_skip;
+  __pyx_L5_argtuple_error:;
+  __Pyx_RaiseArgtupleInvalid("_undo_virtual_loss", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 351, __pyx_L3_error)
+  __pyx_L6_skip:;
+  goto __pyx_L4_argument_unpacking_done;
+  __pyx_L3_error:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __Pyx_AddTraceback("mcts.c_mcts.CMCTS._undo_virtual_loss", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_RefNannyFinishContext();
+  return NULL;
+  __pyx_L4_argument_unpacking_done:;
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_node), __pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CNode, 1, "node", 0))) __PYX_ERR(0, 351, __pyx_L1_error)
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_24_undo_virtual_loss(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self), __pyx_v_node, __pyx_v_vl_value);
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __pyx_r = NULL;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  goto __pyx_L7_cleaned_up;
+  __pyx_L0:;
+  for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
+    Py_XDECREF(values[__pyx_temp]);
+  }
+  __pyx_L7_cleaned_up:;
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_24_undo_virtual_loss(CYTHON_UNUSED struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, struct __pyx_obj_4mcts_6c_mcts_CNode *__pyx_v_node, double __pyx_v_vl_value) {
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  __Pyx_RefNannySetupContext("_undo_virtual_loss", 0);
+
+  /* "mcts/c_mcts.pyx":352
+ * 
+ *     def _undo_virtual_loss(self, CNode node, double vl_value):
+ *         _undo_virtual_loss(node, vl_value)             # <<<<<<<<<<<<<<
+*/
+  __pyx_f_4mcts_6c_mcts__undo_virtual_loss(__pyx_v_node, __pyx_v_vl_value);
+
+  /* "mcts/c_mcts.pyx":351
+ *         _apply_virtual_loss(node, vl_value)
+ * 
+ *     def _undo_virtual_loss(self, CNode node, double vl_value):             # <<<<<<<<<<<<<<
  *         _undo_virtual_loss(node, vl_value)
 */
 
@@ -26024,15 +27064,15 @@ static int __pyx_pf_4mcts_6c_mcts_5CMCTS_6c_puct_2__set__(struct __pyx_obj_4mcts
 */
 
 /* Python wrapper */
-static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_15__reduce_cython__(PyObject *__pyx_v_self, 
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_27__reduce_cython__(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_15__reduce_cython__ = {"__reduce_cython__", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_15__reduce_cython__, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_15__reduce_cython__(PyObject *__pyx_v_self, 
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_27__reduce_cython__ = {"__reduce_cython__", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_27__reduce_cython__, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_27__reduce_cython__(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -26058,14 +27098,14 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   const Py_ssize_t __pyx_kwds_len = unlikely(__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
   if (unlikely(__pyx_kwds_len < 0)) return NULL;
   if (unlikely(__pyx_kwds_len > 0)) {__Pyx_RejectKeywords("__reduce_cython__", __pyx_kwds); return NULL;}
-  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_14__reduce_cython__(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self));
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_26__reduce_cython__(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self));
 
   /* function exit code */
   __Pyx_RefNannyFinishContext();
   return __pyx_r;
 }
 
-static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_14__reduce_cython__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self) {
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_26__reduce_cython__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self) {
   PyObject *__pyx_v_state = 0;
   PyObject *__pyx_v__dict = 0;
   int __pyx_v_use_setstate;
@@ -26319,15 +27359,15 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_14__reduce_cython__(struct __pyx_
 */
 
 /* Python wrapper */
-static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_17__setstate_cython__(PyObject *__pyx_v_self, 
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_29__setstate_cython__(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_17__setstate_cython__ = {"__setstate_cython__", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_17__setstate_cython__, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_17__setstate_cython__(PyObject *__pyx_v_self, 
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5CMCTS_29__setstate_cython__ = {"__setstate_cython__", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_29__setstate_cython__, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_5CMCTS_29__setstate_cython__(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -26393,7 +27433,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_16__setstate_cython__(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self), __pyx_v___pyx_state);
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_5CMCTS_28__setstate_cython__(((struct __pyx_obj_4mcts_6c_mcts_CMCTS *)__pyx_v_self), __pyx_v___pyx_state);
 
   /* function exit code */
   for (Py_ssize_t __pyx_temp=0; __pyx_temp < (Py_ssize_t)(sizeof(values)/sizeof(values[0])); ++__pyx_temp) {
@@ -26403,7 +27443,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_16__setstate_cython__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, PyObject *__pyx_v___pyx_state) {
+static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_28__setstate_cython__(struct __pyx_obj_4mcts_6c_mcts_CMCTS *__pyx_v_self, PyObject *__pyx_v___pyx_state) {
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
@@ -26460,15 +27500,15 @@ static PyObject *__pyx_pf_4mcts_6c_mcts_5CMCTS_16__setstate_cython__(struct __py
 */
 
 /* Python wrapper */
-static PyObject *__pyx_pw_4mcts_6c_mcts_1__pyx_unpickle_CNode(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_4mcts_6c_mcts_3__pyx_unpickle_CNode(PyObject *__pyx_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-static PyMethodDef __pyx_mdef_4mcts_6c_mcts_1__pyx_unpickle_CNode = {"__pyx_unpickle_CNode", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_1__pyx_unpickle_CNode, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_4mcts_6c_mcts_1__pyx_unpickle_CNode(PyObject *__pyx_self, 
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_3__pyx_unpickle_CNode = {"__pyx_unpickle_CNode", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_3__pyx_unpickle_CNode, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_3__pyx_unpickle_CNode(PyObject *__pyx_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -26551,7 +27591,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return NULL;
   __pyx_L4_argument_unpacking_done:;
   if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v___pyx_state), (&PyTuple_Type), 1, "__pyx_state", 1))) __PYX_ERR(1, 4, __pyx_L1_error)
-  __pyx_r = __pyx_pf_4mcts_6c_mcts___pyx_unpickle_CNode(__pyx_self, __pyx_v___pyx_type, __pyx_v___pyx_checksum, __pyx_v___pyx_state);
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_2__pyx_unpickle_CNode(__pyx_self, __pyx_v___pyx_type, __pyx_v___pyx_checksum, __pyx_v___pyx_state);
 
   /* function exit code */
   goto __pyx_L0;
@@ -26570,7 +27610,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static PyObject *__pyx_pf_4mcts_6c_mcts___pyx_unpickle_CNode(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v___pyx_type, long __pyx_v___pyx_checksum, PyObject *__pyx_v___pyx_state) {
+static PyObject *__pyx_pf_4mcts_6c_mcts_2__pyx_unpickle_CNode(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v___pyx_type, long __pyx_v___pyx_checksum, PyObject *__pyx_v___pyx_state) {
   PyObject *__pyx_v___pyx_result = 0;
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
@@ -26802,15 +27842,15 @@ static PyObject *__pyx_f_4mcts_6c_mcts___pyx_unpickle_CNode__set_state(struct __
 */
 
 /* Python wrapper */
-static PyObject *__pyx_pw_4mcts_6c_mcts_3__pyx_unpickle_CMCTS(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_4mcts_6c_mcts_5__pyx_unpickle_CMCTS(PyObject *__pyx_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-static PyMethodDef __pyx_mdef_4mcts_6c_mcts_3__pyx_unpickle_CMCTS = {"__pyx_unpickle_CMCTS", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_3__pyx_unpickle_CMCTS, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_4mcts_6c_mcts_3__pyx_unpickle_CMCTS(PyObject *__pyx_self, 
+static PyMethodDef __pyx_mdef_4mcts_6c_mcts_5__pyx_unpickle_CMCTS = {"__pyx_unpickle_CMCTS", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5__pyx_unpickle_CMCTS, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
+static PyObject *__pyx_pw_4mcts_6c_mcts_5__pyx_unpickle_CMCTS(PyObject *__pyx_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -26893,7 +27933,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return NULL;
   __pyx_L4_argument_unpacking_done:;
   if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v___pyx_state), (&PyTuple_Type), 1, "__pyx_state", 1))) __PYX_ERR(1, 4, __pyx_L1_error)
-  __pyx_r = __pyx_pf_4mcts_6c_mcts_2__pyx_unpickle_CMCTS(__pyx_self, __pyx_v___pyx_type, __pyx_v___pyx_checksum, __pyx_v___pyx_state);
+  __pyx_r = __pyx_pf_4mcts_6c_mcts_4__pyx_unpickle_CMCTS(__pyx_self, __pyx_v___pyx_type, __pyx_v___pyx_checksum, __pyx_v___pyx_state);
 
   /* function exit code */
   goto __pyx_L0;
@@ -26912,7 +27952,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static PyObject *__pyx_pf_4mcts_6c_mcts_2__pyx_unpickle_CMCTS(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v___pyx_type, long __pyx_v___pyx_checksum, PyObject *__pyx_v___pyx_state) {
+static PyObject *__pyx_pf_4mcts_6c_mcts_4__pyx_unpickle_CMCTS(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v___pyx_type, long __pyx_v___pyx_checksum, PyObject *__pyx_v___pyx_state) {
   PyObject *__pyx_v___pyx_result = 0;
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
@@ -27631,8 +28671,14 @@ static PyMethodDef __pyx_methods_4mcts_6c_mcts_CMCTS[] = {
   {"search_expand_vl", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_9search_expand_vl, __Pyx_METH_FASTCALL|METH_KEYWORDS, __pyx_doc_4mcts_6c_mcts_5CMCTS_8search_expand_vl},
   {"search_backup_vl", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_11search_backup_vl, __Pyx_METH_FASTCALL|METH_KEYWORDS, __pyx_doc_4mcts_6c_mcts_5CMCTS_10search_backup_vl},
   {"undo_virtual_loss", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_13undo_virtual_loss, __Pyx_METH_FASTCALL|METH_KEYWORDS, __pyx_doc_4mcts_6c_mcts_5CMCTS_12undo_virtual_loss},
-  {"__reduce_cython__", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_15__reduce_cython__, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
-  {"__setstate_cython__", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_17__setstate_cython__, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
+  {"_search", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_15_search, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
+  {"_evaluate", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_17_evaluate, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
+  {"_backpropagate", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_19_backpropagate, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
+  {"_best_action", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_21_best_action, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
+  {"_apply_virtual_loss", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_23_apply_virtual_loss, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
+  {"_undo_virtual_loss", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_25_undo_virtual_loss, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
+  {"__reduce_cython__", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_27__reduce_cython__, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
+  {"__setstate_cython__", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_4mcts_6c_mcts_5CMCTS_29__setstate_cython__, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0},
   {0, 0, 0, 0}
 };
 
@@ -29801,6 +30847,21 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
 */
   __pyx_t_9 = __pyx_f_5numpy_import_array(); if (unlikely(__pyx_t_9 == ((int)-1))) __PYX_ERR(0, 14, __pyx_L1_error)
 
+  /* "mcts/c_mcts.pyx":17
+ * 
+ * 
+ * def add_dirichlet_noise(arr, double alpha, double epsilon):             # <<<<<<<<<<<<<<
+ *     """Add Dirichlet noise to a policy array."""
+ *     noise = np.random.dirichlet(np.ones(len(arr)) * alpha)
+*/
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_1add_dirichlet_noise, 0, __pyx_mstate_global->__pyx_n_u_add_dirichlet_noise, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[0])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 17, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
+  PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
+  #endif
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_add_dirichlet_noise, __pyx_t_4) < (0)) __PYX_ERR(0, 17, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+
   /* "mcts/c_mcts.pyx":80
  *             self.P = None
  * 
@@ -29808,7 +30869,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *         """Fill in deferred neural network evaluation."""
  *         self.nnet_value = value
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CNode_3resolve, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CNode_resolve, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[0])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 80, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CNode_3resolve, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CNode_resolve, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[1])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 80, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29821,7 +30882,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *     cdef tuple state
  *     cdef object _dict
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CNode_5__reduce_cython__, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CNode___reduce_cython, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[1])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 1, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CNode_5__reduce_cython__, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CNode___reduce_cython, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[2])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 1, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29835,7 +30896,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  * def __setstate_cython__(self, __pyx_state):             # <<<<<<<<<<<<<<
  *     __pyx_unpickle_CNode__set_state(self, __pyx_state)
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CNode_7__setstate_cython__, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CNode___setstate_cython, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[2])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 16, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CNode_7__setstate_cython__, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CNode___setstate_cython, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[3])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 16, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29850,7 +30911,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *         """Run MCTS and return visit-count policy."""
  *         if state.terminal:
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_3get_policy, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_get_policy, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[3])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 213, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_3get_policy, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_get_policy, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[4])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 213, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29866,7 +30927,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *         """Select+expand phase for batched eval. Returns leaf or None."""
  *         cdef CNode leaf = self._tree_policy_deferred(root)
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_5search_expand, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_search_expand, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[4])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 262, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_5search_expand, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_search_expand, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[5])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 262, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29881,7 +30942,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *         """Complete evaluate + backpropagate for a resolved node."""
  *         _backpropagate(_evaluate(node), node)
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_7search_backup, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_search_backup, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[5])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 270, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_7search_backup, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_search_backup, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[6])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 270, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29896,7 +30957,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *         """Select+expand with virtual loss. Returns (leaf, path) or (None, None)."""
  *         cdef CNode node = root
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_9search_expand_vl, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_search_expand_vl, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[6])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 290, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_9search_expand_vl, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_search_expand_vl, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[7])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 290, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29912,7 +30973,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *         """Undo virtual loss on path, then normal backprop."""
  *         _undo_virtual_loss(node, vl_value)
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_11search_backup_vl, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_search_backup_vl, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[7])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 323, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_11search_backup_vl, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_search_backup_vl, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[8])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 323, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29928,7 +30989,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *         """Just undo VL without backprop (cleanup/dedup)."""
  *         _undo_virtual_loss(node, vl_value)
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_13undo_virtual_loss, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_undo_virtual_loss, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[8])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 328, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_13undo_virtual_loss, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS_undo_virtual_loss, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[9])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 328, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29937,12 +30998,101 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
   if (__Pyx_SetItemOnTypeDict(__pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CMCTS, __pyx_mstate_global->__pyx_n_u_undo_virtual_loss, __pyx_t_4) < (0)) __PYX_ERR(0, 328, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
 
+  /* "mcts/c_mcts.pyx":334
+ *     # --- Test helpers (thin wrappers for cdef functions) ---
+ * 
+ *     def _search(self, CNode root):             # <<<<<<<<<<<<<<
+ *         cdef CNode selected = self._tree_policy(root)
+ *         cdef double value = _evaluate(selected)
+*/
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_15_search, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS__search, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[10])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 334, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
+  PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
+  #endif
+  if (__Pyx_SetItemOnTypeDict(__pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CMCTS, __pyx_mstate_global->__pyx_n_u_search, __pyx_t_4) < (0)) __PYX_ERR(0, 334, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+
+  /* "mcts/c_mcts.pyx":339
+ *         _backpropagate(value, selected)
+ * 
+ *     def _evaluate(self, CNode node):             # <<<<<<<<<<<<<<
+ *         return _evaluate(node)
+ * 
+*/
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_17_evaluate, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS__evaluate, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[11])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 339, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
+  PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
+  #endif
+  if (__Pyx_SetItemOnTypeDict(__pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CMCTS, __pyx_mstate_global->__pyx_n_u_evaluate, __pyx_t_4) < (0)) __PYX_ERR(0, 339, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+
+  /* "mcts/c_mcts.pyx":342
+ *         return _evaluate(node)
+ * 
+ *     def _backpropagate(self, double value, CNode node):             # <<<<<<<<<<<<<<
+ *         _backpropagate(value, node)
+ * 
+*/
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_19_backpropagate, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS__backpropagate, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[12])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 342, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
+  PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
+  #endif
+  if (__Pyx_SetItemOnTypeDict(__pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CMCTS, __pyx_mstate_global->__pyx_n_u_backpropagate, __pyx_t_4) < (0)) __PYX_ERR(0, 342, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+
+  /* "mcts/c_mcts.pyx":345
+ *         _backpropagate(value, node)
+ * 
+ *     def _best_action(self, CNode node):             # <<<<<<<<<<<<<<
+ *         return _best_action(node, self.c_puct)
+ * 
+*/
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_21_best_action, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS__best_action, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[13])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 345, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
+  PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
+  #endif
+  if (__Pyx_SetItemOnTypeDict(__pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CMCTS, __pyx_mstate_global->__pyx_n_u_best_action, __pyx_t_4) < (0)) __PYX_ERR(0, 345, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+
+  /* "mcts/c_mcts.pyx":348
+ *         return _best_action(node, self.c_puct)
+ * 
+ *     def _apply_virtual_loss(self, CNode node, double vl_value):             # <<<<<<<<<<<<<<
+ *         _apply_virtual_loss(node, vl_value)
+ * 
+*/
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_23_apply_virtual_loss, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS__apply_virtual_loss, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[14])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 348, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
+  PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
+  #endif
+  if (__Pyx_SetItemOnTypeDict(__pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CMCTS, __pyx_mstate_global->__pyx_n_u_apply_virtual_loss, __pyx_t_4) < (0)) __PYX_ERR(0, 348, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+
+  /* "mcts/c_mcts.pyx":351
+ *         _apply_virtual_loss(node, vl_value)
+ * 
+ *     def _undo_virtual_loss(self, CNode node, double vl_value):             # <<<<<<<<<<<<<<
+ *         _undo_virtual_loss(node, vl_value)
+*/
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_25_undo_virtual_loss, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS__undo_virtual_loss, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[15])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 351, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
+  PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
+  #endif
+  if (__Pyx_SetItemOnTypeDict(__pyx_mstate_global->__pyx_ptype_4mcts_6c_mcts_CMCTS, __pyx_mstate_global->__pyx_n_u_undo_virtual_loss_2, __pyx_t_4) < (0)) __PYX_ERR(0, 351, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+
   /* "(tree fragment)":1
  * def __reduce_cython__(self):             # <<<<<<<<<<<<<<
  *     cdef tuple state
  *     cdef object _dict
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_15__reduce_cython__, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS___reduce_cython, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[9])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 1, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_27__reduce_cython__, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS___reduce_cython, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[16])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 1, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29956,7 +31106,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  * def __setstate_cython__(self, __pyx_state):             # <<<<<<<<<<<<<<
  *     __pyx_unpickle_CMCTS__set_state(self, __pyx_state)
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_17__setstate_cython__, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS___setstate_cython, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[10])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 16, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5CMCTS_29__setstate_cython__, __Pyx_CYFUNCTION_CCLASS, __pyx_mstate_global->__pyx_n_u_CMCTS___setstate_cython, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[17])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 16, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29971,7 +31121,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *     cdef object __pyx_result
  *     __Pyx_CheckUnpickleChecksum(__pyx_checksum, 0x78c5b45, 0xdb6b068, 0xf5279a0, b'P, Q, W, _avail, _avail_mask, _num_available, children, is_terminal, last_turn_skipped, n, nnet_value, parent, player, state, terminal_value')
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_1__pyx_unpickle_CNode, 0, __pyx_mstate_global->__pyx_n_u_pyx_unpickle_CNode, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[11])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 4, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_3__pyx_unpickle_CNode, 0, __pyx_mstate_global->__pyx_n_u_pyx_unpickle_CNode, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[18])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 4, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -29984,7 +31134,7 @@ __Pyx_RefNannySetupContext("PyInit_c_mcts", 0);
  *     int __Pyx_CheckUnpickleChecksum(long, long, long, long, const char*) except -1
  *     int __Pyx_UpdateUnpickledDict(object, object, Py_ssize_t) except -1
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_3__pyx_unpickle_CMCTS, 0, __pyx_mstate_global->__pyx_n_u_pyx_unpickle_CMCTS, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[12])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 4, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_4mcts_6c_mcts_5__pyx_unpickle_CMCTS, 0, __pyx_mstate_global->__pyx_n_u_pyx_unpickle_CMCTS, NULL, __pyx_mstate_global->__pyx_n_u_mcts_c_mcts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[19])); if (unlikely(!__pyx_t_4)) __PYX_ERR(1, 4, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
@@ -30168,31 +31318,31 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
 static int __Pyx_InitConstants(__pyx_mstatetype *__pyx_mstate) {
   CYTHON_UNUSED_VAR(__pyx_mstate);
   {
-    const struct { const unsigned int length: 9; } index[] = {{2},{68},{35},{37},{54},{37},{60},{24},{52},{26},{34},{29},{33},{45},{22},{15},{179},{37},{30},{32},{1},{1},{1},{1},{1},{8},{5},{6},{15},{23},{25},{7},{6},{2},{6},{35},{9},{30},{15},{50},{39},{34},{8},{20},{32},{22},{14},{30},{37},{5},{5},{23},{25},{16},{19},{22},{19},{22},{23},{5},{23},{25},{13},{8},{20},{8},{15},{3},{6},{11},{13},{15},{5},{17},{18},{17},{4},{4},{1},{6},{5},{9},{17},{18},{5},{8},{5},{9},{5},{15},{5},{6},{9},{5},{5},{7},{7},{6},{7},{8},{4},{10},{12},{1},{2},{10},{5},{4},{13},{5},{8},{17},{4},{8},{11},{7},{4},{10},{4},{8},{4},{3},{7},{4},{2},{15},{5},{3},{4},{4},{6},{4},{2},{7},{6},{6},{3},{7},{14},{12},{11},{10},{20},{20},{19},{14},{12},{6},{10},{17},{13},{8},{7},{4},{13},{16},{13},{16},{4},{12},{10},{12},{19},{5},{3},{4},{5},{5},{14},{4},{4},{6},{8},{14},{8},{17},{6},{6},{12},{5},{6},{8},{1},{5},{11},{233},{54},{29},{15},{27},{14},{201},{301},{132},{55},{1}};
-    #if (CYTHON_COMPRESS_STRINGS) == 2 /* compression: bz2 (2191 bytes) */
-const char* const cstring = "BZh91AY&SY;\313\231R\000\001B\177\377\377\377\377\377\377\377\377\377\277\373\377\353\277\377\377\367\300@@@@@@@@@@@@\000@\000`\007\353\216L\350c\355X*Q\025\020,8\034\022\246\212S\010\3322\201\247\203\021\244\365M=M0\322\036\240i\352h\014\206F\2064\230\217S\311\244\323@\320\331'\2226)\344\312\tD\t\240\0044\320j\236\2325O&\247\242i\223 2\000\001\241\240\000\001\243@\320\006\207\250\000yB*{D\324\375E<\20442\003A\240\310\032h\006\232\031\014#@\3104\000\000\000\r\003 \r\002SB\010\021\2512jm\014\211\342\233R=OM\020z\214LC\324\000`\0104\006\020\001\200\023#Le\004\0310\002`\000&\000\2150\214\000\000\000\023&\230\232\014\000\214\000\000\000\000\224Dj\230\32564\324\311\222mG\352\232d~\246\246\322\003\0014h\304=F\200\006\004\000\032\030\232\032h\304\030\232k\252P_\227\310\200\305\n\330A\001\002\255n\"\270XW\0222\303-\333Y\241gKOgb\207\301\325\307\366\366?\216\2654Q=\023\321E\024QE3\317\325\353N\3479\334H\034k\306\034\\z\215\032M;hr\016\371\210\206\304\311\010@\204\t2\001\021k\\g\267\033eff\357\340\221\016.b\233\002d\353\211 \260\331\250m\206\334\237Gt\n\305'f1\242n\312Sv\275i7*\201\025\253i\024\303K\027\020Es\307/g\341>3\334#\343\217\366o\035\357\205\211M\3243\323\0375\322\355\004\271\000\260\223\001\215\262pL\205D\026\001\362\022V\3114\000'B=\010X3\014\215\243\367k\254\202\232\275\016\321,D\320\022\320\016*\265f\010j&\033\204\234\313\202\201\364\261\361%E\363D\027\326;\225\242\371ol\237\033\356\274M\312m\333*&\002\202\301\360\244\332-}\026u\336\\\234\301\311\315\312\034\252c\254<B\177B\235\367~S\353\336\304U\373\320_\223\361\323\360\206\347\007_4\241j\205\272\360+\254.u\207\014\t\266\265.\234%\351*\253G@]\307\275\252\300]\3666\304\343\261*-F^\3473\235\362Y\007\310\230}\037\037\3179\010ngt\244\313\004\203\nC!o\216\0310 \215\266\242\367z[\361P\276,\276\3000\2108\020\007\306vx\203\373\310\351\231\240\3210w\267\350E\177'\344Sb\360\2101\267o\234\027\344)\222\373\362\360O\242\255\2631\177QV\246\225Pk\220\0345\275-,\313\323\227\036\326\206\315UK\347\317(\206\336\21319\t\233\327""\177\342\350\023O\210\316T\\\\V\304\330,m\215\366y\317\331\372\201\330S\243\212\214\242\022\226\025X<\263\233\241\316\327^<6\226g^\374\265\025N^yq\211'\013Z\334\313\350\257S\004!\006%\212)\207\200\321\033\335\207%\250(!S\245\313\333\213W\302\350^\325\352VB:\350\301A\331P\262~\261\263\nZL\"\027l\025v5M\2624\032=B\tM\013\305\326<\022H\023b\232\352\320\323\0036)\213-3&&+/.\330\037&G\321\315*\177\315\314u\335|\331d\372\252\375\317\2234\311=B|)\371Y\237\352E\0322\354\n\371^q\013\376\0278\0242m\245DK@\211\030\255\014&\274,\001\360\246\370ee|\213\343\220%W2s\003\ns\21301B\221\\\271I\331\005\251;\350Y\254\262R\243\227\227Y+\025\231]\245\3541\205\236I\0318\266u\335\2509\001\360\212\372\333Z\271\032\363\3665\352}\010\3723F\321\033m\262\300\013\"\361\221\221\250\262*\016\340\234d7\374Cw\236\250\332\367 \311\230\315\265N-\007H\342\t\220\241q\272ZY\204\311\036\335S\216\241\240\300x]Jr\022a\311c\274f\253)\347\247\202\241\236*\203D!\3312\"\277j\205\n yCE\276\237To\255\2377\375\300\205\253\364_\241)u\341\267\3535\336\2628R\342za\0302J\t\216\0020\2301\245*\222In\333\031\304\316\322\004\026w\3217u\t\005\336\260\367\315\270\250\334\374ig\233\2206qz\375W#mj\265U\010\244\017\014T`-o\246\316\3220\022h\301N\1771\212\217\271\215JnY\233\027g\244\335\320\334}\203\357a\222\322\232\341e\314\333\316\235\322\013Qq3U6g\022\020p\2372\223\225hxY7+\220iz\021\n-\263\364\220\3629x\333ok\337\027#j\177)\215\027\233S\316~8\270&7\323\266\302\240\324\002\343\005F*\245\014\020\222O\373^\333\364\031\207'\367\255\032\3416\273\026?bHH\246\314\003\177w\231\0349\330n\362\252\342k\332z\315#\240\331BJk\\\222p2t\221\024UR\034\351e\004\260\210N\221\230{w\264R\3320\204{\304t\032\031\364\244\232Y>((\206\367C\245~E\310*.\033\321\nt\347z\324\031\321\\\267N@j`D\263|*(\217\210\347x\312\025\217L\006\332V\214Z\230\0210Jo\255\315$\030\260\340~\234\035\205\213\020\307;1\253fy\341\266,\322\333\217fM\007Z\321\332\320\316\256\220\236xb$\004\356f\357\201\335\261\022\331\233\312\264\325`\r\330\263U\334*J\023\350\2149-\014CQ\216I""\256\372HHC\3341\275\330q\225\346`$\305\251\222l\313Q&n\217B\351\002\265\022\225\326\\b)\271\251w4\025u\314\330\3041\203\371\306\224\320\257\013\340\340;m\237(\201\260b\370\353^\250\250R\034\2409\2433\233G\341J*\212\242Yv-\302|z\002\251\215\335\335/HQ\2507e\311\nv\221Hc`\334\262\243s\354\213\260Ka\230\231k\242yn\256F\272\327\304\236\206#\000\331\222\035\311\331\033\347,U\351\234\307\034\252b\250\251\235(V&Q-\316\004\014\206\005\327\010,\301\210W\311\216gK\0231\263\\\na\264]\352\272\221b2g\031\356Z\031\234\345\350\271\200\212;\333\201U\351Yh\206\210\212BH\254\315\356q\323a\271\213\231R\313\034\215ucqq\303<\355}\243i\322!\n\273)R\351\326z\246\026\261\n\326.\232\020\226\231S\305d'r\235]\221\030e\323\360\240\216r\262n\200\202w\315I\223\004\364\0237Q\034\353WY\304\306A^\237Be\230\307\007\274\245j!!\210\301\313\220\233\036\325\347n{\263\275\203\0305X\343`\213l\005\251\214\246[_e\3061\313\007\222e\233\231R\241\252\272\022,\315i\031n\030\315\003\031\260\326\227\223\3438\253%\022i\331\211\352\234\223\375SS\356\225Z\313B5\016{.\026)\343\230\214\342\004aA\366<\325\n\2203\266\245\244\331\244\026B\325\210y\225\n\251\003\220\232\251{!n\226\3638\010\023\021El\215 U\0039\204\340k\02092W\240\341E\244\310\356\026\220\316\343\236\032\301\312Qt\367\204\177\035@\262IN@\204\271\250\222\344e9\264\341\206\231v\334U\212\304\212\264\231\357C\340\236u_\212\242\250\277\"\0038N\242\344\037\337*\246\351\242o\031i\306\251\357-e\324bk\352\010~\225\000J+M\362\306\3248u\025\025\001\016v\333\\\014^\255\035\274\272\254\212E\030\036\233k\254\265\237\001\256\026\205\327\026\205\2567\034\375\211S]\321\335\225\244\350\356\272\265\316\245fo\210\311{\0278x\304\222\211\r\325\214\3549\376\257i[R\016N\224\203V:\260\306\265\006\312\205\007-\205\231\014\026\2776\353q\232\032M\305\264\323d\320m\023q{\271\271M\006I\010\310GW\215\r\252Z\322\240\220%L\230\030Q\0361\251\275j\227.\365\314\033\2327\364\356\006\215\315k\270\256\024c\275\231\203%\374j\030\231Q\272e\337XJ\225\033\037\233\271\033\037\016\257\006\375_\274It""\350\267\237?\351Fq\t+.|Yy\255\262%\347\215\363\n\023\004\252(\214\036lEf\216Eh\246\"\326g\007h\230\255\214LRI$\007\231\377\252S%\220\277\370\273\222)\302\204\201\336\\\312\220";
-    PyObject *data = __Pyx_DecompressString(cstring, 2191, 2);
+    const struct { const unsigned int length: 9; } index[] = {{2},{68},{35},{37},{54},{37},{60},{24},{52},{26},{34},{29},{33},{45},{22},{15},{179},{37},{30},{32},{1},{1},{1},{1},{1},{8},{5},{6},{15},{23},{25},{7},{6},{2},{6},{35},{9},{30},{15},{50},{39},{34},{8},{20},{32},{22},{14},{30},{37},{5},{5},{23},{25},{25},{20},{18},{15},{13},{24},{16},{19},{22},{19},{22},{23},{5},{23},{25},{13},{8},{20},{8},{15},{3},{6},{11},{13},{19},{15},{5},{19},{3},{5},{17},{18},{17},{14},{4},{4},{12},{1},{6},{5},{9},{17},{18},{5},{8},{5},{9},{5},{15},{5},{6},{9},{7},{5},{9},{5},{7},{7},{6},{7},{8},{4},{10},{12},{1},{2},{10},{5},{4},{13},{5},{8},{17},{4},{8},{11},{7},{4},{10},{4},{8},{4},{3},{7},{4},{5},{2},{15},{5},{3},{4},{4},{6},{4},{2},{7},{6},{6},{3},{7},{14},{12},{11},{10},{20},{20},{19},{14},{12},{6},{10},{17},{13},{8},{7},{4},{7},{13},{16},{13},{16},{8},{4},{12},{10},{12},{19},{5},{3},{4},{5},{5},{14},{4},{4},{6},{8},{14},{8},{17},{18},{6},{6},{12},{5},{6},{8},{1},{5},{11},{233},{11},{15},{54},{11},{29},{11},{15},{31},{11},{50},{27},{14},{201},{301},{132},{55},{1}};
+    #if (CYTHON_COMPRESS_STRINGS) == 2 /* compression: bz2 (2347 bytes) */
+const char* const cstring = "BZh91AY&SY~\013-\343\000\001[\377\377\377\377\377\377\377\377\377\377\277\373\377\373\277\377\377\367\300@@@@@@@@@@@@\000@\000`\010\213\347\274\232\270\230\332\253\004\032hd\304\003\300l4$\251\246C@6\246\217M\212j\177\242\237\2524\236\246ji\355Q\223\324=CM\003!\352\r2m\023L\231\244i\223LG\246\324\0145O(4A\t\264\365\024\360\223\323)\352z\211\204\320\320\006\200h\0004\000\000\000\320h\000\006\232\003@hEO\n\237\252\177\252a i\241\246\215\00014d4\304\032\001\2201\006\206\206F\232d\001\241\243@\030C@4\323D\"1M&\246#\3232S\312yCCF\232\006\232\003\324\000\000\000\000\000\000\001\2404\002\014\0010\230\023\t\204\323\004\304`\t\200#C&\0010\000\000\0020\023\000\000\002D\204\320F\232\2314\320\247\350\236\202Sy\031\024\362\200i\352\000h4<\240\320\000\0004\310\000d\000\320Z\"\002\340[\231\200\242\005D\301\200`T\206\257\031U\001\013\210\3535Y\241\024H2\253\320\370\366\2739\271\276\032=\331\3724gF\211\022D\210\210\211\033\235\340\316\246&\265\255\377\021i\031\031\351\001^\225\242\314\306\336dq\235\324JJ\363\0061\211\214M\2466\206\330J\265\264PW\235\263\n\244\272\2471\214\201\371\3451\t\314\357\215\261TY\234\225\330\255\020\370;\220\rD\274c|`[\224LY\253Z\322l\006\026p\010\265\232\024\333\n\260\201\001a\220\242GO\277\334(\207\210\032\211\250\023\317\216\222cQ$\365;\205\365Q\027g\025\004\n\252\010\004'\001\201\032\253J\t\001}\n+oP\230\024\307?\260\225R*\260\233_w\373\347\037\205+8E!\025\300\205\300\236\354\252#'/\312\2429\304\216\205\352\361\005[9\010[Y\177t\223\320\265s=\366\342:\213\t\313(*\020\022\r\317t\305Um\201\317M\203\273\277\300\303q\367\200\3360\267\303\244\343\323\241\335\352)\344\264\251mc\230\037\245:\374\220\346\353\365v\\\0310\371\267n\332h\320\032\347\220\374\2503[N\331\331\344_\316$\226@\264T\036\225J.\001\351\335ho\373Cd\006\r\307Ns\217\027\344\214\254\245V\337\317\370\275L\025\226s\361N\342\367`Y\006\001\341\224\246{\0359o\033\267!\377V\305\001U\342\\\021\004\022\210\270\240\245\r\n\314\006\023MD\033\256M\243j0\246\304=\202\361\266yHy\367 0\371\350\000\002\227{R2k""\244#\365\327VK\260c\250V*\346\031\306\261\031D0q \001\241\213\313\265T\362!\243M\200\270RI\017\233\024 \001\213\201,\354 \345\371\333\361c\302\027N+\022\t\rg\006RP;w\255\331\227\226\235\337\346%\373\331\344\323\233\200\002\343#\034\212,\274|s\236\355\032\266\367\035\363\331N\014Lp6\036\225\266\225\365\3539\317\205\375\007\346\332\213,\205\223\031\267\341HR\355\007\002`PFvw\270Ui\313\343\332\264\323H\001rH\270\241\326\224s>\370\306\351\254\013\222b\271\247.\270\007\231\266\263@\244\006C\021\0341`$P\262<\355u\313\r\001\002\331\213\033\336\251\241\006l\331\2410\261\313\021E\na\3516\206\274\177;\0301<\314I\275\243BJ\227\353\220\215\025\031\277?\345\014\201\234\255\241Bq\t\350\033\341\337\333\302\232]\230\010\332x2/\246^\235j&\036\217\005\326\027 \305C\220z\022\240i3\010\263]\270\354\266qE\224\301t\013\206\305D,\026%@\346\277\210\006\030\013\221\206\267\216\220\212K\302_h\220\356\013Z\261\366\370\337gZ\031\330\342Pxuq\211\364\232\214O:\205:\370B\250,\n<:\227\255\301\303\253\341\207kP\236JU0%\3154\017\020\022\304\322Z\340}\204d\371\220f\251\301Oj=\003\177\225\321e\354\310\301#2\311\302y\302\0339Bs\n\026\213fz\241\246\307\331B\341\312d.\016\216\231\335h\027n\325\270\314\324c\034R\350P\014\367\231\014\221\016\305\210B\235\334\211\002H\016 \206U\346nn0\354\360\340\377o\010\350}\227\350\340\236Jn5\"\235\025H\333'L\204nW1%\010] WB\027\314\320\222I\330\255\361x\317Xf\010VR\300\267\370A Z\250\247\246v\323-\305\276j\361h0\033<Z{'\016\262\245\0168\212\325\2508Ag\000\3458kuv\212\006\276\325$\365\375c\226\235q%\237[\302Z'\307\230\325\211H\304\215\373s,\"\231]W\253\2518q\r\205\234\245\221\334J\255g(\306\034\247\372u\354\336\017\207\303\321\242\244\215\210\2643KG\261a\362;t\313.\237\177\276\245\240\302\316\374L~\327\032\036\332\266\314:\360:\327\217\227@w\020n\215`\324\233\014`D[o\374\257=\234g2\232\377<\312S\026P\212\237m\2666S\033\203f\377S'\313\232\242\341\253\240\325\265\237\236\246C\014hW>\207\252\275\370\301U\014m\226x\256\271\n\370\024\0008\240\2047\031\207\221dlK_\271\270&<""\260+\260\237\261N\235\343\000\2622\262\357];\243I\362uZ\031\366\361\321\342\034i\315\353\263\002\244\327\"\231\227\020bf\267\342\316~\213\r\005\026\033E3x\320\241\316\005i\265g\322l\312\223-!\337\305\033dx\036\010\2228\230\006\245Y\343j\267\263Ck\275X\262\034\025]\216\003=\034\220^6\222\206\000\273\214\321\027\036\315IMf5\273'L\235\300\274\026\252\304\005Blq\235\332\337Ed\211*#\242e\325\330\333\033\031+\202v\332\210\023\266s\220L\323\262+\321\301\211^\037{\3565\32441g{\203Y\244\317\256K_\210\033\335|\255\264$j\ni3\331\234\257$[\00410\303E<\244\305z.Xef\341\316\204\231@\203\024\240\274M\261\010\314\031\201t\304\263b\007OX\021\3021\361\360\032O:!h\030\360\320\374xDa\351\324\027=\373\211\225b\334\2006\302\235\373\301\247*9\0042\337A(d\317\233\320\204\215D\240\006-\327\273N\223\251v/\014G\313<4;=\246\213\332i\362C1|r\030\265l\021a\260\356\034;\004;\303|t\256\273\347U\230Y\236\327\232K;\350y\313\242\203\301&\240Qp\254\231\234o\3558\274\021.\365\3314y\2442L\231)N\356I4\213Xj\212c\220\303S\214+7:\250\3144Q\206\271\336L\361\233\025\220e\266\021\006\232&\202\305\316\032\030\202\013\035\010\004kQb\310\266\031\247\265b\013\270\235X\245vmZu@\215\207k\\c\t\360\233\304\346^\342\203K\231\232\253f\364\357/\t\242\350\272\316\312M\"\227[6\35366\205+\234+Hj\377st\362\315\277=w\"\345b:PJ\270\203\310\274\233\007\2421\264E\370]\023'4\272\235,EQc\272R\025m\340\"<\342#\200\347[\rz\205\377t\231\027\213\014\321:5\324\177\266r\323]\316Q\276na\344\216\215P\314\213!G0n\r4\211\311\207\026\021\345f\3768\226\0301\362j'\034G\"\302\304\030\265\340\357\033V\333\363 \2751\311w\244`\330\037^\r\001(A\336\352\355\323`\307\301\033\271\337\001\036k&J\204\213\031\256\271LV|F\005\252\353\020j\322t\361+\372\243\207G\r\272t\301\327/|\365z\337+\255\354\365\334\245\346\244\317Q\036\250}\366\317Y\246\307\372\014L\3743\036S/9\222\n\272%\342\371\031\355\010#$E\245\200\210-\032\216\216`1\270]\020zi\214\233\240q\215Gd\177I\303#\006b\013\272K\246\254u?\232t\273\265\024\350t(\205\013\t\n \322\027\273\342L\220\254\"C""\025\342Z\367\201\227\025:,\014\320C\371\226\323\354b%\254\355j\331\031\"\tR\373\003\000\257\303\014\344n\261A\245\315:\347\217[\026\301k0\\\346N\277\031\354'\357\036\234\037\022w\202\376\317\304\005\204\006\325\016^\313\313^\312<\017a\026\263x:\007\\\317b\342\233pC$\010\003\277\267\004\333\324b\234\327\217\033\363\247\207\324+\250\330S\347\201\323vf\t\303\203:\204\274\233{\356}\234\276T6@\313\263\365\265\331\276\032\357G\310\346\312\271o\360\316\343pv\2643\200\231-\311W_\246\346\335\360\357\324\341\315\274\355\303\367w\335Ko+DuNd\365jHi\267\025\036\332{V\302\005\005\312\222\034T\325#\n^$*D\270T\223\tV\2408\016\312\025*^^\333m\260>\247\376\262\3530x\017\377\213\271\"\234(H?\005\226\361\200";
+    PyObject *data = __Pyx_DecompressString(cstring, 2347, 2);
     if (unlikely(!data)) __PYX_ERR(0, 1, __pyx_L1_error)
     const char* const bytes = __Pyx_PyBytes_AsString(data);
     #if !CYTHON_ASSUME_SAFE_MACROS
     if (likely(bytes)); else { Py_DECREF(data); __PYX_ERR(0, 1, __pyx_L1_error) }
     #endif
-    #elif (CYTHON_COMPRESS_STRINGS) != 0 /* compression: zlib (2006 bytes) */
-const char* const cstring = "x\332\215V\315W\033\327\025\267\204H\324\206\004c\343\322\244m\372\210!8\255\255\232BH\323P\347(\002l\334cb\0016\361\361I\336y\232y\222\236\031\315\033\346\275\021\310\247N\275\324r\226\263\234\245\226Zj\311\222\345,\265\344O\360\237\320{\337\010\361y\232,\230;\272\357\335\257\337\375\335;\374\223\024\035\207\330\242\301]%\244\253\210\347s\213\333\302\255\235*\311\254M\032\201\322\244\302\211pm~\300m\302\\\233\270R\023\345\010\270\376]P\255r\2374\005\337'\266\344\312\034\361\003O*N\224\366\205\315U\2119\016\330\325\270\246\236\004\243\026\331\027\272N4\367\033\302e\016\\c\232\227\230K\244\353\264\210\345s\370I\030\251\244\236u\235i\"\024\261\244\253E-\220\201\202LH\2037\244\337*\200\025\306cJ\211\232K\264$`l\3373~\322\033\230\327\340\322\300\361\276/4\2538|p!\315\274\352\313\306\377\2635\265\017\322ny\234\314\r\364\332g\2562\265\236\232\244\327\300B\000\236\372\014\300+gQ\025)R\351\245\325\206\247[D\325\031\270\326\201\007\311U\245O\254\226\256K\267\300|\237\265\326M\0022\320DVIE\006\256\255\310\035v\000^f\355/\326/\307J;\024x\236\3645\267\327\335&s\004\264R\332\374.v\007.CG\346\2549\002q\346 \030\0262w\227\324\300\352\344r\232\016`m\302,?1\005>\307\002!\205\r\tP\232\326\224L\226X\217\315\035Q\341>\200\014\020b\357!\210\351\237K\236\256>\275\267\370\217E\303\035\237\277\202\360\n\262\253X\016t\0168\2035\005\302\321\020\014\341U\005\262^%-\031\020\227C\232\320V\017\356\2355\320u\356\022\3055\276\2209\323\013\246\241n\n\346@\340\271\001\256\242\311\321z\2159\212\027\276?\007\036\244< \030\263,\256N\320\334\322\334#\r\3262\370\001\351_s_\236\002\375\3145\314\001\227\300\306&\367\201\030\2327\360\267\254`Q\205\007s_|\313l\233\272\010\017\026K\000\241\373\007\226\204\t\2600AU`\025k\371\014\227\361R\232\354\203\213\352\023\n=\260\205\302\270\334D\257Y\344\016\266\251f\330\203\025\340\304\362\003\315]mF\343tx\205JMl\314R\211\327\234,\377\213\334\277\304\255\006t\343o\026EQ\360Z\007\256\204NVY\340hB\251\317\355\300\342\224\022;0u\273\322\275\007\235m\n\230[J-\341\nM\251""\0334\274V\201Z\322\347\205\006\330\t\343\226T\231p\322\366\211\006\362\360\354\265\240\301`H.\336\030\300\370`9\335\034\3669t.\353\220\274C\220\316\235\237\327\2725%\003\337\342\017\202a\377`%I\313\354\031\223\252\3154+\\q\232\316\000z\034\354\262Bq\253\264\276^zR\332\3362\217\302\020\242\024QJO\324\300N\263\330.\034\234n\301\364\267\342\314\267\352\264\302\254\335\300\273BE\233\3169-\014/\244s\205jx\021\350-iS\370:`\016u\244R\245\r\030{\363\270\"\333\201\372r\266\346\300\347J:M\276\3528\302SBQ\372\264u\000\177+0\332t\0038\267\311\253[|/\340\256\305q3\024N\227\004\320\234\031\306\247O\212\364\303\311\200\276\010\253\356p}\2021M\307\320\364\201\251\323\021\030(Z\256%d\0018\003\273O\270\\\261&p\006\373DS\307\252\302\024\257p\245-\213z\201\245\255\272pl`&.\nJO^\000u\234\001\374\tN\250\200E\3413\213#\304\026\354\003\340\260\215%\245b\230\242\215\313\310<(\324\236r\223\343\252\206z\001\035\016\2046\353\216\373\276\364\253\016\253\251\252#\231^\370\273\021K\2130h@\363\301v\245\264\032\270\026\2455\326\340\247$\240\230Z\212<\025\002\022O\007\001$.|\341j\013C\017\313O\007y0\315P\231\246:\360\001\334]\341A\246\016gUJ\033\014\312K\2479\035j\3704\341w\t\227?\350\245\035\000x\324\2054\206OX\031.\307A\346\373\360\200{\256\007\265A\317`\232\315^Ufv\001\001\t-\360\0005\217\371\260o<\030bOx\202\242\177\317a-\356\247ey\322\203\377&RLa\245P\253\316\255]\005.\315/`\025l\211\364}P;\276\032\240\315[\340z\302\332\2054\r\243/\3526L!\347t\253\356\211\357\246\371\270c\347\367\200\377i}\200\276-\033\247\313\354\322\024\014\025\374\000_kB\301\227k\300}_J}n\"/\216\347\271)\2748\222\212;U3]\003\250\341m\260\\\317\314\034\275b\376\314\346\201\006`\243\341\304O\217\323;Z\002=\274\000T\334SZ\302\237\017\314?\371\177\352DR\370\214\007\340\034\255(\275\264\025\000;S\001\254>\036(>\314\300X\231\207j\016|\034\340WP\275\315\364s\267\343\371x\2553\235\344\276\351\315\037\347?\211\246\337\275w\3557\237D\023(\306\333v8\023\262\376\330\365\360\375p/\312\364\307\306\333:\\\010\255h\342\370\372\300\260\177}""*lF\345\376\330\315p9\332\213\337\213m\320\231{_G\305\350y\274\020\263\376\365\337G\243Q9\252\306+\235\321\316\263\356tw\261{\320\333\353\177\372Y\014\346\223\341:\234\325\361\332d\3700\232\217\212}\343\373ag\036}\357G\014}\177\025\315D\"\336\353d\372\371\261\366\303p>,b\202c\355\305\366\233\250\024i\010S\353@\022\220\177\364u\\\214w:E\264Z\202D\363\177\000\237k\020)?\336n\206\345\267E\254r&\371t\261[\354\226\373\371\017~\301\305<\332\355\241\325X{#\232\306\360\253\341\215\344\346l\\\216\353\235j\367\273.\303\303\337\205,l\305\231x\252\223Irk\207\314@\031-\305\023\375\363G\017\017\367\206GI\356\321Q\346\0302\3702\004ho\204\177\001\300\312x:k\200\254u\266\273S\275\\\257\210I\316c\023F\223[\030\326\356\314@`\003\300\207\200\305\227Q&\232\300\343<\276\240\226D*\236\216\027\343\275~\376\303\366&V\0356\342\245\316\r@4?\035O\274\313\243\341jx\013\022\323\021x\276\025nGS\220!x\301\026,F\255N\2463\201]l\206;\330\217)\350\376o\343;\235\331\216\352~\326}\324[9\314 \036O \256A'\003.G?jo\207\223\340i2\332\216'\343\355\316\307\335\231\256{\270\222<z\221\274\3701\371\261\236\324\235\304y\235\274\376\371\335\265k\377\315leAlewP\354d_\242x\231\245(h\326A\341d=\024^\266\205\242\225}\203\342Mvm\004\304\332\310c\024\217G6Ql\216<G\361|dg\244\237K\331\261\026\335\005B\345\336\177\333l\357\204\253\220\022t\372F\010\335\203J\216\341\241\243\205\250\026?\353\334\006\214\377\324\253\035>;\272}\264\235\224_&/+I\245\226\324^%\257\334\304m&\3157\340\370\347L\tc\227\262k(\326\262\217Q<\316\226Q\224\263?\240\370!\373\"\213\341\000\361\361d\374s\034\202\316W\335\277\366v\016\201\033\3474\345S\260>\006N\327\000\250?v\267{\023\277>\363%`\322hg\253\233\353\376\273\267\177\310\217\026\216\354ds'\331\371)\371\211\376\352\034\216s\177\216\366\022r\277\373A\357\233\303\335\244\274\331\317\335\004&\345\r\013\300\311\177`\342 \350\034\214\\\276\373Q\0172\002\016~\377?\261T\206\365";
-    PyObject *data = __Pyx_DecompressString(cstring, 2006, 1);
+    #elif (CYTHON_COMPRESS_STRINGS) != 0 /* compression: zlib (2168 bytes) */
+const char* const cstring = "x\332\215VAw\333\306\0216)*a\032%\262l9j\322\324]\305V\345\2646k\305\212\2234\256\373hY\262\345>;\246$[q\375\222}K`I\256\r\002 vA\211~q\352#\2178\342\210#\216<\362\250\243\2178\362\250\237\340\237\320\231\005H\212\222^\233\0031\300\354\354\354\3147\337\314\362\357\244lY\304\024MnK\341\330\222\270\0367\270)\354\372XI\226L\322\364\245\"UN\204m\362}n\022f\233\304v\024\221\226\000\363;~\255\306=\322\026|\217\230\016\227z\211\357\273\216\344D*O\230\\\2561\313\202}u\256\250\353\300\246\016\331\023\252A\024\367\232\302f\026\2301\305\327\230M\034\333\352\020\303\343\360I\030\251\246\236U\203)\"$1\034[\211\272\357\370\022\"!M\336t\274N\tv\341yLJQ\267\211r\010l6\257i?\251\005\306\225\031e\216\367<\241X\325\342\231A\032y\315s\232\377k\257\316=\013\273\343r\262\234\351\225\307l\251s\035oI\315`\207\000<\325\021\200\357\036EU\244H\245F\353MWu\210l0p\255|\027\202\2539\0361:\252\341\330%\346y\254\263\251\003p|E\234\032\251:\276mJr\205\355\203\227%\363\313\315\223g\245\025\362]\327\361\02477\3556\263\004\224\3221\371U\254\016\030CE\226\215e\002\347,\303a\230\310\362UR\207]C\3434\034\300Z\037s\353\241N\360)&\010!<r\000J]\2325\035%\346crKT\271\007 \003\204X{8D\327\317&\217\327\037_[\375vUs\307\343/\340x\t\321U\r\013*\007\234\301\234|a)8\014\341\225%\262Y#\035\307'6\2070\241\254.\330\035\335\240\032\334&\222+|!\313\272\026LA\336\024\266\003\201\2273\\E\233\343\356\rfI^\372a\002<\0109#\0303\014.\207hn+\356\222&\353h\374\200\364\257\270\347\214\201~bk\346\200K`c\233{@\014\305\233\370\355T1\251\322\355\345/\377\311L\223\332\010\017&K\000\241\353\373\206\003\035``\200\262\304\252\306\255#\\F\2434\330\333\307\325C\n\3356\205\304s\271>\275n\220+X\246\272f\017f\200\035\313\367\025\267\225n\215q\363\n\231n11J)^qr\353\037\344\372\tn5\241\032\1773(\212\222\333\331\267\035\250d\215\371\226\"\224z\334\364\rN)1}\235\267\355\330\327\240\262m\001}K\251!l\241(\265\375\246\333)Q\303\361x\251\t\373\204vKjLXi\371D\023yx\324\314o2h\222\343\026\031\214\267o\245\223\303\234@\347\244\016\311;\002ib}Rk\327""\245\343{\006\277\355\217\352\007#\3111\364\234\321\241\232L\261\322)\253i\017\240\307l\226\225\312\333k\233\233k\017\327v\266\365\2434\202(E\224\322\241\032\330\251\007\333\361\005\346\272V\207\266\205\247|fQ\313\2212[\2502\343\245\3539.\253\3438\314t\\*\3124s2\r\207\346\364\307\006\2223\317hd\037@l\347\024\317\343\301\233~\247{\364y\276{\212\212\266\255\t-\314\013@\340\024\325\310\360\344\301\217`\322\350\307)\000e\352\223\000\351\005\217K\307j\363u\313\022\256\024\222\322\307\235}\370\335\205iB\037\001\315\267xm\233\267|n\033\034\207Qi<\227\240\263R\250\322'E\306c3\002\025\204\321\260\270\232\370\200\036\205\376\030V\232\246\303\200Yn\203\235R\"d\t\022\205\311q\217f\212\216m\010\247\004\244\206\341,l.Y\033H\215D\312\352&'\013[e\222\353\252\036)\255aP\3277\224\321\020\226\tM\2053\216\322\341\013T\017\333\027?\301=\0250\343<fptj\300(\203\3663\021\232T\214\2623q\216\352\007\005\014\323\266\342x\313\000n\2002\207^\324\223\232\003\306\226cs\317s\274\021\267j\026\253\313\232\3450u\343+-n\256\302\314\200\216\315.\nJk\276mPZgM>&\027\305P\323\212R! \221\264\247A\342\335%le`(#\240\322\231\224\r&\310TQ\345{P\264\227\302\205\310-\316j\2246\031\244\233\016\246t>\301-\213W,\336c\240wL\037`\2466\2041z\302\364\2639\316$\276\007\017\260\323e\266]H\030\010\001\323I\337\023R\317\"\200\005R\227.\326\207y0?]\030J\256p\005\305C\\\213u\270\227\346\346:.\374;J\201\206\021I\215\0067^Jp\251\277\200\2620\365\322\367\014\000|\325\350\3537\337v\205\361\022b\325\355r\\\367Hg3\241[\267\207\276\333\372\317\n\322\241\005dL\223\204\022\230Ns<\234O\264\330H\301\367\361\265.$\334\304Ycy\216\243\262\2611\321\365\307G\300D\247\037o{\311-\375\027\002dMwr\006?\274ew\307\221\376\246\247\364\272\036\254P\017,>\254x\351rj\243\034\240\214\353\203\n\330\251\034\370y\320\035\303\277\213CI\221\254\340\034w\321\223\243\357\244\006\300\325\271\301\254\347\276\344\243\230\264\037\375\220\355\314\353>^\373\362MnP\270\024\255D\033\361bR\370\276\277rX\374,\\|\367\336\231\017>\013\347P\314v\315\340r\300\0063g\203""\367\203V\230\033\314\314vUp#0\302\271\303\263\331\306\301\331\205\240\035V\0063\347\203[a+z/2A\247\355\276\013\313\341\323\350F\304\006g\177\037N\207\225\260\026\335\215\247\343'\275\305\336jo\277\337\032\\\374\"\202\355\363\301&\2545\320l>\270\027\256\204\345\201\366}/^A\337{!C\337\337\204\227C\021\265\342\334\2408\323\275\027\254\004e\014p\246\273\332}\035\256\205\n\216\251\307\020\004\304\037~\027\225\243\335\270\214\273nB\240\305?\200\317\r8\2518\333m\007\2257\345\301P\203\257\263\335_\364\307\345\210\275)c\376\227\223\213\253\275r\2572(~\370\177\234\257\340\356\026:\301\205\233\321\034:\230\351>\n\0271\306\365\340\\r~)\252D\215\270\326\273\323ch\367I\3000\037\264\303\327N\224\213\026\342\034\256\\\014\315\350Z\334\352Az\237\207\233\260\213\035\261\306s:a.\234{\223;,\314t\357t\353\301\277\001\352|\264\004\200L\305+\361F\357\213^yP\300\200%\024\254\032~\020\235\213\276\215\277\212+Ia\343\200\035\016\003\034\034=6)\334;h\215\226\222\302\375\267\271C\310\371\353\000\312|.\370\013\024\257\202\253K\272\250\365x\247\267\320/\364\313\010\313\n\022b:\271p%\316\305\363\260\360I\257\205\305\370\010\352\3625\206\211\313E|A-\te\264\030\255F\255A\361\243\356\026V hF7\343sP\335\342b4\367\256\210\033\327\203\013\020\230\n\301\363\205`'\\\200\010\301\013\322a5\354\300)s\310\250v\260\213\334X\000&\376.\272\022/\305\022\322\276\337\277{\220C\330\037\302\271\272\0369p9\375qw'\230\007O\363\341N4\037\355\304\237\366.\367\354\203\273\311\375g\311\263\237\222\237\032I\303J\254W\311\253_\337\2359\363\237\334v\036\304v~\027\305n\3769\212\347y\212\202\346-\024V\336E\341\346;(:\371\327(^\3477\246@lL=@\361`j\013\305\326\324S\024O\247v\247\006\205\224\251\033\341U(g\341\3757\355\356n\260\016!\001\267\316\005@\022\310\344\020\036*\274\021\326\243'\361%\200\362\217\375\372\301\223\267\227\336\356$\225\347\311\363jR\255'\365\027\311\013;\261\333I\37358\3765\267\206g\257\3457Pl\344\037\240x\220\257\240\250\344\177D\361c\376Y\036\217\003\304g\223\331?cC\306\337\364\376\332\337=\000\336Mh*c\260>""\205\376\252\003P\237\367v\372s\277=\362\233\300\244\351x\273W\350\375\253\277w\300\337\336xk&[\273\311\356\317\311\317\3647\307pX\370S\330J\310\365\336\207\375\357\017^&\225\255A\341<0\251\250Y\000N~\201\356\207C\227\201\355\305\336\307}\206L_\371\341\277\0260\035j";
+    PyObject *data = __Pyx_DecompressString(cstring, 2168, 1);
     if (unlikely(!data)) __PYX_ERR(0, 1, __pyx_L1_error)
     const char* const bytes = __Pyx_PyBytes_AsString(data);
     #if !CYTHON_ASSUME_SAFE_MACROS
     if (likely(bytes)); else { Py_DECREF(data); __PYX_ERR(0, 1, __pyx_L1_error) }
     #endif
-    #else /* compression: none (3681 bytes) */
-const char* const bytes = ": All dimensions preceding dimension %d must be indexed and not slicedBuffer view does not expose stridesCalled get_policy with terminal stateCan only create a buffer that is contiguous in memory.Cannot assign to read-only memoryviewCannot create writable memory view from read-only memoryviewCannot index with type 'Cannot transpose memoryview with indirect dimensionsDimension %d is not directEmpty shape tuple for cython.arrayIndex out of bounds (axis %d)Indirect dimensions not supportedInvalid mode, expected 'c' or 'fortran', got Invalid shape in axis <MemoryView of Note that Cython is deliberately stricter than PEP-484 and rejects subclasses of builtin types. If you need to pass subclasses then set the 'annotation_typing' directive to False.Out of bounds on buffer access (axis Step may not be zero (axis %d)Unable to convert item to object.>')?add_note and  at 0xcollections.abc<contiguous and direct><contiguous and indirect>disableenablegc (got got differing extents in dimension isenableditemsize <= 0 for cython.arraymcts/c_mcts.pyxno default __reduce__ due to non-trivial __cinit__numpy._core.multiarray failed to importnumpy._core.umath failed to import object><strided and direct><strided and direct or indirect><strided and indirect><stringsource>unable to allocate array data.unable to allocate shape and strides.ASCIICMCTSCMCTS.__reduce_cython__CMCTS.__setstate_cython__CMCTS.get_policyCMCTS.search_backupCMCTS.search_backup_vlCMCTS.search_expandCMCTS.search_expand_vlCMCTS.undo_virtual_lossCNodeCNode.__reduce_cython__CNode.__setstate_cython__CNode.resolveEllipsis__Pyx_PyDict_NextRefSequenceView.MemoryViewabcactionaction_sizeadd_dirichletallocate_bufferarrayascontiguousarrayasyncio.coroutinesavailable_actionsbasebestcc_puctchild__class____class_getitem__cline_in_tracebackcount__dict___dictdirichletdtypedtype_is_objectemptyencodeenumerateerrorflagsfloat32float64formatfortran__func__gameget_policy__getstate__iid__import__indexintc_is_coroutineitemsitemsizelast_turn_skipp""edleaf__main__mcts.c_mctsmemviewmode__module__name__name__ndimnet__new__nodenpnum_simulationsnumpyobjonespackparentpathpipi_viewplayerpolicypoppredict__pyx_checksum__pyx_result__pyx_state__pyx_type__pyx_unpickle_CMCTS__pyx_unpickle_CNode__pyx_unpickle_Enum__pyx_vtable____qualname__random__reduce____reduce_cython____reduce_ex__registerresolverootsearch_backupsearch_backup_vlsearch_expandsearch_expand_vlself__set_name__setdefault__setstate____setstate_cython__shapesimsizestartstatestate_to_inputstepstopstructterminalterminal_value__test__undo_virtual_lossunpackupdateuse_setstatevaluevaluesvl_valuexzeros\200\001\330\004#\2401\240F\250!\320\004;\2701\340\010\032\230!\360\006\000\t\032\230\021\360\006\000\t\017\210d\220$\220a\330\014\020\220\007\220q\230\001\330\014\017\210t\2203\220c\230\021\340\020#\2401\240F\250!\330\020\027\220v\230Q\330\014\023\220<\230q\240\006\240d\250!\330\014\017\210t\2209\230A\230V\2403\240a\330\020\030\230\005\230Q\230f\240D\250\005\250U\260!\2604\260x\270q\330\036\"\240!\330\020\024\220I\230Q\230h\240a\330\020\024\220G\2301\230A\330\020#\2401\240G\2501\330\020\027\220w\230a\330\014\023\2207\230$\230i\240q\250\001\330\010\014\210G\2201\220A\360\006\000\t\014\2104\210}\230C\230t\2403\240g\250Q\330\014\032\230!\2309\240A\240W\250A\330\014\023\2206\230\021\340\010\033\2301\230F\240!\330\010\017\210v\220Q\200A\340\010\032\230$\320\0364\260A\260Q\330\010\013\2104\210}\230C\230t\2403\240g\250Q\330\014\032\230!\2309\240A\240W\250A\330\014\023\2201\330\010\017\210q\200A\340\010\014\210N\230!\330\010\014\210E\220\022\320\023%\240Q\240h\250f\260B\260a\200A\340\010\026\220a\220y\240\001\240\027\250\001\320\004F\300a\340\010\032\230!\2306\240\021\330\010\026\220a\220y\240\001\240\027\250\001\320\004G\300q\340\010\032\230!\2306\240\021\320\004H\310\001\340\010\013\2105\220\001\330\014\022\220*\230A\230Q\340\010\032\230%\230q\240\006\240g\250T\260\027\270\004\270A\330\010\013\2101\330\014\020\220\005\320\025%\240Q\240d\250$\250f\260A\360\006\000\t\r\210G""\2205\230\001\230\021\330\014\020\220\010\230\001\230\021\360\006\000\t \230s\240!\2404\240q\330\010\r\210R\210v\220Q\220m\2406\250\022\2501\330\010!\240\021\360\010\000\t\r\210E\220\025\220a\220t\2301\330\014\025\220T\230\027\240\001\240\021\330\014\024\220G\2304\230y\250\001\250\021\330\014\017\210v\220W\230A\330\020\027\220q\230\n\240(\250%\250s\260\"\260H\270D\300\001\340\010\014\210M\230\021\330\010\017\210q\200\001\360\010\000\005\016\210T\220\024\220T\230\024\230T\240\024\240T\250\031\260$\260n\300D\320HY\320Y]\320]h\320hl\320lz\320z~\360\000\000\177\001S\002\360\000\000S\002W\002\360\000\000W\002[\002\360\000\000[\002_\002\360\000\000_\002l\002\360\000\000l\002p\002\360\000\000p\002y\002\360\000\000y\002}\002\360\000\000}\002F\003\360\000\000F\003J\003\360\000\000J\003R\003\360\000\000R\003V\003\360\000\000V\003W\003\330\004\014\210G\2201\220F\230,\240a\330\004\007\200v\210W\220E\230\024\230Q\330\010\022\220!\330\010\027\220q\340\010\027\220t\2303\230g\240U\250#\250T\260\035\270g\300U\310#\310T\320Q[\320[b\320bg\320gj\320jn\320nv\320v}\360\000\000~\001C\002\360\000\000C\002F\002\360\000\000F\002J\002\360\000\000J\002Q\002\360\000\000Q\002X\002\360\000\000X\002Y\002\330\004\007\200q\330\010\017\320\017&\240d\250!\2507\260+\270W\300A\340\010\017\320\017&\240d\250!\2507\260+\270Q\200\001\360\010\000\005\016\210T\220\031\230$\230g\240T\250\034\260T\270\021\330\004\014\210G\2201\220F\230,\240a\330\004\007\200v\210W\220E\230\024\230Q\330\010\022\220!\330\010\027\220q\340\010\027\220t\2306\240\027\250\005\250S\260\004\260K\270w\300e\3103\310d\320RW\320W^\320^_\330\004\007\200q\330\010\017\320\017&\240d\250!\2507\260+\270W\300A\340\010\017\320\017&\240d\250!\2507\260+\270Q\200\001\340\004\037\230q\320 0\260\013\270;\300k\320QR\330\004\023\2205\230\010\240\001\240\021\330\004\007\200|\2207\230!\330\010'\240q\250\010\260\016\270a\330\004\013\2101O";
+    #else /* compression: none (4062 bytes) */
+const char* const bytes = ": All dimensions preceding dimension %d must be indexed and not slicedBuffer view does not expose stridesCalled get_policy with terminal stateCan only create a buffer that is contiguous in memory.Cannot assign to read-only memoryviewCannot create writable memory view from read-only memoryviewCannot index with type 'Cannot transpose memoryview with indirect dimensionsDimension %d is not directEmpty shape tuple for cython.arrayIndex out of bounds (axis %d)Indirect dimensions not supportedInvalid mode, expected 'c' or 'fortran', got Invalid shape in axis <MemoryView of Note that Cython is deliberately stricter than PEP-484 and rejects subclasses of builtin types. If you need to pass subclasses then set the 'annotation_typing' directive to False.Out of bounds on buffer access (axis Step may not be zero (axis %d)Unable to convert item to object.>')?add_note and  at 0xcollections.abc<contiguous and direct><contiguous and indirect>disableenablegc (got got differing extents in dimension isenableditemsize <= 0 for cython.arraymcts/c_mcts.pyxno default __reduce__ due to non-trivial __cinit__numpy._core.multiarray failed to importnumpy._core.umath failed to import object><strided and direct><strided and direct or indirect><strided and indirect><stringsource>unable to allocate array data.unable to allocate shape and strides.ASCIICMCTSCMCTS.__reduce_cython__CMCTS.__setstate_cython__CMCTS._apply_virtual_lossCMCTS._backpropagateCMCTS._best_actionCMCTS._evaluateCMCTS._searchCMCTS._undo_virtual_lossCMCTS.get_policyCMCTS.search_backupCMCTS.search_backup_vlCMCTS.search_expandCMCTS.search_expand_vlCMCTS.undo_virtual_lossCNodeCNode.__reduce_cython__CNode.__setstate_cython__CNode.resolveEllipsis__Pyx_PyDict_NextRefSequenceView.MemoryViewabcactionaction_sizeadd_dirichletadd_dirichlet_noiseallocate_bufferalpha_apply_virtual_lossarrarrayascontiguousarrayasyncio.coroutinesavailable_actions_backpropagatebasebest_best_actioncc_puctchild__class____class_getitem__cline_in_tracebackcount__dict___""dictdirichletdtypedtype_is_objectemptyencodeenumerateepsilonerror_evaluateflagsfloat32float64formatfortran__func__gameget_policy__getstate__iid__import__indexintc_is_coroutineitemsitemsizelast_turn_skippedleaf__main__mcts.c_mctsmemviewmode__module__name__name__ndimnet__new__nodenoisenpnum_simulationsnumpyobjonespackparentpathpipi_viewplayerpolicypoppredict__pyx_checksum__pyx_result__pyx_state__pyx_type__pyx_unpickle_CMCTS__pyx_unpickle_CNode__pyx_unpickle_Enum__pyx_vtable____qualname__random__reduce____reduce_cython____reduce_ex__registerresolveroot_searchsearch_backupsearch_backup_vlsearch_expandsearch_expand_vlselectedself__set_name__setdefault__setstate____setstate_cython__shapesimsizestartstatestate_to_inputstepstopstructterminalterminal_value__test__undo_virtual_loss_undo_virtual_lossunpackupdateuse_setstatevaluevaluesvl_valuexzeros\200\001\330\004#\2401\240F\250!\320\004;\2701\340\010\032\230!\360\006\000\t\032\230\021\360\006\000\t\017\210d\220$\220a\330\014\020\220\007\220q\230\001\330\014\017\210t\2203\220c\230\021\340\020#\2401\240F\250!\330\020\027\220v\230Q\330\014\023\220<\230q\240\006\240d\250!\330\014\017\210t\2209\230A\230V\2403\240a\330\020\030\230\005\230Q\230f\240D\250\005\250U\260!\2604\260x\270q\330\036\"\240!\330\020\024\220I\230Q\230h\240a\330\020\024\220G\2301\230A\330\020#\2401\240G\2501\330\020\027\220w\230a\330\014\023\2207\230$\230i\240q\250\001\330\010\014\210G\2201\220A\360\006\000\t\014\2104\210}\230C\230t\2403\240g\250Q\330\014\032\230!\2309\240A\240W\250A\330\014\023\2206\230\021\340\010\033\2301\230F\240!\330\010\017\210v\220Q\200A\330\010\033\2301\230F\240!\200A\330\010\017\210|\2301\230F\240$\240a\200A\340\010\032\230$\320\0364\260A\260Q\330\010\013\2104\210}\230C\230t\2403\240g\250Q\330\014\032\230!\2309\240A\240W\250A\330\014\023\2201\330\010\017\210q\200A\330\010\032\230!\2306\240\021\200A\340\010\014\210N\230!\330\010\014\210E\220\022\320\023%\240Q\240h\250f\260B\260a\200A\330\010\026\220a\220w\230a\200A\340\010\026\220a\220y""\240\001\240\027\250\001\200A\330\010\036\230d\240-\250q\260\001\330\010\034\230I\240Q\240a\330\010\026\220a\220w\230a\200A\330\010\017\210y\230\001\230\021\200\001\340\004\014\210B\210g\220Z\230q\240\002\240%\240q\250\003\2501\250F\260\"\260A\330\004\013\2104\210s\220$\220b\230\t\240\022\2408\2502\250Q\320\004F\300a\340\010\032\230!\2306\240\021\330\010\026\220a\220y\240\001\240\027\250\001\320\004G\300q\340\010\032\230!\2306\240\021\320\004H\310\001\340\010\013\2105\220\001\330\014\022\220*\230A\230Q\340\010\032\230%\230q\240\006\240g\250T\260\027\270\004\270A\330\010\013\2101\330\014\020\220\005\320\025(\250\001\250\024\250T\260\026\260q\360\006\000\t\r\210G\2205\230\001\230\021\330\014\020\220\010\230\001\230\021\360\006\000\t \230s\240!\2404\240q\330\010\r\210R\210v\220Q\220m\2406\250\022\2501\330\010!\240\021\360\010\000\t\r\210E\220\025\220a\220t\2301\330\014\025\220T\230\027\240\001\240\021\330\014\024\220G\2304\230y\250\001\250\021\330\014\017\210v\220W\230A\330\020\027\220q\230\n\240(\250%\250s\260\"\260H\270D\300\001\340\010\014\210M\230\021\330\010\017\210q\200\001\360\010\000\005\016\210T\220\024\220T\230\024\230T\240\024\240T\250\031\260$\260n\300D\320HY\320Y]\320]h\320hl\320lz\320z~\360\000\000\177\001S\002\360\000\000S\002W\002\360\000\000W\002[\002\360\000\000[\002_\002\360\000\000_\002l\002\360\000\000l\002p\002\360\000\000p\002y\002\360\000\000y\002}\002\360\000\000}\002F\003\360\000\000F\003J\003\360\000\000J\003R\003\360\000\000R\003V\003\360\000\000V\003W\003\330\004\014\210G\2201\220F\230,\240a\330\004\007\200v\210W\220E\230\024\230Q\330\010\022\220!\330\010\027\220q\340\010\027\220t\2303\230g\240U\250#\250T\260\035\270g\300U\310#\310T\320Q[\320[b\320bg\320gj\320jn\320nv\320v}\360\000\000~\001C\002\360\000\000C\002F\002\360\000\000F\002J\002\360\000\000J\002Q\002\360\000\000Q\002X\002\360\000\000X\002Y\002\330\004\007\200q\330\010\017\320\017&\240d\250!\2507\260+\270W\300A\340\010\017\320\017&\240d\250!\2507\260+\270Q\200\001\360\010\000\005""\016\210T\220\031\230$\230g\240T\250\034\260T\270\021\330\004\014\210G\2201\220F\230,\240a\330\004\007\200v\210W\220E\230\024\230Q\330\010\022\220!\330\010\027\220q\340\010\027\220t\2306\240\027\250\005\250S\260\004\260K\270w\300e\3103\310d\320RW\320W^\320^_\330\004\007\200q\330\010\017\320\017&\240d\250!\2507\260+\270W\300A\340\010\017\320\017&\240d\250!\2507\260+\270Q\200\001\340\004\037\230q\320 0\260\013\270;\300k\320QR\330\004\023\2205\230\010\240\001\240\021\330\004\007\200|\2207\230!\330\010'\240q\250\010\260\016\270a\330\004\013\2101O";
     PyObject *data = NULL;
     CYTHON_UNUSED_VAR(__Pyx_DecompressString);
     #endif
     PyObject **stringtab = __pyx_mstate->__pyx_string_tab;
     Py_ssize_t pos = 0;
-    for (int i = 0; i < 184; i++) {
+    for (int i = 0; i < 202; i++) {
       Py_ssize_t bytes_length = index[i].length;
       PyObject *string = PyUnicode_DecodeUTF8(bytes + pos, bytes_length, NULL);
       if (likely(string) && i >= 49) PyUnicode_InternInPlace(&string);
@@ -30203,7 +31353,7 @@ const char* const bytes = ": All dimensions preceding dimension %d must be index
       stringtab[i] = string;
       pos += bytes_length;
     }
-    for (int i = 184; i < 196; i++) {
+    for (int i = 202; i < 221; i++) {
       Py_ssize_t bytes_length = index[i].length;
       PyObject *string = PyBytes_FromStringAndSize(bytes + pos, bytes_length);
       stringtab[i] = string;
@@ -30214,15 +31364,15 @@ const char* const bytes = ": All dimensions preceding dimension %d must be index
       }
     }
     Py_XDECREF(data);
-    for (Py_ssize_t i = 0; i < 196; i++) {
+    for (Py_ssize_t i = 0; i < 221; i++) {
       if (unlikely(PyObject_Hash(stringtab[i]) == -1)) {
         __PYX_ERR(0, 1, __pyx_L1_error)
       }
     }
     #if CYTHON_IMMORTAL_CONSTANTS
     {
-      PyObject **table = stringtab + 184;
-      for (Py_ssize_t i=0; i<12; ++i) {
+      PyObject **table = stringtab + 202;
+      for (Py_ssize_t i=0; i<19; ++i) {
         #if CYTHON_COMPILING_IN_CPYTHON_FREETHREADING
         #if PY_VERSION_HEX < 0x030E0000
         if (_Py_IsOwnedByCurrentThread(table[i]) && Py_REFCNT(table[i]) == 1)
@@ -30241,14 +31391,14 @@ const char* const bytes = ": All dimensions preceding dimension %d must be index
   }
   {
     PyObject **numbertab = __pyx_mstate->__pyx_number_tab;
-    double const c_constants[] = {3.0};
-    for (int i = 0; i < 1; i++) {
+    double const c_constants[] = {3.0,0.03,0.25};
+    for (int i = 0; i < 3; i++) {
       numbertab[i] = PyFloat_FromDouble(c_constants[i]);
       if (unlikely(!numbertab[i])) __PYX_ERR(0, 1, __pyx_L1_error)
     }
   }
   {
-    PyObject **numbertab = __pyx_mstate->__pyx_number_tab + 1;
+    PyObject **numbertab = __pyx_mstate->__pyx_number_tab + 3;
     int8_t const cint_constants_1[] = {0,-1,1};
     int32_t const cint_constants_4[] = {126638917L,133196531L,136983863L};
     for (int i = 0; i < 6; i++) {
@@ -30259,7 +31409,7 @@ const char* const bytes = ": All dimensions preceding dimension %d must be index
   #if CYTHON_IMMORTAL_CONSTANTS
   {
     PyObject **table = __pyx_mstate->__pyx_number_tab;
-    for (Py_ssize_t i=0; i<7; ++i) {
+    for (Py_ssize_t i=0; i<9; ++i) {
       #if CYTHON_COMPILING_IN_CPYTHON_FREETHREADING
       #if PY_VERSION_HEX < 0x030E0000
       if (_Py_IsOwnedByCurrentThread(table[i]) && Py_REFCNT(table[i]) == 1)
@@ -30303,69 +31453,104 @@ static int __Pyx_CreateCodeObjects(__pyx_mstatetype *__pyx_mstate) {
   PyObject* tuple_dedup_map = PyDict_New();
   if (unlikely(!tuple_dedup_map)) return -1;
   {
+    const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 17};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_arr, __pyx_mstate->__pyx_n_u_alpha, __pyx_mstate->__pyx_n_u_epsilon, __pyx_mstate->__pyx_n_u_noise};
+    __pyx_mstate_global->__pyx_codeobj_tab[0] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_add_dirichlet_noise, __pyx_mstate->__pyx_kp_b_iso88591_BgZq_q_1F_A_4s_b_82Q, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[0])) goto bad;
+  }
+  {
     const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 3, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 80};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_value, __pyx_mstate->__pyx_n_u_policy};
-    __pyx_mstate_global->__pyx_codeobj_tab[0] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_resolve, __pyx_mstate->__pyx_kp_b_iso88591_A_N_E_QhfBa, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[0])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[1] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_resolve, __pyx_mstate->__pyx_kp_b_iso88591_A_N_E_QhfBa, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[1])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {1, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 1};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_state, __pyx_mstate->__pyx_n_u_dict_2, __pyx_mstate->__pyx_n_u_use_setstate};
-    __pyx_mstate_global->__pyx_codeobj_tab[1] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_reduce_cython, __pyx_mstate->__pyx_kp_b_iso88591_T_T_T_T_nDHYY_hhllzz_S_S_W_W, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[1])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[2] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_reduce_cython, __pyx_mstate->__pyx_kp_b_iso88591_T_T_T_T_nDHYY_hhllzz_S_S_W_W, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[2])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 16};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_pyx_state};
-    __pyx_mstate_global->__pyx_codeobj_tab[2] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_setstate_cython, __pyx_mstate->__pyx_kp_b_iso88591_1F, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[2])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[3] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_setstate_cython, __pyx_mstate->__pyx_kp_b_iso88591_1F, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[3])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {4, 0, 0, 12, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 213};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_num_simulations, __pyx_mstate->__pyx_n_u_state, __pyx_mstate->__pyx_n_u_add_dirichlet, __pyx_mstate->__pyx_n_u_root, __pyx_mstate->__pyx_n_u_sim, __pyx_mstate->__pyx_n_u_action_size, __pyx_mstate->__pyx_n_u_pi, __pyx_mstate->__pyx_n_u_pi_view, __pyx_mstate->__pyx_n_u_i, __pyx_mstate->__pyx_n_u_action, __pyx_mstate->__pyx_n_u_child};
-    __pyx_mstate_global->__pyx_codeobj_tab[3] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_get_policy, __pyx_mstate->__pyx_kp_b_iso88591_H_5_AQ_q_gT_A_1_Qd_fA_G5_s_4q_R, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[3])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[4] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_get_policy, __pyx_mstate->__pyx_kp_b_iso88591_H_5_AQ_q_gT_A_1_T_q_G5_s_4q_RvQ, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[4])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 3, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 262};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_root, __pyx_mstate->__pyx_n_u_leaf};
-    __pyx_mstate_global->__pyx_codeobj_tab[4] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_search_expand, __pyx_mstate->__pyx_kp_b_iso88591_A_4AQ_4_Ct3gQ_9AWA_1_q, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[4])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[5] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_search_expand, __pyx_mstate->__pyx_kp_b_iso88591_A_4AQ_4_Ct3gQ_9AWA_1_q, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[5])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 270};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_node};
-    __pyx_mstate_global->__pyx_codeobj_tab[5] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_search_backup, __pyx_mstate->__pyx_kp_b_iso88591_A_ay, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[5])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[6] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_search_backup, __pyx_mstate->__pyx_kp_b_iso88591_A_ay, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[6])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 7, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 290};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_root, __pyx_mstate->__pyx_n_u_vl_value, __pyx_mstate->__pyx_n_u_node, __pyx_mstate->__pyx_n_u_child, __pyx_mstate->__pyx_n_u_best, __pyx_mstate->__pyx_n_u_path};
-    __pyx_mstate_global->__pyx_codeobj_tab[6] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_search_expand_vl, __pyx_mstate->__pyx_kp_b_iso88591_1_d_a_q_t3c_1F_vQ_q_d_t9AV3a_Qf, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[6])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[7] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_search_expand_vl, __pyx_mstate->__pyx_kp_b_iso88591_1_d_a_q_t3c_1F_vQ_q_d_t9AV3a_Qf, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[7])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {4, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 323};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_node, __pyx_mstate->__pyx_n_u_path, __pyx_mstate->__pyx_n_u_vl_value};
-    __pyx_mstate_global->__pyx_codeobj_tab[7] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_search_backup_vl, __pyx_mstate->__pyx_kp_b_iso88591_Fa_6_ay, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[7])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[8] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_search_backup_vl, __pyx_mstate->__pyx_kp_b_iso88591_Fa_6_ay, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[8])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {4, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 328};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_node, __pyx_mstate->__pyx_n_u_path, __pyx_mstate->__pyx_n_u_vl_value};
-    __pyx_mstate_global->__pyx_codeobj_tab[8] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_undo_virtual_loss, __pyx_mstate->__pyx_kp_b_iso88591_Gq_6, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[8])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[9] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_undo_virtual_loss, __pyx_mstate->__pyx_kp_b_iso88591_Gq_6, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[9])) goto bad;
+  }
+  {
+    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 334};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_root, __pyx_mstate->__pyx_n_u_selected, __pyx_mstate->__pyx_n_u_value};
+    __pyx_mstate_global->__pyx_codeobj_tab[10] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_search, __pyx_mstate->__pyx_kp_b_iso88591_A_d_q_IQa_awa, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[10])) goto bad;
+  }
+  {
+    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 339};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_node};
+    __pyx_mstate_global->__pyx_codeobj_tab[11] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_evaluate, __pyx_mstate->__pyx_kp_b_iso88591_A_y, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[11])) goto bad;
+  }
+  {
+    const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 3, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 342};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_value, __pyx_mstate->__pyx_n_u_node};
+    __pyx_mstate_global->__pyx_codeobj_tab[12] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_backpropagate, __pyx_mstate->__pyx_kp_b_iso88591_A_awa, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[12])) goto bad;
+  }
+  {
+    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 345};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_node};
+    __pyx_mstate_global->__pyx_codeobj_tab[13] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_best_action, __pyx_mstate->__pyx_kp_b_iso88591_A_1F_a, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[13])) goto bad;
+  }
+  {
+    const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 3, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 348};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_node, __pyx_mstate->__pyx_n_u_vl_value};
+    __pyx_mstate_global->__pyx_codeobj_tab[14] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_apply_virtual_loss, __pyx_mstate->__pyx_kp_b_iso88591_A_1F, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[14])) goto bad;
+  }
+  {
+    const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 3, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 351};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_node, __pyx_mstate->__pyx_n_u_vl_value};
+    __pyx_mstate_global->__pyx_codeobj_tab[15] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_mcts_c_mcts_pyx, __pyx_mstate->__pyx_n_u_undo_virtual_loss_2, __pyx_mstate->__pyx_kp_b_iso88591_A_6, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[15])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {1, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 1};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_state, __pyx_mstate->__pyx_n_u_dict_2, __pyx_mstate->__pyx_n_u_use_setstate};
-    __pyx_mstate_global->__pyx_codeobj_tab[9] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_reduce_cython, __pyx_mstate->__pyx_kp_b_iso88591_T_gT_T_G1F_a_vWE_Q_q_t6_S_Kwe3d, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[9])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[16] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_reduce_cython, __pyx_mstate->__pyx_kp_b_iso88591_T_gT_T_G1F_a_vWE_Q_q_t6_S_Kwe3d, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[16])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 16};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_self, __pyx_mstate->__pyx_n_u_pyx_state};
-    __pyx_mstate_global->__pyx_codeobj_tab[10] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_setstate_cython, __pyx_mstate->__pyx_kp_b_iso88591_1F, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[10])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[17] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_setstate_cython, __pyx_mstate->__pyx_kp_b_iso88591_1F, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[17])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 4};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_pyx_type, __pyx_mstate->__pyx_n_u_pyx_checksum, __pyx_mstate->__pyx_n_u_pyx_state, __pyx_mstate->__pyx_n_u_pyx_result};
-    __pyx_mstate_global->__pyx_codeobj_tab[11] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_pyx_unpickle_CNode, __pyx_mstate->__pyx_kp_b_iso88591_q_0_kQR_5_7_q_a_1, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[11])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[18] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_pyx_unpickle_CNode, __pyx_mstate->__pyx_kp_b_iso88591_q_0_kQR_5_7_q_a_1, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[18])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 4};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_pyx_type, __pyx_mstate->__pyx_n_u_pyx_checksum, __pyx_mstate->__pyx_n_u_pyx_state, __pyx_mstate->__pyx_n_u_pyx_result};
-    __pyx_mstate_global->__pyx_codeobj_tab[12] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_pyx_unpickle_CMCTS, __pyx_mstate->__pyx_kp_b_iso88591_q_0_kQR_5_7_q_a_1, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[12])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[19] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_stringsource, __pyx_mstate->__pyx_n_u_pyx_unpickle_CMCTS, __pyx_mstate->__pyx_kp_b_iso88591_q_0_kQR_5_7_q_a_1, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[19])) goto bad;
   }
   Py_DECREF(tuple_dedup_map);
   return 0;

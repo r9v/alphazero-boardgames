@@ -2,8 +2,7 @@ import argparse
 import pygame
 import sys
 import numpy as np
-from . import SantoriniGame           # Cython when available
-from .game import DIRECTIONS, BOARD_SIZE  # constants (not in Cython module)
+from . import SantoriniGame, DIRECTIONS, BOARD_SIZE
 
 game = SantoriniGame()
 

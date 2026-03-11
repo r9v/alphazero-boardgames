@@ -14,7 +14,7 @@ from libc.math cimport sqrt
 cnp.import_array()
 
 
-cdef cnp.ndarray _dirichlet_noise(cnp.ndarray arr, double alpha, double epsilon):
+def add_dirichlet_noise(arr, double alpha, double epsilon):
     """Add Dirichlet noise to a policy array."""
     noise = np.random.dirichlet(np.ones(len(arr)) * alpha)
     return arr * (1.0 - epsilon) + epsilon * noise
@@ -217,7 +217,7 @@ cdef class CMCTS:
 
         cdef CNode root = CNode(None, state, self.game, self.net)
         if add_dirichlet:
-            root.P = _dirichlet_noise(root.P, 0.03, 0.25)
+            root.P = add_dirichlet_noise(root.P, 0.03, 0.25)
 
         cdef int sim
         for sim in range(num_simulations):
@@ -327,4 +327,26 @@ cdef class CMCTS:
 
     def undo_virtual_loss(self, CNode node, list path, double vl_value=3.0):
         """Just undo VL without backprop (cleanup/dedup)."""
+        _undo_virtual_loss(node, vl_value)
+
+    # --- Test helpers (thin wrappers for cdef functions) ---
+
+    def _search(self, CNode root):
+        cdef CNode selected = self._tree_policy(root)
+        cdef double value = _evaluate(selected)
+        _backpropagate(value, selected)
+
+    def _evaluate(self, CNode node):
+        return _evaluate(node)
+
+    def _backpropagate(self, double value, CNode node):
+        _backpropagate(value, node)
+
+    def _best_action(self, CNode node):
+        return _best_action(node, self.c_puct)
+
+    def _apply_virtual_loss(self, CNode node, double vl_value):
+        _apply_virtual_loss(node, vl_value)
+
+    def _undo_virtual_loss(self, CNode node, double vl_value):
         _undo_virtual_loss(node, vl_value)
