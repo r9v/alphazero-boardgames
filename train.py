@@ -67,6 +67,7 @@ def main():
         num_filters=filters,
         value_head_channels=game_cfg.get("value_head_channels", 2),
         value_head_fc_size=game_cfg.get("value_head_fc_size", 64),
+        policy_head_channels=game_cfg.get("policy_head_channels", 2),
     )
 
     checkpoint_dir = f"checkpoints/{args.game}"

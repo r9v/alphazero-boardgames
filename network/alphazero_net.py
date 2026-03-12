@@ -25,7 +25,8 @@ class ResBlock(nn.Module):
 class AlphaZeroNet(nn.Module):
     def __init__(self, input_channels, board_shape, action_size,
                  num_res_blocks=2, num_filters=256,
-                 value_head_channels=2, value_head_fc_size=64):
+                 value_head_channels=2, value_head_fc_size=64,
+                 policy_head_channels=2):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
@@ -48,9 +49,9 @@ class AlphaZeroNet(nn.Module):
         self.value_fc2 = nn.Linear(value_head_fc_size, 1)
 
         # Policy head
-        self.policy_conv = nn.Conv2d(num_filters, 2, 1)
-        self.policy_bn = nn.BatchNorm2d(2)
-        self.policy_fc = nn.Linear(2 * board_area, action_size)
+        self.policy_conv = nn.Conv2d(num_filters, policy_head_channels, 1)
+        self.policy_bn = nn.BatchNorm2d(policy_head_channels)
+        self.policy_fc = nn.Linear(policy_head_channels * board_area, action_size)
 
     def forward(self, x):
         # Backbone

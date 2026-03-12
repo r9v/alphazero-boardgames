@@ -5,6 +5,7 @@ GAME_CONFIGS = {
         "num_res_blocks": 1,
         "value_head_channels": 1,
         "value_head_fc_size": 16,
+        "policy_head_channels": 2,
 
         # --- Training ---
         "max_train_steps": 800,
@@ -32,6 +33,7 @@ GAME_CONFIGS = {
         "num_res_blocks": 2,
         "value_head_channels": 2,
         "value_head_fc_size": 32,
+        "policy_head_channels": 2,
 
         # --- Training ---
         "max_train_steps": 3_200,
@@ -55,10 +57,11 @@ GAME_CONFIGS = {
 
     "santorini": {
         # --- Network ---
-        "num_filters": 256,
-        "num_res_blocks": 3,
-        "value_head_channels": 8,
-        "value_head_fc_size": 128,
+        "num_filters": 128,
+        "num_res_blocks": 2,
+        "value_head_channels": 4,
+        "value_head_fc_size": 64,
+        "policy_head_channels": 4,
 
         # --- Training ---
         "max_train_steps": 12800,
@@ -67,7 +70,7 @@ GAME_CONFIGS = {
         "value_loss_weight": 3.0,
 
         # --- Self-play ---
-        "default_iterations": 32,
+        "default_iterations": 64,
         "default_games": 64,
         "default_simulations": 256,
         "selects_per_round": 8,

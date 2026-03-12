@@ -62,7 +62,8 @@ def main():
         GUI(ai_player=ai_player, simulations=play_sims,
             filters=filters, res_blocks=res_blocks, c_puct=play_c_puct,
             value_head_channels=net_cfg.get("value_head_channels", 2),
-            value_head_fc_size=net_cfg.get("value_head_fc_size", 64))
+            value_head_fc_size=net_cfg.get("value_head_fc_size", 64),
+            policy_head_channels=net_cfg.get("policy_head_channels", 2))
         return
 
     from train import load_game
@@ -78,6 +79,7 @@ def main():
         num_filters=filters,
         value_head_channels=net_cfg.get("value_head_channels", 2),
         value_head_fc_size=net_cfg.get("value_head_fc_size", 64),
+        policy_head_channels=net_cfg.get("policy_head_channels", 2),
     )
 
     checkpoint_dir = f"checkpoints/{args.game}"

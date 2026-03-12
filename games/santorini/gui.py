@@ -176,7 +176,8 @@ def draw_board(screen, state, phase, selected_worker_pos, valid_targets,
 class GUI:
     def __init__(self, ai_player=None, simulations=100, filters=256,
                  res_blocks=2, c_puct=1.5,
-                 value_head_channels=2, value_head_fc_size=64):
+                 value_head_channels=2, value_head_fc_size=64,
+                 policy_head_channels=2):
         pygame.init()
         self.screen = pygame.display.set_mode((WIN_W, WIN_H))
         pygame.display.set_caption("Santorini")
@@ -208,6 +209,7 @@ class GUI:
                 num_filters=filters,
                 value_head_channels=value_head_channels,
                 value_head_fc_size=value_head_fc_size,
+                policy_head_channels=policy_head_channels,
             )
             checkpoint_dir = "checkpoints/santorini"
             loaded_path = net.load_latest(checkpoint_dir)
