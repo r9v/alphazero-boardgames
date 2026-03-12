@@ -25,9 +25,10 @@ class Trainer:
         self.device = self.config.get("device", "cpu")
         self.max_train_steps = self.config.get("max_train_steps", 5000)
         self.target_epochs = self.config.get("target_epochs", 4)
-        self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
         self.optimizer = torch.optim.Adam(net.parameters(), lr=self.lr, weight_decay=1e-4)
+
+        self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
 
         game_name = self.config.get("game_name", "unknown")
         timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -179,6 +180,11 @@ class Trainer:
                         # Store for later analysis
                         if not hasattr(self, '_grad_stats'):
                             self._grad_stats = []
+                        # Per-neuron gradient norms for fc1 (each row = one neuron)
+                        fc1_per_neuron_gnorm = fc1_grad.norm(dim=1).cpu().numpy()  # [neurons]
+                        # Value conv + BN gradient norms
+                        vconv_g = self.net.value_conv.weight.grad
+                        vbn_g = self.net.value_bn.weight.grad  # gamma grad
                         self._grad_stats.append({
                             'fc1_grad_mean': fc1_grad.mean().item(),
                             'fc1_grad_std': fc1_grad.std().item(),
@@ -189,6 +195,9 @@ class Trainer:
                             'pred_mean': pred_vs.mean().item(),
                             'target_mean': target_vs.mean().item(),
                             'error_mean': error.mean().item(),
+                            'fc1_per_neuron_gnorm': fc1_per_neuron_gnorm,
+                            'vconv_grad_norm': vconv_g.norm().item() if vconv_g is not None else 0.0,
+                            'vbn_gamma_grad_norm': vbn_g.norm().item() if vbn_g is not None else 0.0,
                         })
 
             # Sample gradient norms every 100 steps
@@ -285,16 +294,49 @@ class Trainer:
         x_pred_avg = x_pred_sum / max(x_count, 1)
         o_pred_avg = o_pred_sum / max(o_count, 1)
 
-        # (V) Value head health: dead neurons, pre-tanh range, saturation
-        # Uses hooks on actual forward pass to avoid duplicating activation logic
+        # (F) Gradient stats summary — computed before vh_diag so per-neuron
+        # gradient norms are available for dead/alive split
+        grad_stats_summary = {}
+        if hasattr(self, '_grad_stats') and self._grad_stats:
+            gs = self._grad_stats
+            # Aggregate per-neuron gradient norms across all sampled steps
+            all_per_neuron = np.stack([g['fc1_per_neuron_gnorm'] for g in gs])  # [steps, neurons]
+            avg_per_neuron_gnorm = all_per_neuron.mean(axis=0)  # [neurons]
+
+            grad_stats_summary = {
+                'fc1_grad_norm_mean': np.mean([g['fc1_grad_norm'] for g in gs]),
+                'fc2_grad_norm_mean': np.mean([g['fc2_grad_norm'] for g in gs]),
+                'fc1_grad_mean': np.mean([g['fc1_grad_mean'] for g in gs]),
+                'fc2_grad_mean': np.mean([g['fc2_grad_mean'] for g in gs]),
+                'error_mean_trend': [g['error_mean'] for g in gs],
+                'fc1_per_neuron_gnorm': avg_per_neuron_gnorm,
+                'vconv_grad_norm': np.mean([g['vconv_grad_norm'] for g in gs]),
+                'vbn_gamma_grad_norm': np.mean([g['vbn_gamma_grad_norm'] for g in gs]),
+            }
+            self._grad_stats = []
+
+        # (V) Value head health: dead neurons, pre-tanh range, saturation,
+        # weight stats, spike decomposition, backbone signal
         vh_diag = {}
         try:
             self.net.eval()
             captured = {}
+            def hook_vconv(module, input, output):
+                captured['backbone_raw'] = input[0]  # backbone output before value conv
+                captured['vconv_out'] = output  # [batch, channels, H, W] (pre-BN)
+            def hook_vbn(module, input, output):
+                captured['vbn_out'] = output    # [batch, channels, H, W] (post-BN, pre-LeakyReLU)
+            def hook_pconv(module, input, output):
+                captured['pconv_out'] = output  # policy conv output for comparison
             def hook_fc1(module, input, output):
-                captured['fc1_out'] = output
+                captured['fc1_in'] = input[0]   # backbone output (flattened)
+                captured['fc1_out'] = output     # linear output (pre-activation)
             def hook_fc2(module, input, output):
+                captured['fc2_in'] = input[0]    # post-LeakyReLU, post-dropout
                 captured['pre_tanh'] = output
+            h0 = self.net.value_conv.register_forward_hook(hook_vconv)
+            h0b = self.net.value_bn.register_forward_hook(hook_vbn)
+            h0p = self.net.policy_conv.register_forward_hook(hook_pconv)
             h1 = self.net.value_fc1.register_forward_hook(hook_fc1)
             h2 = self.net.value_fc2.register_forward_hook(hook_fc2)
             with torch.no_grad():
@@ -303,43 +345,394 @@ class Trainer:
                     np.array([s[0] for s in diag_batch])
                 ).to(self.device)
                 v_out, _ = self.net(diag_inp)
+            h0.remove()
+            h0b.remove()
+            h0p.remove()
             h1.remove()
             h2.remove()
 
-            fc1_np = captured['fc1_out'].cpu().numpy()
+            backbone_raw_np = captured['backbone_raw'].cpu().numpy()  # [batch, filters, H, W]
+            vconv_np = captured['vconv_out'].cpu().numpy()   # [batch, ch, H, W] (pre-BN)
+            vbn_np = captured['vbn_out'].cpu().numpy()       # [batch, ch, H, W] (post-BN)
+            pconv_np = captured['pconv_out'].cpu().numpy()   # [batch, 2, H, W]
+            fc1_np = captured['fc1_out'].cpu().numpy()       # [batch, neurons]
+            fc2_in_np = captured['fc2_in'].cpu().numpy()     # [batch, neurons] post-activation
             pre_tanh_np = captured['pre_tanh'].cpu().numpy().flatten()
             out_np = v_out.cpu().numpy().flatten()
+            fc1_in_np = captured['fc1_in'].cpu().numpy()     # [batch, flat_size]
 
             n_total_neurons = fc1_np.shape[1]
             # With LeakyReLU, "near-dead" = always near zero (abs < 0.01)
             near_dead = (np.abs(fc1_np) < 0.01).all(axis=0)
             n_dead = int(near_dead.sum())
 
+            # --- fc2 weight stats: are weights growing? ---
+            fc2_w = self.net.value_fc2.weight.detach().cpu().numpy().flatten()
+            fc2_b = self.net.value_fc2.bias.detach().cpu().numpy().flatten()
+
+            # --- fc1 weight stats ---
+            fc1_w = self.net.value_fc1.weight.detach().cpu().numpy()
+
+            # --- Spike decomposition: what causes max pre_tanh? ---
+            max_idx = int(np.argmax(np.abs(pre_tanh_np)))
+            max_sample_acts = fc2_in_np[max_idx]  # activations for spike sample
+            contributions = max_sample_acts * fc2_w  # per-neuron contribution
+            top_neuron = int(np.argmax(np.abs(contributions)))
+
+            # --- Per-neuron activity: mean abs activation ---
+            neuron_abs_mean = np.abs(fc2_in_np).mean(axis=0)  # [neurons]
+            active_count = int((neuron_abs_mean > 0.1).sum())
+
+            # --- Metric 2: fc1 activation percentiles (creeping death detection) ---
+            fc1_abs = np.abs(fc1_np)  # [batch, neurons]
+            fc1_abs_flat = fc1_abs.flatten()
+            fc1_p10 = float(np.percentile(fc1_abs_flat, 10))
+            fc1_p50 = float(np.percentile(fc1_abs_flat, 50))
+            fc1_p90 = float(np.percentile(fc1_abs_flat, 90))
+            # Also per-neuron: median abs activation per neuron
+            fc1_neuron_medians = np.median(fc1_abs, axis=0)  # [neurons]
+
+            # --- Metric 3: Value conv channel utilization ---
+            n_vconv_ch = vconv_np.shape[1]
+            vconv_ch_abs_mean = []
+            vconv_ch_std = []
+            vconv_dead_channels = 0
+            for ch in range(n_vconv_ch):
+                ch_data = vconv_np[:, ch, :, :]  # [batch, H, W]
+                ch_abs = float(np.abs(ch_data).mean())
+                ch_s = float(ch_data.std())
+                vconv_ch_abs_mean.append(ch_abs)
+                vconv_ch_std.append(ch_s)
+                if ch_abs < 0.01:
+                    vconv_dead_channels += 1
+
+            # --- Metric 4: Per-neuron death tracking ---
+            dead_neuron_ids = sorted(np.where(near_dead)[0].tolist())
+            # Bottom-5 neurons by activation magnitude (most at-risk)
+            weakest_5_idx = np.argsort(neuron_abs_mean)[:5].tolist()
+            weakest_5_vals = [float(neuron_abs_mean[i]) for i in weakest_5_idx]
+
+            # --- Metric 5: fc2 weight growth rate (delta from previous iteration) ---
+            fc2_w_norm_now = float(np.linalg.norm(fc2_w))
+            fc1_w_norm_now = float(np.linalg.norm(fc1_w))
+            if not hasattr(self, '_prev_fc2_w_norm'):
+                self._prev_fc2_w_norm = fc2_w_norm_now
+                self._prev_fc1_w_norm = fc1_w_norm_now
+            fc2_w_norm_delta = fc2_w_norm_now - self._prev_fc2_w_norm
+            fc1_w_norm_delta = fc1_w_norm_now - self._prev_fc1_w_norm
+            self._prev_fc2_w_norm = fc2_w_norm_now
+            self._prev_fc1_w_norm = fc1_w_norm_now
+
+            # --- Metric 1: Gradient flow split by alive/dead neurons ---
+            grad_dead_mean = 0.0
+            grad_alive_mean = 0.0
+            gs_data = grad_stats_summary.get('fc1_per_neuron_gnorm')
+            if gs_data is not None and len(gs_data) == n_total_neurons:
+                dead_mask_arr = near_dead  # boolean [neurons]
+                alive_mask_arr = ~dead_mask_arr
+                if dead_mask_arr.any():
+                    grad_dead_mean = float(gs_data[dead_mask_arr].mean())
+                if alive_mask_arr.any():
+                    grad_alive_mean = float(gs_data[alive_mask_arr].mean())
+
+            # --- Value conv decay diagnostics ---
+            # (a) Backbone raw signal (input to value_conv)
+            backbone_raw_abs = float(np.abs(backbone_raw_np).mean())
+            backbone_raw_std = float(backbone_raw_np.std())
+
+            # (i) Per-channel backbone magnitude distribution
+            bb_ch_abs = np.abs(backbone_raw_np).mean(axis=(0, 2, 3))  # [channels]
+            bb_n_channels = len(bb_ch_abs)
+            bb_dead_channels = int((bb_ch_abs < 0.01).sum())
+            bb_ch_p10 = float(np.percentile(bb_ch_abs, 10))
+            bb_ch_p50 = float(np.percentile(bb_ch_abs, 50))
+            bb_ch_p90 = float(np.percentile(bb_ch_abs, 90))
+            bb_ch_max = float(bb_ch_abs.max())
+            # Top-5 and bottom-5 channels by magnitude
+            bb_top5_idx = np.argsort(bb_ch_abs)[-5:][::-1].tolist()
+            bb_top5_vals = [float(bb_ch_abs[i]) for i in bb_top5_idx]
+            bb_bot5_idx = np.argsort(bb_ch_abs)[:5].tolist()
+            bb_bot5_vals = [float(bb_ch_abs[i]) for i in bb_bot5_idx]
+
+            # (b) Pre-BN signal (value_conv output, before BatchNorm)
+            vconv_pre_bn_abs = float(np.abs(vconv_np).mean())
+            vconv_pre_bn_std = float(vconv_np.std())
+
+            # (c) Post-BN signal (after BatchNorm, before LeakyReLU)
+            vbn_abs = float(np.abs(vbn_np).mean())
+            vbn_std = float(vbn_np.std())
+
+            # (d) BN suppression ratio: post-BN / pre-BN magnitude
+            bn_ratio = vbn_abs / max(vconv_pre_bn_abs, 1e-10)
+
+            # (e) value_conv weight stats
+            vc_w = self.net.value_conv.weight.detach().cpu().numpy()
+            vc_w_norm = float(np.linalg.norm(vc_w))
+            vc_w_abs_mean = float(np.abs(vc_w).mean())
+
+            # (f) value_bn gamma (weight) and beta (bias) per channel
+            vbn_gamma = self.net.value_bn.weight.detach().cpu().numpy()   # [channels]
+            vbn_beta = self.net.value_bn.bias.detach().cpu().numpy()      # [channels]
+            vbn_running_var = self.net.value_bn.running_var.detach().cpu().numpy()
+
+            # (g) Policy conv signal for comparison
+            pconv_abs = float(np.abs(pconv_np).mean())
+            pconv_std = float(pconv_np.std())
+
+            # (h) value_conv gradient norm (from training steps)
+            vconv_grad_norm = grad_stats_summary.get('vconv_grad_norm', 0.0)
+
             vh_diag = {
                 "dead_neurons": n_dead,
                 "total_neurons": n_total_neurons,
+                "active_neurons": active_count,
                 "pre_tanh_min": float(pre_tanh_np.min()),
                 "pre_tanh_max": float(pre_tanh_np.max()),
                 "pre_tanh_std": float(pre_tanh_np.std()),
                 "out_saturated": float((np.abs(out_np) > 0.95).mean()),
                 "out_abs_mean": float(np.abs(out_np).mean()),
+                # fc2 weight diagnostics
+                "fc2_w_max": float(fc2_w.max()),
+                "fc2_w_min": float(fc2_w.min()),
+                "fc2_w_norm": fc2_w_norm_now,
+                "fc2_bias": float(fc2_b[0]),
+                # fc1 weight diagnostics
+                "fc1_w_norm": fc1_w_norm_now,
+                # Spike decomposition
+                "spike_neuron": top_neuron,
+                "spike_contribution": float(contributions[top_neuron]),
+                "spike_fc2_weight": float(fc2_w[top_neuron]),
+                "spike_fc1_act": float(max_sample_acts[top_neuron]),
+                # Backbone signal into value head
+                "backbone_std": float(fc1_in_np.std()),
+                "backbone_abs_mean": float(np.abs(fc1_in_np).mean()),
+                # Metric 1: Gradient flow to dead vs alive neurons
+                "grad_dead_mean": grad_dead_mean,
+                "grad_alive_mean": grad_alive_mean,
+                # Metric 2: fc1 activation percentiles
+                "fc1_act_p10": fc1_p10,
+                "fc1_act_p50": fc1_p50,
+                "fc1_act_p90": fc1_p90,
+                # Metric 3: Value conv channel utilization
+                "vconv_dead_channels": vconv_dead_channels,
+                "vconv_n_channels": n_vconv_ch,
+                "vconv_ch_abs_mean": vconv_ch_abs_mean,
+                "vconv_ch_std": vconv_ch_std,
+                # Metric 4: Per-neuron death tracking
+                "dead_neuron_ids": dead_neuron_ids,
+                "weakest_5_ids": weakest_5_idx,
+                "weakest_5_vals": weakest_5_vals,
+                # Metric 5: Weight growth rate
+                "fc2_w_norm_delta": fc2_w_norm_delta,
+                "fc1_w_norm_delta": fc1_w_norm_delta,
+                # Value conv decay diagnostics
+                "backbone_raw_abs": backbone_raw_abs,
+                "backbone_raw_std": backbone_raw_std,
+                "vconv_pre_bn_abs": vconv_pre_bn_abs,
+                "vconv_pre_bn_std": vconv_pre_bn_std,
+                "vbn_post_abs": vbn_abs,
+                "vbn_post_std": vbn_std,
+                "bn_ratio": bn_ratio,
+                "vc_w_norm": vc_w_norm,
+                "vc_w_abs_mean": vc_w_abs_mean,
+                "vbn_gamma": vbn_gamma.tolist(),
+                "vbn_beta": vbn_beta.tolist(),
+                "vbn_gamma_mean": float(vbn_gamma.mean()),
+                "vbn_gamma_min": float(vbn_gamma.min()),
+                "vbn_running_var": vbn_running_var.tolist(),
+                "pconv_abs": pconv_abs,
+                "pconv_std": pconv_std,
+                "vconv_grad_norm": vconv_grad_norm,
+                # Backbone per-channel stats
+                "bb_n_channels": bb_n_channels,
+                "bb_dead_channels": bb_dead_channels,
+                "bb_ch_p10": bb_ch_p10,
+                "bb_ch_p50": bb_ch_p50,
+                "bb_ch_p90": bb_ch_p90,
+                "bb_ch_max": bb_ch_max,
+                "bb_top5": list(zip(bb_top5_idx, bb_top5_vals)),
+                "bb_bot5": list(zip(bb_bot5_idx, bb_bot5_vals)),
             }
             self.net.train()
         except Exception:
             pass
 
-        # (F) Gradient stats summary
-        grad_stats_summary = {}
-        if hasattr(self, '_grad_stats') and self._grad_stats:
-            gs = self._grad_stats
-            grad_stats_summary = {
-                'fc1_grad_norm_mean': np.mean([g['fc1_grad_norm'] for g in gs]),
-                'fc2_grad_norm_mean': np.mean([g['fc2_grad_norm'] for g in gs]),
-                'fc1_grad_mean': np.mean([g['fc1_grad_mean'] for g in gs]),
-                'fc2_grad_mean': np.mean([g['fc2_grad_mean'] for g in gs]),
-                'error_mean_trend': [g['error_mean'] for g in gs],
-            }
-            self._grad_stats = []
+        # === Backbone gradient decomposition: value vs policy ===
+        # Separate backward passes to see which head drives each backbone channel
+        try:
+            self.net.eval()  # Don't update BN running stats
+            gd_batch = random.choices(samples, k=min(64, len(samples)))
+            gd_states = torch.FloatTensor(np.array([s[0] for s in gd_batch])).to(self.device)
+            gd_targets_v = torch.FloatTensor(np.array([s[2] for s in gd_batch])).unsqueeze(1).to(self.device)
+            gd_targets_pi = torch.FloatTensor(np.array([s[1] for s in gd_batch])).to(self.device)
+
+            # Hook to capture backbone output tensor (with grad tracking)
+            bb_ref = {}
+            def hook_bb_capture(module, inp, out):
+                bb_ref['x'] = inp[0]
+            h_bb = self.net.value_conv.register_forward_hook(hook_bb_capture)
+
+            self.optimizer.zero_grad()
+            gd_pred_v, gd_pred_p = self.net(gd_states)
+
+            gd_v_loss = F.mse_loss(gd_pred_v, gd_targets_v)
+            gd_p_loss = -torch.mean(torch.sum(gd_targets_pi * torch.log(gd_pred_p + 1e-8), dim=1))
+
+            bb_x = bb_ref['x']  # [batch, 256, H, W]
+            h_bb.remove()
+
+            # (A) Per-channel gradient from each head on backbone output
+            v_grad_bb = torch.autograd.grad(gd_v_loss, bb_x, retain_graph=True)[0]
+            p_grad_bb = torch.autograd.grad(gd_p_loss, bb_x, retain_graph=True)[0]
+
+            v_grad_ch = v_grad_bb.abs().mean(dim=(0, 2, 3)).cpu().numpy()  # [channels]
+            p_grad_ch = p_grad_bb.abs().mean(dim=(0, 2, 3)).cpu().numpy()  # [channels]
+
+            v_grad_bb_norm = float(v_grad_bb.norm().item())
+            p_grad_bb_norm = float(p_grad_bb.norm().item())
+
+            # Per-channel dominance: what fraction of gradient comes from value?
+            ch_total = v_grad_ch + p_grad_ch + 1e-10
+            ch_value_frac = v_grad_ch / ch_total  # [channels]
+            n_value_dom = int((ch_value_frac > 0.5).sum())
+            n_policy_dom = int((ch_value_frac <= 0.5).sum())
+
+            # Top value-dominated and policy-dominated channels
+            top_v_ch = np.argsort(ch_value_frac)[-5:][::-1].tolist()
+            top_p_ch = np.argsort(ch_value_frac)[:5].tolist()
+            top_v_frac = [float(ch_value_frac[i]) for i in top_v_ch]
+            top_p_frac = [float(ch_value_frac[i]) for i in top_p_ch]
+
+            # (C) Value-Policy weight correlation on backbone channels
+            value_w = self.net.value_conv.weight.data  # [vch, 256, 1, 1]
+            policy_w = self.net.policy_conv.weight.data  # [pch, 256, 1, 1]
+            val_per_ch = value_w.abs().sum(dim=(0, 2, 3)).cpu().numpy()  # [256]
+            pol_per_ch = policy_w.abs().sum(dim=(0, 2, 3)).cpu().numpy()  # [256]
+            vp_corr = float(np.corrcoef(val_per_ch, pol_per_ch)[0, 1])
+            top20_val = np.argsort(val_per_ch)[-20:]
+            top20_pol = np.argsort(pol_per_ch)[-20:]
+            vp_overlap_20 = len(set(top20_val.tolist()) & set(top20_pol.tolist()))
+            bb_act_ch = bb_x.detach().abs().mean(dim=(0, 2, 3)).cpu().numpy()  # [256]
+            val_top20_act = float(bb_act_ch[top20_val].mean())
+            pol_top20_act = float(bb_act_ch[top20_pol].mean())
+            val_health_corr = float(np.corrcoef(val_per_ch, bb_act_ch)[0, 1])
+            pol_health_corr = float(np.corrcoef(pol_per_ch, bb_act_ch)[0, 1])
+
+            # (B) Backbone parameter gradient decomposition
+            backbone_params = []
+            for name, param in self.net.named_parameters():
+                if not name.startswith('value') and not name.startswith('policy'):
+                    backbone_params.append((name, param))
+
+            bp_list = [p for _, p in backbone_params]
+            v_bp_grads = torch.autograd.grad(gd_v_loss, bp_list,
+                                             retain_graph=True, allow_unused=True)
+            p_bp_grads = torch.autograd.grad(gd_p_loss, bp_list, allow_unused=True)
+
+            v_bp_sq = 0.0
+            p_bp_sq = 0.0
+            # Per res-block gradient breakdown
+            rb_v = {}
+            rb_p = {}
+            for (name, param), vg, pg in zip(backbone_params, v_bp_grads, p_bp_grads):
+                vn = vg.norm().item() if vg is not None else 0.0
+                pn = pg.norm().item() if pg is not None else 0.0
+                v_bp_sq += vn ** 2
+                p_bp_sq += pn ** 2
+                # Group by res block number
+                if name.startswith('res_blocks.'):
+                    bn = name.split('.')[1]  # block number
+                    rb_v[bn] = rb_v.get(bn, 0.0) + vn ** 2
+                    rb_p[bn] = rb_p.get(bn, 0.0) + pn ** 2
+
+            v_bp_total = v_bp_sq ** 0.5
+            p_bp_total = p_bp_sq ** 0.5
+
+            # Per res-block summary
+            rb_summary = {}
+            for bn in sorted(rb_v.keys()):
+                rv = rb_v[bn] ** 0.5
+                rp = rb_p.get(bn, 0.0) ** 0.5
+                rb_summary[bn] = (rv, rp, rv / max(rp, 1e-10))
+
+            self.optimizer.zero_grad()
+            self.net.train()
+
+            vh_diag.update({
+                # Backbone output gradient decomposition
+                "bb_v_grad_norm": v_grad_bb_norm,
+                "bb_p_grad_norm": p_grad_bb_norm,
+                "bb_grad_ratio": v_grad_bb_norm / max(p_grad_bb_norm, 1e-10),
+                "bb_n_value_dom": n_value_dom,
+                "bb_n_policy_dom": n_policy_dom,
+                "bb_top_v_channels": list(zip(top_v_ch, top_v_frac)),
+                "bb_top_p_channels": list(zip(top_p_ch, top_p_frac)),
+                # Backbone parameter gradient decomposition
+                "bb_param_v_grad": v_bp_total,
+                "bb_param_p_grad": p_bp_total,
+                "bb_param_grad_ratio": v_bp_total / max(p_bp_total, 1e-10),
+                "bb_res_block_grads": rb_summary,
+                # Value-Policy competition
+                "vp_weight_corr": vp_corr,
+                "vp_overlap_20": vp_overlap_20,
+                "vp_val_top20_act": val_top20_act,
+                "vp_pol_top20_act": pol_top20_act,
+                "vp_val_health_corr": val_health_corr,
+                "vp_pol_health_corr": pol_health_corr,
+            })
+        except Exception:
+            pass
+
+        # === SVD rank tracking & policy head internals ===
+        try:
+            self.net.eval()
+            # Backbone: SVD of deepest res block conv2 (most compressed layer)
+            rb_idx = len(self.net.res_blocks) - 1
+            rb_w = self.net.res_blocks[rb_idx].conv2.weight.data.flatten(1)
+            svs_bb = torch.linalg.svdvals(rb_w)
+            energy_bb = (svs_bb**2).cumsum(0) / (svs_bb**2).sum()
+            bb_rank90 = int((energy_bb <= 0.9).sum().item()) + 1
+            bb_rank99 = int((energy_bb <= 0.99).sum().item()) + 1
+            bb_near_zero_sv = int((svs_bb < 1e-6).sum().item())
+            bb_n = rb_w.shape[0]
+
+            # Backbone BN: dead channel count in deepest bn2
+            bn_gamma = self.net.res_blocks[rb_idx].bn2.weight.data
+            bn_var = self.net.res_blocks[rb_idx].bn2.running_var
+            if bn_var is not None:
+                eff_gain = bn_gamma / (bn_var + 1e-5).sqrt()
+                bn_dead = int((eff_gain.abs() < 0.1).sum().item())
+            else:
+                bn_dead = -1
+
+            # Policy FC: SVD effective rank
+            pfc_w = self.net.policy_fc.weight.data
+            svs_pfc = torch.linalg.svdvals(pfc_w)
+            energy_pfc = (svs_pfc**2).cumsum(0) / (svs_pfc**2).sum()
+            pfc_max_rank = min(pfc_w.shape[0], pfc_w.shape[1])
+            pfc_rank90 = int((energy_pfc <= 0.9).sum().item()) + 1
+            pfc_rank99 = int((energy_pfc <= 0.99).sum().item()) + 1
+
+            # Policy conv: per-channel L1 norm
+            pc_w = self.net.policy_conv.weight.data.squeeze(-1).squeeze(-1)
+            if pc_w.dim() == 1:
+                pc_w = pc_w.unsqueeze(0)
+            pc_ch_norms = pc_w.abs().sum(dim=1).cpu().tolist()
+
+            vh_diag.update({
+                "svd_bb_rank90": bb_rank90,
+                "svd_bb_rank99": bb_rank99,
+                "svd_bb_total": bb_n,
+                "svd_bb_near_zero": bb_near_zero_sv,
+                "bn_dead_deepest": bn_dead,
+                "svd_pfc_rank90": pfc_rank90,
+                "svd_pfc_rank99": pfc_rank99,
+                "svd_pfc_max_rank": pfc_max_rank,
+                "pconv_ch_norms": pc_ch_norms,
+            })
+            self.net.train()
+        except Exception:
+            pass
 
         self._train_perf = {
             "data_prep_time": data_prep_time,
@@ -354,7 +747,6 @@ class Trainer:
             "frac_neg": frac_neg,
             "frac_draw": frac_draw,
             "effective_epochs": effective_epochs,
-            "effective_vlw": effective_vlw,
             "num_steps": num_steps,
             "early_vloss": early_vloss,
             "early_ploss": early_ploss,
@@ -383,6 +775,7 @@ class Trainer:
             "grad_stats": grad_stats_summary,
             # (V) Value head health
             "vh_diag": vh_diag,
+            "effective_vlw": effective_vlw,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -534,7 +927,7 @@ class Trainer:
                       f"draw={d['frac_draw']:.1%}")
                 overfit_gap = d['val_vloss'] - d['late_vloss']
                 print(f"  Diag: eff_epochs={d['effective_epochs']:.1f} "
-                      f"vlw={d['effective_vlw']:.2f} "
+                      f"vlw={d.get('effective_vlw',1.0):.2f} "
                       f"steps={d['num_steps']} | "
                       f"vloss train={d['late_vloss']:.4f} "
                       f"val={d['val_vloss']:.4f} "
@@ -572,15 +965,186 @@ class Trainer:
                 # (V) Value head health
                 vh = d.get('vh_diag', {})
                 if vh:
-                    print(f"  Diag[V]: dead_neurons={vh['dead_neurons']}/{vh['total_neurons']} "
+                    print(f"  Diag[V]: dead={vh['dead_neurons']} "
+                          f"active={vh.get('active_neurons','?')}/{vh['total_neurons']} "
                           f"pre_tanh=[{vh['pre_tanh_min']:+.2f},{vh['pre_tanh_max']:+.2f}] "
                           f"std={vh['pre_tanh_std']:.3f} "
                           f"saturated={vh['out_saturated']:.1%} "
                           f"|v|={vh['out_abs_mean']:.3f}")
+                    print(f"  Diag[V2]: fc2_w=[{vh['fc2_w_min']:+.3f},{vh['fc2_w_max']:+.3f}] "
+                          f"norm={vh['fc2_w_norm']:.3f} bias={vh['fc2_bias']:+.4f} | "
+                          f"fc1_w_norm={vh['fc1_w_norm']:.3f} | "
+                          f"backbone std={vh['backbone_std']:.3f} |x|={vh['backbone_abs_mean']:.3f}")
+                    print(f"  Diag[V3]: spike_neuron={vh['spike_neuron']} "
+                          f"contrib={vh['spike_contribution']:+.3f} "
+                          f"(fc2_w={vh['spike_fc2_weight']:+.4f} * "
+                          f"act={vh['spike_fc1_act']:+.4f})")
+                    # Metric 2: activation percentiles
+                    print(f"  Diag[V4]: fc1_act p10={vh['fc1_act_p10']:.4f} "
+                          f"p50={vh['fc1_act_p50']:.4f} "
+                          f"p90={vh['fc1_act_p90']:.4f}")
+                    # Metric 3: value conv channels
+                    ch_str = " ".join(f"ch{i}={vh['vconv_ch_abs_mean'][i]:.3f}"
+                                      for i in range(vh['vconv_n_channels']))
+                    print(f"  Diag[V5]: vconv_channels: {ch_str} "
+                          f"dead_ch={vh['vconv_dead_channels']}/{vh['vconv_n_channels']}")
+                    # Metric 4: neuron death tracking
+                    dead_ids = vh.get('dead_neuron_ids', [])
+                    weak = list(zip(vh['weakest_5_ids'], vh['weakest_5_vals']))
+                    print(f"  Diag[V6]: dead_ids={dead_ids[:10]}"
+                          f"{'...' if len(dead_ids) > 10 else ''} | "
+                          f"weakest={weak}")
+                    # Metric 5: weight growth rate
+                    print(f"  Diag[V7]: fc2_w_d={vh['fc2_w_norm_delta']:+.4f} "
+                          f"fc1_w_d={vh['fc1_w_norm_delta']:+.4f}")
+                    # Metric 1: gradient flow to dead vs alive
+                    print(f"  Diag[V8]: grad_flow "
+                          f"dead={vh['grad_dead_mean']:.6f} "
+                          f"alive={vh['grad_alive_mean']:.6f} "
+                          f"ratio={vh['grad_dead_mean']/max(vh['grad_alive_mean'],1e-10):.3f}")
+                    # Value conv decay chain
+                    print(f"  Diag[VC]: backbone_raw |x|={vh['backbone_raw_abs']:.3f} "
+                          f"std={vh['backbone_raw_std']:.3f} | "
+                          f"vconv_w norm={vh['vc_w_norm']:.3f} |w|={vh['vc_w_abs_mean']:.4f}")
+                    print(f"  Diag[VC2]: pre_bn |x|={vh['vconv_pre_bn_abs']:.3f} "
+                          f"std={vh['vconv_pre_bn_std']:.3f} | "
+                          f"post_bn |x|={vh['vbn_post_abs']:.3f} "
+                          f"std={vh['vbn_post_std']:.3f} | "
+                          f"bn_ratio={vh['bn_ratio']:.3f}")
+                    gamma = vh['vbn_gamma']
+                    beta = vh['vbn_beta']
+                    rvar = vh['vbn_running_var']
+                    gamma_str = " ".join(f"{g:.3f}" for g in gamma)
+                    beta_str = " ".join(f"{b:+.3f}" for b in beta)
+                    rvar_str = " ".join(f"{v:.3f}" for v in rvar)
+                    print(f"  Diag[VC3]: bn_gamma=[{gamma_str}] "
+                          f"min={vh['vbn_gamma_min']:.3f}")
+                    print(f"  Diag[VC4]: bn_beta=[{beta_str}]")
+                    print(f"  Diag[VC5]: bn_run_var=[{rvar_str}]")
+                    print(f"  Diag[VC6]: policy_conv |x|={vh['pconv_abs']:.3f} "
+                          f"std={vh['pconv_std']:.3f} | "
+                          f"vconv_grad={vh['vconv_grad_norm']:.4f}")
+                    # Backbone per-channel stats
+                    if 'bb_n_channels' in vh:
+                        print(f"  Diag[BB]: backbone {vh['bb_n_channels']}ch "
+                              f"dead={vh['bb_dead_channels']} | "
+                              f"|x| p10={vh['bb_ch_p10']:.4f} "
+                              f"p50={vh['bb_ch_p50']:.4f} "
+                              f"p90={vh['bb_ch_p90']:.4f} "
+                              f"max={vh['bb_ch_max']:.4f}")
+                        print(f"  Diag[BB1]: top5={vh['bb_top5']} "
+                              f"bot5={vh['bb_bot5']}")
+                    # Backbone gradient decomposition
+                    if 'bb_v_grad_norm' in vh:
+                        evlw = d.get('effective_vlw', 1.0)
+                        v_eff = vh['bb_v_grad_norm'] * evlw
+                        eff_ratio = v_eff / max(vh['bb_p_grad_norm'], 1e-10)
+                        print(f"  Diag[BB2]: bb_grad output: "
+                              f"v={vh['bb_v_grad_norm']:.4f} "
+                              f"p={vh['bb_p_grad_norm']:.4f} "
+                              f"ratio={vh['bb_grad_ratio']:.3f} "
+                              f"(eff_v={v_eff:.4f} eff_ratio={eff_ratio:.3f})")
+                        print(f"  Diag[BB3]: ch_dominance: "
+                              f"value={vh['bb_n_value_dom']}/{vh.get('bb_n_channels',256)} "
+                              f"policy={vh['bb_n_policy_dom']}/{vh.get('bb_n_channels',256)} | "
+                              f"top_v={vh['bb_top_v_channels'][:3]} "
+                              f"top_p={vh['bb_top_p_channels'][:3]}")
+                    if 'bb_param_v_grad' in vh:
+                        evlw = d.get('effective_vlw', 1.0)
+                        pv_eff = vh['bb_param_v_grad'] * evlw
+                        pv_eff_ratio = pv_eff / max(vh['bb_param_p_grad'], 1e-10)
+                        rb = vh.get('bb_res_block_grads', {})
+                        rb_str = " ".join(
+                            f"rb{k}: v={v[0]:.3f} p={v[1]:.3f} r={v[2]:.2f}"
+                            for k, v in sorted(rb.items()))
+                        print(f"  Diag[BB4]: bb_grad params: "
+                              f"v={vh['bb_param_v_grad']:.4f} "
+                              f"p={vh['bb_param_p_grad']:.4f} "
+                              f"ratio={vh['bb_param_grad_ratio']:.3f} "
+                              f"(eff_v={pv_eff:.4f} eff_ratio={pv_eff_ratio:.3f})")
+                        if rb_str:
+                            print(f"  Diag[BB5]: {rb_str}")
+                    if 'vp_weight_corr' in vh:
+                        print(f"  Diag[VP]: weight_corr={vh['vp_weight_corr']:.3f} "
+                              f"overlap_top20={vh['vp_overlap_20']}/20 | "
+                              f"act: val_top20={vh['vp_val_top20_act']:.4f} "
+                              f"pol_top20={vh['vp_pol_top20_act']:.4f} "
+                              f"ratio={vh['vp_val_top20_act']/max(vh['vp_pol_top20_act'],1e-10):.2f}")
+                        print(f"  Diag[VP2]: health_corr: "
+                              f"val={vh['vp_val_health_corr']:.3f} "
+                              f"pol={vh['vp_pol_health_corr']:.3f}")
+                    if 'svd_bb_rank90' in vh:
+                        print(f"  Diag[SVD]: backbone rb{len(self.net.res_blocks)-1}.conv2: "
+                              f"rank90={vh['svd_bb_rank90']}/{vh['svd_bb_total']} "
+                              f"rank99={vh['svd_bb_rank99']}/{vh['svd_bb_total']} "
+                              f"near_zero_sv={vh['svd_bb_near_zero']} "
+                              f"bn_dead={vh['bn_dead_deepest']}")
+                        pc_str = " ".join(f"ch{i}={n:.3f}" for i, n in enumerate(vh['pconv_ch_norms']))
+                        print(f"  Diag[PH]: policy_fc: "
+                              f"rank90={vh['svd_pfc_rank90']}/{vh['svd_pfc_max_rank']} "
+                              f"rank99={vh['svd_pfc_rank99']}/{vh['svd_pfc_max_rank']} | "
+                              f"pconv: {pc_str}")
+                    # Tensorboard
                     self.writer.add_scalar("vh/dead_neurons", vh["dead_neurons"], iteration)
+                    self.writer.add_scalar("vh/active_neurons", vh.get("active_neurons", 0), iteration)
                     self.writer.add_scalar("vh/pre_tanh_max", vh["pre_tanh_max"], iteration)
                     self.writer.add_scalar("vh/pre_tanh_min", vh["pre_tanh_min"], iteration)
                     self.writer.add_scalar("vh/saturated", vh["out_saturated"], iteration)
+                    self.writer.add_scalar("vh/fc2_w_max", vh["fc2_w_max"], iteration)
+                    self.writer.add_scalar("vh/fc2_w_min", vh["fc2_w_min"], iteration)
+                    self.writer.add_scalar("vh/fc2_w_norm", vh["fc2_w_norm"], iteration)
+                    self.writer.add_scalar("vh/fc1_w_norm", vh["fc1_w_norm"], iteration)
+                    self.writer.add_scalar("vh/backbone_std", vh["backbone_std"], iteration)
+                    self.writer.add_scalar("vh/fc1_act_p10", vh["fc1_act_p10"], iteration)
+                    self.writer.add_scalar("vh/fc1_act_p50", vh["fc1_act_p50"], iteration)
+                    self.writer.add_scalar("vh/fc1_act_p90", vh["fc1_act_p90"], iteration)
+                    self.writer.add_scalar("vh/vconv_dead_channels", vh["vconv_dead_channels"], iteration)
+                    self.writer.add_scalar("vh/fc2_w_norm_delta", vh["fc2_w_norm_delta"], iteration)
+                    self.writer.add_scalar("vh/fc1_w_norm_delta", vh["fc1_w_norm_delta"], iteration)
+                    self.writer.add_scalar("vh/grad_dead_mean", vh["grad_dead_mean"], iteration)
+                    self.writer.add_scalar("vh/grad_alive_mean", vh["grad_alive_mean"], iteration)
+                    self.writer.add_scalar("vc/backbone_raw_abs", vh["backbone_raw_abs"], iteration)
+                    self.writer.add_scalar("vc/vconv_pre_bn_abs", vh["vconv_pre_bn_abs"], iteration)
+                    self.writer.add_scalar("vc/vbn_post_abs", vh["vbn_post_abs"], iteration)
+                    self.writer.add_scalar("vc/bn_ratio", vh["bn_ratio"], iteration)
+                    self.writer.add_scalar("vc/vc_w_norm", vh["vc_w_norm"], iteration)
+                    self.writer.add_scalar("vc/vbn_gamma_min", vh["vbn_gamma_min"], iteration)
+                    self.writer.add_scalar("vc/vbn_gamma_mean", vh["vbn_gamma_mean"], iteration)
+                    self.writer.add_scalar("vc/pconv_abs", vh["pconv_abs"], iteration)
+                    self.writer.add_scalar("vc/vconv_grad_norm", vh["vconv_grad_norm"], iteration)
+                    # Backbone per-channel stats
+                    if 'bb_n_channels' in vh:
+                        self.writer.add_scalar("bb/dead_channels", vh["bb_dead_channels"], iteration)
+                        self.writer.add_scalar("bb/ch_p10", vh["bb_ch_p10"], iteration)
+                        self.writer.add_scalar("bb/ch_p50", vh["bb_ch_p50"], iteration)
+                        self.writer.add_scalar("bb/ch_p90", vh["bb_ch_p90"], iteration)
+                    # Backbone gradient decomposition
+                    if 'bb_v_grad_norm' in vh:
+                        self.writer.add_scalar("bb/v_grad_norm", vh["bb_v_grad_norm"], iteration)
+                        self.writer.add_scalar("bb/p_grad_norm", vh["bb_p_grad_norm"], iteration)
+                        self.writer.add_scalar("bb/grad_ratio", vh["bb_grad_ratio"], iteration)
+                        self.writer.add_scalar("bb/n_value_dom", vh["bb_n_value_dom"], iteration)
+                        self.writer.add_scalar("bb/n_policy_dom", vh["bb_n_policy_dom"], iteration)
+                    if 'bb_param_v_grad' in vh:
+                        self.writer.add_scalar("bb/param_v_grad", vh["bb_param_v_grad"], iteration)
+                        self.writer.add_scalar("bb/param_p_grad", vh["bb_param_p_grad"], iteration)
+                        self.writer.add_scalar("bb/param_grad_ratio", vh["bb_param_grad_ratio"], iteration)
+                    if 'vp_weight_corr' in vh:
+                        self.writer.add_scalar("vp/weight_corr", vh["vp_weight_corr"], iteration)
+                        self.writer.add_scalar("vp/overlap_20", vh["vp_overlap_20"], iteration)
+                        self.writer.add_scalar("vp/val_top20_act", vh["vp_val_top20_act"], iteration)
+                        self.writer.add_scalar("vp/pol_top20_act", vh["vp_pol_top20_act"], iteration)
+                        self.writer.add_scalar("vp/val_health_corr", vh["vp_val_health_corr"], iteration)
+                        self.writer.add_scalar("vp/pol_health_corr", vh["vp_pol_health_corr"], iteration)
+                    if 'svd_bb_rank90' in vh:
+                        self.writer.add_scalar("svd/bb_rank90", vh["svd_bb_rank90"], iteration)
+                        self.writer.add_scalar("svd/bb_rank99", vh["svd_bb_rank99"], iteration)
+                        self.writer.add_scalar("svd/bb_near_zero", vh["svd_bb_near_zero"], iteration)
+                        self.writer.add_scalar("svd/bn_dead_deepest", vh["bn_dead_deepest"], iteration)
+                        self.writer.add_scalar("svd/pfc_rank90", vh["svd_pfc_rank90"], iteration)
+                        self.writer.add_scalar("svd/pfc_rank99", vh["svd_pfc_rank99"], iteration)
+                        for i, n in enumerate(vh['pconv_ch_norms']):
+                            self.writer.add_scalar(f"ph/pconv_ch{i}_norm", n, iteration)
 
             # === Self-play value prediction diagnostics ===
             if hasattr(self, '_batched') and hasattr(self._batched, 'value_diag'):

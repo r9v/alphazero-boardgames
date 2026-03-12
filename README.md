@@ -40,8 +40,10 @@ python train.py --game santorini
 All training parameters (iterations, games per iteration, simulations, network size) have per-game defaults in `game_configs.py` and can be overridden via CLI:
 
 ```bash
-python train.py --game connect4 --iterations 32 --games 64 --simulations 128
-python -u train.py --game santorini --iterations 32 --games 64 --simulations 256 2>&1 | tee training_log.txt
+python -u train.py --game santorini --iterations 64 --games 64 --simulations 256 2>&1 | tee training_log.txt
+python train.py --game tictactoe 2>&1 | tee training_log_ttt.txt
+python train.py --game connect4 2>&1 | tee training_log_c4.txt
+
 ```
 
 **Monitor training:**
