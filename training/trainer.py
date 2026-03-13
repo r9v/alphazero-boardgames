@@ -26,7 +26,24 @@ class Trainer:
         self.max_train_steps = self.config.get("max_train_steps", 5000)
         self.target_epochs = self.config.get("target_epochs", 4)
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
-        self.optimizer = torch.optim.Adam(net.parameters(), lr=self.lr, weight_decay=1e-4)
+
+        # Separate params: apply weight decay only to conv/linear weights,
+        # NOT to BatchNorm gamma/beta or bias terms.  Decaying BN gamma
+        # shrinks activations every step (compounding through layers) while
+        # BN just rescales — it doesn't regularize, it just causes magnitude decay.
+        decay_params = []
+        no_decay_params = []
+        for name, param in net.named_parameters():
+            if not param.requires_grad:
+                continue
+            if 'bn' in name or 'bias' in name:
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
+        self.optimizer = torch.optim.AdamW([
+            {'params': decay_params, 'weight_decay': 1e-4},
+            {'params': no_decay_params, 'weight_decay': 0.0},
+        ], lr=self.lr)
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
 
