@@ -70,7 +70,7 @@ class BatchedSelfPlay:
         self._active_per_move = []  # track len(active) each move step
         self._accum_rounds = 0  # how many times accumulation path fired
 
-        self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value) per move
+        self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value, mcts_Q) per move
         self._mcts_visit_entropies = []  # entropy of MCTS visit distribution per move
 
         # Tree reuse tracking
@@ -172,7 +172,7 @@ class BatchedSelfPlay:
                     )
 
                 # Diagnostic: record per-move stats
-                self._game_value_preds[i].append((states[i].player, root.nnet_value))
+                self._game_value_preds[i].append((states[i].player, root.nnet_value, root.Q))
 
                 # Temperature: explore early, exploit late
                 move_num = len(examples[i])
@@ -289,13 +289,13 @@ class BatchedSelfPlay:
 
     def _compute_value_diagnostics(self, results):
         """Compute statistics about NN value predictions during self-play."""
-        all_preds = []   # (nnet_value, target_outcome, player)
+        all_preds = []   # (nnet_value, target_outcome, player, mcts_q)
         for i, game_preds in enumerate(self._game_value_preds):
             outcome = results[i]
-            for player, nnet_v in game_preds:
+            for player, nnet_v, mcts_q in game_preds:
                 # Relative: compare nnet against target from player's perspective
                 target = outcome * player
-                all_preds.append((nnet_v, target, player))
+                all_preds.append((nnet_v, target, player, mcts_q))
 
         if not all_preds:
             self.value_diag = {}
@@ -304,6 +304,7 @@ class BatchedSelfPlay:
         nnet_vals = np.array([p[0] for p in all_preds])
         targets = np.array([p[1] for p in all_preds])
         players = np.array([p[2] for p in all_preds])
+        mcts_q_vals = np.array([p[3] for p in all_preds])
 
         # Value prediction distribution
         self.value_diag = {
@@ -328,6 +329,12 @@ class BatchedSelfPlay:
             # MCTS visit entropy
             "mcts_visit_entropy_mean": float(np.mean(self._mcts_visit_entropies)) if self._mcts_visit_entropies else 0.0,
             "mcts_visit_entropy_std": float(np.std(self._mcts_visit_entropies)) if self._mcts_visit_entropies else 0.0,
+            # MCTS Q vs nnet value agreement
+            "mcts_nnet_corr": float(np.corrcoef(nnet_vals, mcts_q_vals)[0, 1]) if len(nnet_vals) > 1 else 0.0,
+            "mcts_nnet_mae": float(np.abs(nnet_vals - mcts_q_vals).mean()),
+            "mcts_correction_mean": float((mcts_q_vals - nnet_vals).mean()),
+            "mcts_q_mean": float(mcts_q_vals.mean()),
+            "mcts_q_std": float(mcts_q_vals.std()),
         }
 
     def _run_simulations(self, roots, active):

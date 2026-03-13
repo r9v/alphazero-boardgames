@@ -150,6 +150,30 @@ class Trainer:
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = self.lr  # reset to initial at start of each iteration
 
+        # (#2) Pre-training value loss: measure before training to compute delta
+        pre_train_vloss = None
+        try:
+            self.net.eval()
+            with torch.no_grad():
+                pt_batch = random.choices(samples, k=min(512, len(samples)))
+                pt_states = torch.FloatTensor(np.array([s[0] for s in pt_batch])).to(self.device)
+                pt_targets_v = torch.FloatTensor(np.array([s[2] for s in pt_batch])).unsqueeze(1).to(self.device)
+                pt_pred_v, _ = self.net(pt_states)
+                pre_train_vloss = float(F.mse_loss(pt_pred_v, pt_targets_v).item())
+            self.net.train()
+        except Exception:
+            pass
+
+        # (#6) Value loss by game phase
+        phase_vloss_sums = {'early': 0.0, 'mid': 0.0, 'late': 0.0}
+        phase_counts = {'early': 0, 'mid': 0, 'late': 0}
+
+        # (#8) Policy loss on value-critical positions
+        ploss_decisive_sum = 0.0
+        ploss_ambiguous_sum = 0.0
+        decisive_count = 0
+        ambiguous_count = 0
+
         for step in range(num_steps):
             # Cosine annealing: lr goes from self.lr -> lr_min
             lr = lr_min + 0.5 * (self.lr - lr_min) * (1 + math.cos(math.pi * step / num_steps))
@@ -194,6 +218,14 @@ class Trainer:
                         o_target_sum += target_vs[is_o].mean().item()
                         o_pred_sum += pred_vs[is_o].mean().item()
                         o_count += 1
+
+                    # (#6) Value loss by game phase (infer move count from pieces)
+                    total_pieces = my_counts + opp_counts  # [batch]
+                    for phase, lo, hi in [('early', 0, 8), ('mid', 9, 20), ('late', 21, 999)]:
+                        mask = (total_pieces >= lo) & (total_pieces <= hi)
+                        if mask.any():
+                            phase_vloss_sums[phase] += per_sample_vloss[mask].mean().item()
+                            phase_counts[phase] += 1
 
             # (F) Gradient direction check every 50 steps
             if step % 50 == 0:
@@ -309,6 +341,18 @@ class Trainer:
                         confident_correct_sum += confident_signs_correct.sum().item()
                         confident_total += confident_mask.sum().item()
 
+                    # (#8) Policy loss on value-critical vs ambiguous positions
+                    abs_targets = target_vs.abs().squeeze(1)  # [batch]
+                    decisive_mask = abs_targets > 0.5
+                    ambig_mask = ~decisive_mask
+                    per_sample_ploss = -torch.sum(target_pis * log_pi, dim=1)  # [batch]
+                    if decisive_mask.any():
+                        ploss_decisive_sum += per_sample_ploss[decisive_mask].mean().item()
+                        decisive_count += 1
+                    if ambig_mask.any():
+                        ploss_ambiguous_sum += per_sample_ploss[ambig_mask].mean().item()
+                        ambiguous_count += 1
+
         avg_loss = total_loss / max(num_batches, 1)
         avg_value_loss = total_value_loss / max(num_batches, 1)
         avg_policy_loss = total_policy_loss / max(num_batches, 1)
@@ -422,9 +466,10 @@ class Trainer:
             def hook_fc2(module, input, output):
                 captured['fc2_in'] = input[0]    # post-LeakyReLU, post-dropout
                 captured['pre_tanh'] = output
-            # Per-residual-block activation hooks
+            # Per-residual-block activation hooks (capture input for residual ratio)
             def make_rb_hook(idx):
                 def hook(module, input, output):
+                    captured[f'rb{idx}_in'] = input[0]
                     captured[f'rb{idx}_out'] = output
                 return hook
             rb_hooks = []
@@ -522,6 +567,14 @@ class Trainer:
             self._prev_fc2_w_norm = fc2_w_norm_now
             self._prev_fc1_w_norm = fc1_w_norm_now
 
+            # (#3) Initial conv weight norm
+            init_conv_w_norm = float(self.net.conv.weight.data.norm().item())
+            init_conv_w_abs_mean = float(self.net.conv.weight.data.abs().mean().item())
+            if not hasattr(self, '_prev_init_conv_w_norm'):
+                self._prev_init_conv_w_norm = init_conv_w_norm
+            init_conv_w_norm_delta = init_conv_w_norm - self._prev_init_conv_w_norm
+            self._prev_init_conv_w_norm = init_conv_w_norm
+
             # --- Metric 1: Gradient flow split by alive/dead neurons ---
             grad_dead_mean = 0.0
             grad_alive_mean = 0.0
@@ -569,6 +622,19 @@ class Trainer:
                         "dead_channels": rb_dead,
                         "ch_p50": float(np.percentile(rb_ch_abs, 50)),
                     }
+
+            # (#5) Residual contribution ratio: ||residual|| / ||skip||
+            rb_residual_ratios = {}
+            for idx in range(len(self.net.res_blocks)):
+                in_key = f'rb{idx}_in'
+                out_key = f'rb{idx}_out'
+                if in_key in captured and out_key in captured:
+                    rb_in = captured[in_key]  # skip connection (input)
+                    rb_out = captured[out_key]  # output = skip + residual
+                    residual = rb_out - rb_in
+                    skip_norm = float(rb_in.norm().item())
+                    res_norm = float(residual.norm().item())
+                    rb_residual_ratios[idx] = res_norm / max(skip_norm, 1e-10)
 
             # (b) Pre-BN signal (value_conv output, before BatchNorm)
             vconv_pre_bn_abs = float(np.abs(vconv_np).mean())
@@ -670,6 +736,12 @@ class Trainer:
                 "bb_bot5": list(zip(bb_bot5_idx, bb_bot5_vals)),
                 # Per-block activation stats
                 "rb_act_stats": rb_act_stats,
+                # (#5) Residual contribution ratio
+                "rb_residual_ratios": rb_residual_ratios,
+                # (#3) Initial conv weight norm
+                "init_conv_w_norm": init_conv_w_norm,
+                "init_conv_w_abs_mean": init_conv_w_abs_mean,
+                "init_conv_w_norm_delta": init_conv_w_norm_delta,
             }
             self.net.train()
         except Exception:
@@ -708,6 +780,18 @@ class Trainer:
 
             v_grad_bb_norm = float(v_grad_bb.norm().item())
             p_grad_bb_norm = float(p_grad_bb.norm().item())
+
+            # (#1) Backbone gradient conflict: cosine similarity between v and p gradients
+            bb_grad_cosine = float(F.cosine_similarity(
+                v_grad_bb.flatten().unsqueeze(0),
+                p_grad_bb.flatten().unsqueeze(0)
+            ).item())
+            # Per-channel cosine: how many channels have conflicting gradient directions?
+            v_ch_flat = v_grad_bb.mean(dim=0).flatten(1)  # [channels, H*W]
+            p_ch_flat = p_grad_bb.mean(dim=0).flatten(1)  # [channels, H*W]
+            ch_cosines = F.cosine_similarity(v_ch_flat, p_ch_flat, dim=1)  # [channels]
+            bb_grad_conflict_channels = int((ch_cosines < 0).sum().item())
+            bb_grad_aligned_channels = int((ch_cosines > 0.5).sum().item())
 
             # Per-channel dominance: what fraction of gradient comes from value?
             ch_total = v_grad_ch + p_grad_ch + 1e-10
@@ -797,6 +881,10 @@ class Trainer:
                 "vp_pol_top20_act": pol_top20_act,
                 "vp_val_health_corr": val_health_corr,
                 "vp_pol_health_corr": pol_health_corr,
+                # (#1) Backbone gradient conflict
+                "bb_grad_cosine_sim": bb_grad_cosine,
+                "bb_grad_conflict_channels": bb_grad_conflict_channels,
+                "bb_grad_aligned_channels": bb_grad_aligned_channels,
             })
         except Exception:
             pass
@@ -863,6 +951,20 @@ class Trainer:
                 all_rb_bn[bi]["svd_rank90"] = rb_rank90
                 all_rb_bn[bi]["svd_total"] = rb_conv2_w.shape[0]
 
+            # (#4) final_bn gamma tracking
+            fbn_gamma = self.net.final_bn.weight.data
+            fbn_var = self.net.final_bn.running_var
+            if fbn_var is not None:
+                fbn_eff_gain = fbn_gamma / (fbn_var + 1e-5).sqrt()
+                fbn_eff_gain_np = fbn_eff_gain.cpu().numpy()
+                fbn_eff_gain_mean = float(np.abs(fbn_eff_gain_np).mean())
+                fbn_eff_gain_min = float(np.abs(fbn_eff_gain_np).min())
+                fbn_eff_gain_max = float(np.abs(fbn_eff_gain_np).max())
+                fbn_dead = int((fbn_eff_gain.abs() < 0.1).sum().item())
+            else:
+                fbn_eff_gain_mean = fbn_eff_gain_min = fbn_eff_gain_max = 0.0
+                fbn_dead = -1
+
             vh_diag.update({
                 "svd_bb_rank90": bb_rank90,
                 "svd_bb_rank99": bb_rank99,
@@ -874,6 +976,11 @@ class Trainer:
                 "svd_pfc_max_rank": pfc_max_rank,
                 "pconv_ch_norms": pc_ch_norms,
                 "all_rb_bn": all_rb_bn,
+                # (#4) final_bn
+                "final_bn_eff_gain_mean": fbn_eff_gain_mean,
+                "final_bn_eff_gain_min": fbn_eff_gain_min,
+                "final_bn_eff_gain_max": fbn_eff_gain_max,
+                "final_bn_dead": fbn_dead,
             })
             self.net.train()
         except Exception:
@@ -932,6 +1039,18 @@ class Trainer:
             "rb_grad_norms": avg_rb_grad_norms,
             # Value target histogram
             "val_hist": val_hist,
+            # (#2) Per-iteration value loss delta
+            "pre_train_vloss": pre_train_vloss,
+            "vloss_delta": (val_vloss - pre_train_vloss) if pre_train_vloss is not None else None,
+            # (#6) Value loss by game phase
+            "phase_vloss_early": phase_vloss_sums['early'] / max(phase_counts['early'], 1),
+            "phase_vloss_mid": phase_vloss_sums['mid'] / max(phase_counts['mid'], 1),
+            "phase_vloss_late": phase_vloss_sums['late'] / max(phase_counts['late'], 1),
+            "phase_counts": phase_counts,
+            # (#8) Policy loss on value-critical positions
+            "policy_loss_decisive": ploss_decisive_sum / max(decisive_count, 1),
+            "policy_loss_ambiguous": ploss_ambiguous_sum / max(ambiguous_count, 1),
+            "decisive_frac": decisive_count / max(decisive_count + ambiguous_count, 1),
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -1117,18 +1236,31 @@ class Trainer:
                 self.writer.add_scalar("diag/value_confident_frac", d["value_confident_frac"], iteration)
                 for rb_i, rb_gn in d.get("rb_grad_norms", {}).items():
                     self.writer.add_scalar(f"diag/rb{rb_i}_grad_norm", rb_gn, iteration)
+                # (#2) Value loss delta
+                if d.get("vloss_delta") is not None:
+                    self.writer.add_scalar("diag/vloss_delta", d["vloss_delta"], iteration)
+                    self.writer.add_scalar("diag/pre_train_vloss", d["pre_train_vloss"], iteration)
+                # (#6) Game phase value loss
+                self.writer.add_scalar("diag/phase_vloss_early", d["phase_vloss_early"], iteration)
+                self.writer.add_scalar("diag/phase_vloss_mid", d["phase_vloss_mid"], iteration)
+                self.writer.add_scalar("diag/phase_vloss_late", d["phase_vloss_late"], iteration)
+                # (#8) Policy loss on decisive positions
+                self.writer.add_scalar("diag/policy_loss_decisive", d["policy_loss_decisive"], iteration)
+                self.writer.add_scalar("diag/policy_loss_ambiguous", d["policy_loss_ambiguous"], iteration)
+                self.writer.add_scalar("diag/decisive_frac", d["decisive_frac"], iteration)
                 # Console
                 print(f"  Diag: targets mean={d['val_target_mean']:+.3f} "
                       f"std={d['val_target_std']:.3f} | "
                       f"X={d['frac_neg']:.1%} O={d['frac_pos']:.1%} "
                       f"draw={d['frac_draw']:.1%}")
                 overfit_gap = d['val_vloss'] - d['late_vloss']
+                vloss_delta_str = f" delta={d['vloss_delta']:+.4f}" if d.get('vloss_delta') is not None else ""
                 print(f"  Diag: eff_epochs={d['effective_epochs']:.1f} "
                       f"vlw={d.get('effective_vlw',1.0):.2f} "
                       f"steps={d['num_steps']} | "
                       f"vloss train={d['late_vloss']:.4f} "
                       f"val={d['val_vloss']:.4f} "
-                      f"(gap={overfit_gap:+.4f}) | "
+                      f"(gap={overfit_gap:+.4f}){vloss_delta_str} | "
                       f"buf={d['buffer_fill']}/{d['buffer_capacity']}"
                       f"{' FULL' if d['buffer_full'] else ''}")
                 self.writer.add_scalar("diag/val_vloss", d["val_vloss"], iteration)
@@ -1147,6 +1279,10 @@ class Trainer:
                 print(f"  Diag[P]: entropy={d['policy_entropy']:.3f} "
                       f"top1_acc={d['policy_top1_acc']:.1%} "
                       f"top3_acc={d['policy_top3_acc']:.1%}")
+                # (#8) Policy loss on decisive vs ambiguous
+                print(f"  Diag[P2]: ploss_decisive={d['policy_loss_decisive']:.4f} "
+                      f"ploss_ambiguous={d['policy_loss_ambiguous']:.4f} "
+                      f"decisive_frac={d['decisive_frac']:.1%}")
                 # (C) Value confidence calibration
                 print(f"  Diag[C]: confident_acc={d['value_confidence_acc']:.1%} "
                       f"(frac_confident={d['value_confident_frac']:.1%})")
@@ -1165,6 +1301,11 @@ class Trainer:
                 print(f"  Diag[A]: X_vloss={d['x_vloss']:.4f} O_vloss={d['o_vloss']:.4f} | "
                       f"X_target={d['x_target_mean']:+.3f} O_target={d['o_target_mean']:+.3f} | "
                       f"X_pred={d['x_pred_mean']:+.3f} O_pred={d['o_pred_mean']:+.3f}")
+                # (#6) Value loss by game phase
+                pc = d.get('phase_counts', {})
+                print(f"  Diag[GP]: vloss early={d['phase_vloss_early']:.4f}({pc.get('early',0)}) "
+                      f"mid={d['phase_vloss_mid']:.4f}({pc.get('mid',0)}) "
+                      f"late={d['phase_vloss_late']:.4f}({pc.get('late',0)})")
                 # (F) Gradient direction
                 gs = d.get('grad_stats', {})
                 if gs:
@@ -1279,6 +1420,13 @@ class Trainer:
                               f"(eff_v={pv_eff:.4f} eff_ratio={pv_eff_ratio:.3f})")
                         if rb_str:
                             print(f"  Diag[BB5]: {rb_str}")
+                    # (#1) Backbone gradient conflict
+                    if 'bb_grad_cosine_sim' in vh:
+                        print(f"  Diag[BB6]: grad_cosine={vh['bb_grad_cosine_sim']:+.3f} "
+                              f"conflict_ch={vh['bb_grad_conflict_channels']} "
+                              f"aligned_ch={vh['bb_grad_aligned_channels']}")
+                        self.writer.add_scalar("diag/bb_grad_cosine_sim", vh['bb_grad_cosine_sim'], iteration)
+                        self.writer.add_scalar("diag/bb_grad_conflict_channels", vh['bb_grad_conflict_channels'], iteration)
                     if 'vp_weight_corr' in vh:
                         print(f"  Diag[VP]: weight_corr={vh['vp_weight_corr']:.3f} "
                               f"overlap_top20={vh['vp_overlap_20']}/20 | "
@@ -1318,6 +1466,29 @@ class Trainer:
                                          f"std={rad['std']:.3f} "
                                          f"dead={rad['dead_channels']}")
                         print(" | ".join(parts))
+                    # (#4) final_bn gamma tracking
+                    if 'final_bn_eff_gain_mean' in vh:
+                        print(f"  Diag[FBN]: eff_gain "
+                              f"mean={vh['final_bn_eff_gain_mean']:.3f} "
+                              f"min={vh['final_bn_eff_gain_min']:.3f} "
+                              f"max={vh['final_bn_eff_gain_max']:.3f} "
+                              f"dead={vh['final_bn_dead']}")
+                        self.writer.add_scalar("diag/final_bn_eff_gain_mean", vh['final_bn_eff_gain_mean'], iteration)
+                        self.writer.add_scalar("diag/final_bn_eff_gain_min", vh['final_bn_eff_gain_min'], iteration)
+                        self.writer.add_scalar("diag/final_bn_dead", vh['final_bn_dead'], iteration)
+                    # (#5) Residual contribution ratio
+                    rr = vh.get('rb_residual_ratios', {})
+                    if rr:
+                        rr_str = " ".join(f"rb{k}={v:.3f}" for k, v in sorted(rr.items()))
+                        print(f"  Diag[RR]: residual_ratio: {rr_str}")
+                        for bi, ratio in rr.items():
+                            self.writer.add_scalar(f"rb{bi}/residual_ratio", ratio, iteration)
+                    # (#3) Initial conv weight norm
+                    if 'init_conv_w_norm' in vh:
+                        print(f"  Diag[IC]: conv_w norm={vh['init_conv_w_norm']:.4f} "
+                              f"|w|={vh['init_conv_w_abs_mean']:.5f} "
+                              f"delta={vh['init_conv_w_norm_delta']:+.4f}")
+                        self.writer.add_scalar("diag/init_conv_w_norm", vh['init_conv_w_norm'], iteration)
                     # Tensorboard
                     self.writer.add_scalar("vh/dead_neurons", vh["dead_neurons"], iteration)
                     self.writer.add_scalar("vh/active_neurons", vh.get("active_neurons", 0), iteration)
@@ -1418,6 +1589,16 @@ class Trainer:
                         print(f"  SelfPlay: mcts_visit_entropy="
                               f"{vd['mcts_visit_entropy_mean']:.3f} "
                               f"(std={vd['mcts_visit_entropy_std']:.3f})")
+                    # (#7) MCTS Q vs nnet value agreement
+                    if 'mcts_nnet_corr' in vd:
+                        self.writer.add_scalar("selfplay_diag/mcts_nnet_corr", vd["mcts_nnet_corr"], iteration)
+                        self.writer.add_scalar("selfplay_diag/mcts_nnet_mae", vd["mcts_nnet_mae"], iteration)
+                        self.writer.add_scalar("selfplay_diag/mcts_correction_mean", vd["mcts_correction_mean"], iteration)
+                        print(f"  SelfPlay: mcts_Q mean={vd['mcts_q_mean']:+.3f} "
+                              f"std={vd['mcts_q_std']:.3f} | "
+                              f"nnet_Q_corr={vd['mcts_nnet_corr']:+.3f} "
+                              f"MAE={vd['mcts_nnet_mae']:.3f} "
+                              f"correction={vd['mcts_correction_mean']:+.3f}")
 
             # === Fixed diagnostic position evaluation ===
             self._eval_diagnostic_positions(iteration)
