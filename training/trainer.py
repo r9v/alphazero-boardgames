@@ -49,6 +49,14 @@ class Trainer:
         frac_pos = (all_values > 0).mean()   # O wins
         frac_neg = (all_values < 0).mean()   # X wins
         frac_draw = (all_values == 0).mean()  # draws
+        # Value target distribution histogram (5 bins)
+        val_hist = [
+            float(((all_values >= -1.0) & (all_values < -0.5)).mean()),  # strong X
+            float(((all_values >= -0.5) & (all_values < 0.0)).mean()),   # mild X
+            float((all_values == 0.0).mean()),                            # draw
+            float(((all_values > 0.0) & (all_values <= 0.5)).mean()),    # mild O
+            float(((all_values > 0.5) & (all_values <= 1.0)).mean()),    # strong O
+        ]
 
         # Split into train/val for overfitting detection (90/10)
         random.shuffle(samples)
@@ -91,6 +99,19 @@ class Trainer:
         # (F) Gradient direction tracking: does gradient push predictions toward targets?
         grad_correct_count = 0
         grad_total_count = 0
+
+        # (P) Policy quality metrics (sampled in last 10% of steps)
+        all_policy_entropy = []
+        top1_correct_sum = 0
+        top3_correct_sum = 0
+        policy_acc_count = 0
+
+        # (C) Value confidence calibration (sampled in last 10% of steps)
+        confident_correct_sum = 0
+        confident_total = 0
+
+        # (RB) Per-residual-block gradient norms (sampled every 100 steps)
+        all_rb_grad_norms = {}
 
         # Dynamic training steps: target N effective epochs, capped by max_train_steps
         # Scale epochs with buffer fill to prevent memorization when buffer is small
@@ -214,6 +235,14 @@ class Trainer:
                 value_grad_norms.append(v_norm ** 0.5)
                 policy_grad_norms.append(p_norm ** 0.5)
 
+                # (RB) Per-residual-block gradient norms
+                for i, block in enumerate(self.net.res_blocks):
+                    rb_norm = sum(
+                        p.grad.norm().item() ** 2
+                        for p in block.parameters() if p.grad is not None
+                    ) ** 0.5
+                    all_rb_grad_norms.setdefault(i, []).append(rb_norm)
+
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
             self.optimizer.step()
             gradient_time += time.time() - t0
@@ -235,6 +264,34 @@ class Trainer:
             if step >= late_start:
                 all_pred_vs.append(pred_vs.detach().cpu().numpy().flatten())
 
+                # (P) Policy quality metrics
+                with torch.no_grad():
+                    # Policy entropy: H = -sum(p * log(p))
+                    log_pi = torch.log(pred_pis + 1e-8)
+                    batch_entropy = -(pred_pis * log_pi).sum(dim=1).mean().item()
+                    all_policy_entropy.append(batch_entropy)
+
+                    # Policy top-1 accuracy: does argmax match?
+                    pred_top = pred_pis.argmax(dim=1)
+                    target_top = target_pis.argmax(dim=1)
+                    top1_correct_sum += (pred_top == target_top).float().sum().item()
+
+                    # Policy top-3 accuracy: is MCTS best move in network's top 3?
+                    pred_top3 = pred_pis.topk(3, dim=1).indices
+                    target_argmax = target_pis.argmax(dim=1).unsqueeze(1)
+                    top3_correct_sum += (pred_top3 == target_argmax).any(dim=1).float().sum().item()
+
+                    policy_acc_count += pred_pis.shape[0]
+
+                    # (C) Value confidence calibration
+                    confident_mask = pred_vs.abs() > 0.5
+                    if confident_mask.any():
+                        confident_signs_correct = (
+                            pred_vs[confident_mask].sign() == target_vs[confident_mask].sign()
+                        ).float()
+                        confident_correct_sum += confident_signs_correct.sum().item()
+                        confident_total += confident_mask.sum().item()
+
         avg_loss = total_loss / max(num_batches, 1)
         avg_value_loss = total_value_loss / max(num_batches, 1)
         avg_policy_loss = total_policy_loss / max(num_batches, 1)
@@ -248,6 +305,20 @@ class Trainer:
         pred_v_mean = pred_v_all.mean()
         pred_v_std = pred_v_all.std()
         pred_v_abs_mean = np.abs(pred_v_all).mean()
+
+        # (P) Policy quality metrics (from last 10% of training)
+        avg_policy_entropy = float(np.mean(all_policy_entropy)) if all_policy_entropy else 0.0
+        policy_top1_acc = top1_correct_sum / max(policy_acc_count, 1)
+        policy_top3_acc = top3_correct_sum / max(policy_acc_count, 1)
+
+        # (C) Value confidence calibration
+        value_confidence_acc = confident_correct_sum / max(confident_total, 1)
+        value_confident_frac = confident_total / max(policy_acc_count, 1)
+
+        # (RB) Per-block gradient norms
+        avg_rb_grad_norms = {}
+        for i, norms in all_rb_grad_norms.items():
+            avg_rb_grad_norms[i] = float(np.mean(norms))
 
         # Held-out validation loss (overfitting detection)
         val_vloss = 0.0
@@ -334,6 +405,15 @@ class Trainer:
             def hook_fc2(module, input, output):
                 captured['fc2_in'] = input[0]    # post-LeakyReLU, post-dropout
                 captured['pre_tanh'] = output
+            # Per-residual-block activation hooks
+            def make_rb_hook(idx):
+                def hook(module, input, output):
+                    captured[f'rb{idx}_out'] = output
+                return hook
+            rb_hooks = []
+            for idx, block in enumerate(self.net.res_blocks):
+                rb_hooks.append(block.register_forward_hook(make_rb_hook(idx)))
+
             h0 = self.net.value_conv.register_forward_hook(hook_vconv)
             h0b = self.net.value_bn.register_forward_hook(hook_vbn)
             h0p = self.net.policy_conv.register_forward_hook(hook_pconv)
@@ -350,6 +430,8 @@ class Trainer:
             h0p.remove()
             h1.remove()
             h2.remove()
+            for h in rb_hooks:
+                h.remove()
 
             backbone_raw_np = captured['backbone_raw'].cpu().numpy()  # [batch, filters, H, W]
             vconv_np = captured['vconv_out'].cpu().numpy()   # [batch, ch, H, W] (pre-BN)
@@ -454,6 +536,23 @@ class Trainer:
             bb_bot5_idx = np.argsort(bb_ch_abs)[:5].tolist()
             bb_bot5_vals = [float(bb_ch_abs[i]) for i in bb_bot5_idx]
 
+            # (j) Per-residual-block activation magnitude
+            rb_act_stats = {}
+            for idx in range(len(self.net.res_blocks)):
+                key = f'rb{idx}_out'
+                if key in captured:
+                    rb_np = captured[key].cpu().numpy()  # [batch, channels, H, W]
+                    rb_abs = float(np.abs(rb_np).mean())
+                    rb_std_val = float(rb_np.std())
+                    rb_ch_abs = np.abs(rb_np).mean(axis=(0, 2, 3))  # [channels]
+                    rb_dead = int((rb_ch_abs < 0.01).sum())
+                    rb_act_stats[idx] = {
+                        "abs_mean": rb_abs,
+                        "std": rb_std_val,
+                        "dead_channels": rb_dead,
+                        "ch_p50": float(np.percentile(rb_ch_abs, 50)),
+                    }
+
             # (b) Pre-BN signal (value_conv output, before BatchNorm)
             vconv_pre_bn_abs = float(np.abs(vconv_np).mean())
             vconv_pre_bn_std = float(vconv_np.std())
@@ -552,6 +651,8 @@ class Trainer:
                 "bb_ch_max": bb_ch_max,
                 "bb_top5": list(zip(bb_top5_idx, bb_top5_vals)),
                 "bb_bot5": list(zip(bb_bot5_idx, bb_bot5_vals)),
+                # Per-block activation stats
+                "rb_act_stats": rb_act_stats,
             }
             self.net.train()
         except Exception:
@@ -719,6 +820,32 @@ class Trainer:
                 pc_w = pc_w.unsqueeze(0)
             pc_ch_norms = pc_w.abs().sum(dim=1).cpu().tolist()
 
+            # Per-block BN diagnostics (all res blocks)
+            all_rb_bn = {}
+            for bi in range(len(self.net.res_blocks)):
+                rb_bn_gamma = self.net.res_blocks[bi].bn2.weight.data
+                rb_bn_var = self.net.res_blocks[bi].bn2.running_var
+                if rb_bn_var is not None:
+                    rb_eff_gain = rb_bn_gamma / (rb_bn_var + 1e-5).sqrt()
+                    rb_bn_dead = int((rb_eff_gain.abs() < 0.1).sum().item())
+                    rb_neg_gamma = int((rb_bn_gamma < -0.01).sum().item())
+                    rb_eff_gain_np = rb_eff_gain.cpu().numpy()
+                    all_rb_bn[bi] = {
+                        "dead": rb_bn_dead,
+                        "neg_gamma": rb_neg_gamma,
+                        "eff_gain_mean": float(np.abs(rb_eff_gain_np).mean()),
+                        "eff_gain_max": float(np.abs(rb_eff_gain_np).max()),
+                    }
+                # SVD rank for each block's conv2
+                rb_conv2_w = self.net.res_blocks[bi].conv2.weight.data.flatten(1)
+                rb_svs = torch.linalg.svdvals(rb_conv2_w)
+                rb_energy = (rb_svs**2).cumsum(0) / (rb_svs**2).sum()
+                rb_rank90 = int((rb_energy <= 0.9).sum().item()) + 1
+                if bi not in all_rb_bn:
+                    all_rb_bn[bi] = {}
+                all_rb_bn[bi]["svd_rank90"] = rb_rank90
+                all_rb_bn[bi]["svd_total"] = rb_conv2_w.shape[0]
+
             vh_diag.update({
                 "svd_bb_rank90": bb_rank90,
                 "svd_bb_rank99": bb_rank99,
@@ -729,6 +856,7 @@ class Trainer:
                 "svd_pfc_rank99": pfc_rank99,
                 "svd_pfc_max_rank": pfc_max_rank,
                 "pconv_ch_norms": pc_ch_norms,
+                "all_rb_bn": all_rb_bn,
             })
             self.net.train()
         except Exception:
@@ -776,6 +904,17 @@ class Trainer:
             # (V) Value head health
             "vh_diag": vh_diag,
             "effective_vlw": effective_vlw,
+            # (P) Policy quality metrics
+            "policy_entropy": avg_policy_entropy,
+            "policy_top1_acc": policy_top1_acc,
+            "policy_top3_acc": policy_top3_acc,
+            # (C) Value confidence calibration
+            "value_confidence_acc": value_confidence_acc,
+            "value_confident_frac": value_confident_frac,
+            # (RB) Per-residual-block gradient norms
+            "rb_grad_norms": avg_rb_grad_norms,
+            # Value target histogram
+            "val_hist": val_hist,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -920,6 +1059,14 @@ class Trainer:
                 self.writer.add_scalar("diag/val_loss_floor", d["val_loss_floor"], iteration)
                 self.writer.add_scalar("diag/value_grad_norm", d["avg_value_grad_norm"], iteration)
                 self.writer.add_scalar("diag/policy_grad_norm", d["avg_policy_grad_norm"], iteration)
+                # New metrics: policy quality, value confidence, per-block grads
+                self.writer.add_scalar("diag/policy_entropy", d["policy_entropy"], iteration)
+                self.writer.add_scalar("diag/policy_top1_acc", d["policy_top1_acc"], iteration)
+                self.writer.add_scalar("diag/policy_top3_acc", d["policy_top3_acc"], iteration)
+                self.writer.add_scalar("diag/value_confidence_acc", d["value_confidence_acc"], iteration)
+                self.writer.add_scalar("diag/value_confident_frac", d["value_confident_frac"], iteration)
+                for rb_i, rb_gn in d.get("rb_grad_norms", {}).items():
+                    self.writer.add_scalar(f"diag/rb{rb_i}_grad_norm", rb_gn, iteration)
                 # Console
                 print(f"  Diag: targets mean={d['val_target_mean']:+.3f} "
                       f"std={d['val_target_std']:.3f} | "
@@ -946,6 +1093,24 @@ class Trainer:
                       f"ratio={d['avg_value_grad_norm']/max(d['avg_policy_grad_norm'],1e-8):.2f}")
                 print(f"  Diag: p1_win={p1_win_pct:.1%} "
                       f"game_len={avg_length:.1f} ({min_length}-{max_length})")
+                # (P) Policy quality metrics
+                print(f"  Diag[P]: entropy={d['policy_entropy']:.3f} "
+                      f"top1_acc={d['policy_top1_acc']:.1%} "
+                      f"top3_acc={d['policy_top3_acc']:.1%}")
+                # (C) Value confidence calibration
+                print(f"  Diag[C]: confident_acc={d['value_confidence_acc']:.1%} "
+                      f"(frac_confident={d['value_confident_frac']:.1%})")
+                # (RB) Per-block gradient norms
+                rb_gn = d.get('rb_grad_norms', {})
+                if rb_gn:
+                    rb_str = " ".join(f"rb{i}={n:.4f}" for i, n in sorted(rb_gn.items()))
+                    print(f"  Diag[RB]: grad_norms: {rb_str}")
+                # Value target histogram
+                vh_bins = d.get('val_hist', [])
+                if vh_bins:
+                    print(f"  Diag[TH]: targets [-1,-0.5)={vh_bins[0]:.1%} "
+                          f"[-0.5,0)={vh_bins[1]:.1%} [0]={vh_bins[2]:.1%} "
+                          f"(0,0.5]={vh_bins[3]:.1%} (0.5,1]={vh_bins[4]:.1%}")
                 # (A) Per-player value breakdown
                 print(f"  Diag[A]: X_vloss={d['x_vloss']:.4f} O_vloss={d['o_vloss']:.4f} | "
                       f"X_target={d['x_target_mean']:+.3f} O_target={d['o_target_mean']:+.3f} | "
@@ -1084,6 +1249,25 @@ class Trainer:
                               f"rank90={vh['svd_pfc_rank90']}/{vh['svd_pfc_max_rank']} "
                               f"rank99={vh['svd_pfc_rank99']}/{vh['svd_pfc_max_rank']} | "
                               f"pconv: {pc_str}")
+                    # Per-block BN and activation diagnostics
+                    all_rb_bn_data = vh.get('all_rb_bn', {})
+                    rb_act_data = vh.get('rb_act_stats', {})
+                    for bi in sorted(set(list(all_rb_bn_data.keys()) + list(rb_act_data.keys()))):
+                        parts = [f"  Diag[RB{bi}]:"]
+                        if bi in all_rb_bn_data:
+                            rbd = all_rb_bn_data[bi]
+                            parts.append(f"bn2: dead={rbd.get('dead',0)} "
+                                         f"neg_gamma={rbd.get('neg_gamma',0)} "
+                                         f"eff_gain={rbd.get('eff_gain_mean',0):.2f}/"
+                                         f"{rbd.get('eff_gain_max',0):.2f}")
+                            parts.append(f"svd_rank90={rbd.get('svd_rank90',0)}/"
+                                         f"{rbd.get('svd_total',0)}")
+                        if bi in rb_act_data:
+                            rad = rb_act_data[bi]
+                            parts.append(f"|x|={rad['abs_mean']:.3f} "
+                                         f"std={rad['std']:.3f} "
+                                         f"dead={rad['dead_channels']}")
+                        print(" | ".join(parts))
                     # Tensorboard
                     self.writer.add_scalar("vh/dead_neurons", vh["dead_neurons"], iteration)
                     self.writer.add_scalar("vh/active_neurons", vh.get("active_neurons", 0), iteration)
@@ -1145,6 +1329,16 @@ class Trainer:
                         self.writer.add_scalar("svd/pfc_rank99", vh["svd_pfc_rank99"], iteration)
                         for i, n in enumerate(vh['pconv_ch_norms']):
                             self.writer.add_scalar(f"ph/pconv_ch{i}_norm", n, iteration)
+                    # Per-block BN and activation TensorBoard
+                    for bi, rbd in vh.get('all_rb_bn', {}).items():
+                        self.writer.add_scalar(f"rb{bi}/bn2_dead", rbd.get("dead", 0), iteration)
+                        self.writer.add_scalar(f"rb{bi}/bn2_neg_gamma", rbd.get("neg_gamma", 0), iteration)
+                        self.writer.add_scalar(f"rb{bi}/bn2_eff_gain_mean", rbd.get("eff_gain_mean", 0), iteration)
+                        self.writer.add_scalar(f"rb{bi}/svd_rank90", rbd.get("svd_rank90", 0), iteration)
+                    for bi, rad in vh.get('rb_act_stats', {}).items():
+                        self.writer.add_scalar(f"rb{bi}/act_abs_mean", rad["abs_mean"], iteration)
+                        self.writer.add_scalar(f"rb{bi}/act_std", rad["std"], iteration)
+                        self.writer.add_scalar(f"rb{bi}/act_dead_channels", rad["dead_channels"], iteration)
 
             # === Self-play value prediction diagnostics ===
             if hasattr(self, '_batched') and hasattr(self._batched, 'value_diag'):
@@ -1168,6 +1362,12 @@ class Trainer:
                           f"v_when_O={vd['mean_when_o_moves']:+.3f} | "
                           f"sat+={vd['frac_saturated_pos']:.1%} "
                           f"sat-={vd['frac_saturated_neg']:.1%}")
+                    if 'mcts_visit_entropy_mean' in vd:
+                        self.writer.add_scalar("selfplay_diag/mcts_visit_entropy",
+                                               vd["mcts_visit_entropy_mean"], iteration)
+                        print(f"  SelfPlay: mcts_visit_entropy="
+                              f"{vd['mcts_visit_entropy_mean']:.3f} "
+                              f"(std={vd['mcts_visit_entropy_std']:.3f})")
 
             # === Fixed diagnostic position evaluation ===
             self._eval_diagnostic_positions(iteration)

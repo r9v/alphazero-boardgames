@@ -64,6 +64,7 @@ class BatchedSelfPlay:
         self._accum_rounds = 0  # how many times accumulation path fired
 
         self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value) per move
+        self._mcts_visit_entropies = []  # entropy of MCTS visit distribution per move
 
         # Initialize all games
         states = [self.game.new_game() for _ in range(self.num_games)]
@@ -96,6 +97,13 @@ class BatchedSelfPlay:
                     child = children[action]
                     if child is not None:
                         pi[action] = child.n / root.n
+
+                # MCTS visit entropy: H = -sum(p * log(p)) for non-zero entries
+                pi_nz = pi[pi > 0]
+                if len(pi_nz) > 0:
+                    self._mcts_visit_entropies.append(
+                        float(-np.sum(pi_nz * np.log(pi_nz)))
+                    )
 
                 # Diagnostic: record per-move stats
                 self._game_value_preds[i].append((states[i].player, root.nnet_value))
@@ -221,6 +229,9 @@ class BatchedSelfPlay:
             # Correlation between prediction and target
             "pred_outcome_corr": float(np.corrcoef(nnet_vals, targets)[0, 1]) if len(nnet_vals) > 1 else 0,
             "n_predictions": len(all_preds),
+            # MCTS visit entropy
+            "mcts_visit_entropy_mean": float(np.mean(self._mcts_visit_entropies)) if self._mcts_visit_entropies else 0.0,
+            "mcts_visit_entropy_std": float(np.std(self._mcts_visit_entropies)) if self._mcts_visit_entropies else 0.0,
         }
 
     def _run_simulations(self, roots, active):
