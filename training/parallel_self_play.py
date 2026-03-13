@@ -1,4 +1,5 @@
 import time
+import random
 import numpy as np
 
 from mcts import MCTS, Node, add_dirichlet_noise
@@ -14,7 +15,9 @@ class BatchedSelfPlay:
 
     def __init__(self, game, net, num_games, num_simulations,
                  selects_per_round=1, vl_value=0.0,
-                 temp_threshold=15, c_puct=1.5):
+                 temp_threshold=15, c_puct=1.5,
+                 tree_reuse=True, resign_threshold=-1.0,
+                 resign_min_moves=99, resign_check_prob=0.0):
         self.game = game
         self.net = net
         self.num_games = num_games
@@ -22,6 +25,10 @@ class BatchedSelfPlay:
         self.selects_per_round = selects_per_round
         self.vl_value = vl_value
         self.temp_threshold = temp_threshold
+        self.tree_reuse = tree_reuse
+        self.resign_threshold = resign_threshold
+        self.resign_min_moves = resign_min_moves
+        self.resign_check_prob = resign_check_prob
         self.mcts = MCTS(game, net, c_puct=c_puct)
 
         # Log backends once
@@ -66,11 +73,31 @@ class BatchedSelfPlay:
         self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value) per move
         self._mcts_visit_entropies = []  # entropy of MCTS visit distribution per move
 
+        # Tree reuse tracking
+        self._tree_reuse_count = 0
+        self._tree_reuse_fresh_count = 0
+        self._tree_reuse_visits_sum = 0
+
+        # Resign tracking
+        self._resign_count = 0
+        self._resign_move_sum = 0
+        self._resign_false_positive_count = 0
+        self._resign_check_count = 0  # verification games that wanted to resign
+
         # Initialize all games
         states = [self.game.new_game() for _ in range(self.num_games)]
         examples = [[] for _ in range(self.num_games)]
         terminal_values = [0] * self.num_games  # raw terminal values per game
         active = list(range(self.num_games))  # indices of games still in progress
+        move_counts = [0] * self.num_games
+
+        # Per-game resign permission: with resign_check_prob chance, force play to
+        # completion (verification game to detect false positive resigns)
+        resign_allowed = [random.random() >= self.resign_check_prob
+                          for _ in range(self.num_games)]
+        # Track which player wanted to resign in verification games
+        # (0 = no resign requested, +1/-1 = which player wanted to resign)
+        resign_check_player = [0] * self.num_games
 
         # Create initial roots (deferred — no net eval yet)
         roots = [Node(None, s, self.game) for s in states]
@@ -87,9 +114,43 @@ class BatchedSelfPlay:
             # Run MCTS simulations for all active games
             self._run_simulations(roots, active)
 
-            # Extract policies and pick moves
-            next_active = []
+            # --- Resign check ---
+            still_active = []
+            resign_enabled = self.resign_threshold > -1.0
             for i in active:
+                root_value = -roots[i].Q  # positive = winning, negative = losing
+                should_resign = (
+                    resign_enabled
+                    and move_counts[i] >= self.resign_min_moves
+                    and root_value < self.resign_threshold
+                )
+                if should_resign and resign_allowed[i]:
+                    # Resign: current player loses, opponent wins
+                    tv = -states[i].player
+                    terminal_values[i] = tv
+                    total_moves = len(examples[i])
+                    for move_idx, ex in enumerate(examples[i]):
+                        player_at_pos = ex[2]
+                        raw_target = tv * player_at_pos
+                        moves_to_end = total_moves - 1 - move_idx
+                        discount = 0.95 ** moves_to_end
+                        ex[2] = raw_target * discount
+                    self._resign_count += 1
+                    self._resign_move_sum += move_counts[i]
+                elif should_resign and not resign_allowed[i]:
+                    # Would resign but this game is a verification game
+                    if resign_check_player[i] == 0:
+                        # First time this game wants to resign — record which player
+                        resign_check_player[i] = states[i].player
+                        self._resign_check_count += 1
+                    still_active.append(i)
+                else:
+                    still_active.append(i)
+
+            # --- Extract policies and pick moves ---
+            next_active_fresh = []
+            next_active_reused = []
+            for i in still_active:
                 root = roots[i]
                 pi = np.zeros(np.shape(root.available_actions_mask))
                 children = root.children
@@ -97,6 +158,11 @@ class BatchedSelfPlay:
                     child = children[action]
                     if child is not None:
                         pi[action] = child.n / root.n
+                # Normalize: with tree reuse, root.n may include visits
+                # from before children existed, so sum(children.n) < root.n
+                pi_sum = pi.sum()
+                if pi_sum > 0:
+                    pi = pi / pi_sum
 
                 # MCTS visit entropy: H = -sum(p * log(p)) for non-zero entries
                 pi_nz = pi[pi > 0]
@@ -116,6 +182,7 @@ class BatchedSelfPlay:
                     action = np.argmax(pi)
                 # Training target is always the full visit distribution
                 examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player])
+                move_counts[i] += 1
 
                 states[i] = self.game.step(states[i], action)
 
@@ -123,30 +190,52 @@ class BatchedSelfPlay:
                     # Game over — store raw terminal value and compute targets
                     tv = states[i].terminal_value
                     terminal_values[i] = tv
+                    # Check if this was a verification game that wanted to resign
+                    if resign_check_player[i] != 0:
+                        # False positive = resigning player didn't actually lose
+                        resigner_outcome = tv * resign_check_player[i]
+                        if resigner_outcome >= 0:  # drew or won
+                            self._resign_false_positive_count += 1
                     total_moves = len(examples[i])
                     for move_idx, ex in enumerate(examples[i]):
                         player_at_pos = ex[2]
-                        # Relative: target from current player's perspective
                         raw_target = tv * player_at_pos
-                        # Discount by distance from end: early moves get smaller targets
-                        # γ^(moves_to_end) where γ=0.95
                         moves_to_end = total_moves - 1 - move_idx
                         discount = 0.95 ** moves_to_end
                         target = raw_target * discount
                         ex[2] = target
                 else:
-                    # Create new root for next move (deferred)
-                    roots[i] = Node(None, states[i], self.game)
-                    next_active.append(i)
+                    # --- Tree reuse or fresh root ---
+                    if self.tree_reuse:
+                        subtree = root.children[action]
+                        if subtree is not None and subtree.P is not None:
+                            # Reuse subtree: promote child to new root
+                            self._tree_reuse_visits_sum += subtree.n
+                            subtree.parent = None  # sever for GC of old tree
+                            roots[i] = subtree
+                            next_active_reused.append(i)
+                            self._tree_reuse_count += 1
+                        else:
+                            # Fallback: child missing or unevaluated
+                            roots[i] = Node(None, states[i], self.game)
+                            next_active_fresh.append(i)
+                            self._tree_reuse_fresh_count += 1
+                    else:
+                        roots[i] = Node(None, states[i], self.game)
+                        next_active_fresh.append(i)
 
-            # Batch-evaluate new roots for games that are still active
-            if next_active:
-                new_roots = [roots[i] for i in next_active]
+            # Batch-evaluate only fresh roots (reused ones already have NN eval)
+            if next_active_fresh:
+                new_roots = [roots[i] for i in next_active_fresh]
                 self._batch_evaluate_nodes(new_roots)
-                for i in next_active:
+                for i in next_active_fresh:
                     roots[i].P = add_dirichlet_noise(roots[i].P, 0.03, 0.25)
 
-            active = next_active
+            # Add Dirichlet noise to reused roots too (for exploration)
+            for i in next_active_reused:
+                roots[i].P = add_dirichlet_noise(roots[i].P, 0.03, 0.25)
+
+            active = next_active_fresh + next_active_reused
 
         # Collect stats and flatten examples
         all_examples = []
@@ -184,6 +273,13 @@ class BatchedSelfPlay:
             "batch_histogram": self._batch_histogram,
             "active_per_move": self._active_per_move,
             "accum_rounds": self._accum_rounds,
+            "tree_reuse_count": self._tree_reuse_count,
+            "tree_reuse_fresh_count": self._tree_reuse_fresh_count,
+            "tree_reuse_avg_visits": (self._tree_reuse_visits_sum / max(self._tree_reuse_count, 1)),
+            "resign_count": self._resign_count,
+            "resign_avg_move": (self._resign_move_sum / max(self._resign_count, 1)),
+            "resign_check_count": self._resign_check_count,
+            "resign_false_positives": self._resign_false_positive_count,
         }
 
         # Compute self-play value prediction diagnostics

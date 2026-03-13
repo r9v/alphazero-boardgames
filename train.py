@@ -100,6 +100,10 @@ def main():
         "value_loss_weight": game_cfg.get("value_loss_weight", 1.0),
         "temp_threshold": game_cfg.get("temp_threshold", 15),
         "c_puct": game_cfg.get("c_puct", 1.5),
+        "tree_reuse": game_cfg.get("tree_reuse", True),
+        "resign_threshold": game_cfg.get("resign_threshold", -1.0),
+        "resign_min_moves": game_cfg.get("resign_min_moves", 99),
+        "resign_check_prob": game_cfg.get("resign_check_prob", 0.0),
     }
 
     trainer = Trainer(game, net, config)

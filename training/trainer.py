@@ -926,6 +926,10 @@ class Trainer:
             vl_value=self.config.get("vl_value", 0.0),
             temp_threshold=self.config.get("temp_threshold", 15),
             c_puct=self.config.get("c_puct", 1.5),
+            tree_reuse=self.config.get("tree_reuse", True),
+            resign_threshold=self.config.get("resign_threshold", -1.0),
+            resign_min_moves=self.config.get("resign_min_moves", 99),
+            resign_check_prob=self.config.get("resign_check_prob", 0.0),
         )
         return self._batched.play_games()
 
@@ -1028,6 +1032,35 @@ class Trainer:
                 accum = perf.get("accum_rounds", 0)
                 if accum > 0:
                     print(f"  Accumulation: {accum} move-steps used batch accumulation")
+                # Tree reuse stats
+                tr_count = perf.get("tree_reuse_count", 0)
+                tr_fresh = perf.get("tree_reuse_fresh_count", 0)
+                tr_total = tr_count + tr_fresh
+                if tr_total > 0:
+                    tr_pct = tr_count / tr_total
+                    tr_avg_v = perf.get("tree_reuse_avg_visits", 0)
+                    print(f"  TreeReuse: {tr_count}/{tr_total} ({tr_pct:.0%}) "
+                          f"avg_reused_visits={tr_avg_v:.1f}")
+                    self.writer.add_scalar("perf/tree_reuse_pct", tr_pct, iteration)
+                    self.writer.add_scalar("perf/tree_reuse_avg_visits", tr_avg_v, iteration)
+                # Resign stats
+                resign_count = perf.get("resign_count", 0)
+                resign_checks = perf.get("resign_check_count", 0)
+                resign_fp = perf.get("resign_false_positives", 0)
+                if resign_count > 0 or resign_checks > 0:
+                    resign_avg_move = perf.get("resign_avg_move", 0)
+                    total_games = self.games_per_iteration
+                    resign_pct = resign_count / max(total_games, 1)
+                    fp_str = f"false_pos={resign_fp}/{resign_checks}" if resign_checks > 0 else "no_checks"
+                    print(f"  Resign: {resign_count}/{total_games} ({resign_pct:.0%}) "
+                          f"avg_move={resign_avg_move:.1f} "
+                          f"{fp_str}")
+                    self.writer.add_scalar("self_play/resign_count", resign_count, iteration)
+                    self.writer.add_scalar("self_play/resign_pct", resign_pct, iteration)
+                    self.writer.add_scalar("self_play/resign_avg_move", resign_avg_move, iteration)
+                    if resign_checks > 0:
+                        fp_rate = resign_fp / resign_checks
+                        self.writer.add_scalar("self_play/resign_fp_rate", fp_rate, iteration)
             if hasattr(self, '_train_perf'):
                 tp = self._train_perf
                 self.writer.add_scalar("perf/train_data_prep", tp["data_prep_time"], iteration)
@@ -1372,11 +1405,11 @@ class Trainer:
             # === Fixed diagnostic position evaluation ===
             self._eval_diagnostic_positions(iteration)
 
-            # Save every 10 iterations + always on the last one
+            # Save every 5 iterations + always on the last one
             # Also save iteration 0 if no checkpoint exists (quick sanity check)
             no_checkpoint = not os.path.exists(os.path.join(self.checkpoint_dir, "latest.txt"))
-            if (iteration + 1) % 10 == 0 or iteration == num_iterations - 1 or (iteration == 0 and no_checkpoint):
-                self.net.save(self.checkpoint_dir)
+            if (iteration + 1) % 5 == 0 or iteration == num_iterations - 1 or (iteration == 0 and no_checkpoint):
+                self.net.save(self.checkpoint_dir, iteration=iteration, num_iterations=num_iterations)
 
         self.writer.close()
 

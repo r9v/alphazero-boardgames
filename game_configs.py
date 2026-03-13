@@ -22,6 +22,12 @@ GAME_CONFIGS = {
         "temp_threshold": 3,
         "c_puct": 1.5,
 
+        # --- Tree reuse & Resign ---
+        "tree_reuse": True,
+        "resign_threshold": -1.0,       # effectively disabled (game too short)
+        "resign_min_moves": 99,
+        "resign_check_prob": 0.0,
+
         # --- Play (human vs AI) ---
         "play_simulations": 16,
         "play_c_puct": 1.5,
@@ -38,17 +44,23 @@ GAME_CONFIGS = {
         # --- Training ---
         "max_train_steps": 3_200,
         "target_epochs": 4,
-        "buffer_size": 20_000,
+        "buffer_size": 50_000,
         "value_loss_weight": 3.0,
 
         # --- Self-play ---
-        "default_iterations": 64,
+        "default_iterations": 128,
         "default_games": 64,
-        "default_simulations": 200,
+        "default_simulations": 400,
         "selects_per_round": 1,
         "vl_value": 0.0,
         "temp_threshold": 15,
         "c_puct": 1.5,
+
+        # --- Tree reuse & Resign ---
+        "tree_reuse": True,
+        "resign_threshold": -0.99,
+        "resign_min_moves": 10,
+        "resign_check_prob": 0.1,
 
         # --- Play (human vs AI) ---
         "play_simulations": 200,
@@ -77,6 +89,12 @@ GAME_CONFIGS = {
         "vl_value": 3.0,
         "temp_threshold": 15,
         "c_puct": 1.5,
+
+        # --- Tree reuse & Resign ---
+        "tree_reuse": True,
+        "resign_threshold": -0.99,
+        "resign_min_moves": 10,
+        "resign_check_prob": 0.1,
 
         # --- Play (human vs AI) ---
         "play_simulations": 400,

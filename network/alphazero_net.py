@@ -151,7 +151,7 @@ class AlphaZeroNet(nn.Module):
             }
         return values, list(policies)
 
-    def save(self, directory):
+    def save(self, directory, iteration=None, num_iterations=None):
         os.makedirs(directory, exist_ok=True)
         timestr = time.strftime("%Y%m%d-%H%M%S")
         path = os.path.join(directory, f"{timestr}.pt")
@@ -160,6 +160,9 @@ class AlphaZeroNet(nn.Module):
         latest_path = os.path.join(directory, "latest.txt")
         with open(latest_path, "w") as f:
             f.write(f"{timestr}.pt")
+
+        iter_str = f"iter {iteration+1}/{num_iterations}" if iteration is not None else ""
+        print(f"  Checkpoint saved: {path} {iter_str}")
 
         return path
 
