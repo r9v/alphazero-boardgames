@@ -71,10 +71,10 @@ class AlphaZeroNet(nn.Module):
         v = self.value_dropout(v)
         v = self.value_fc2(v)  # [B, 3] raw WDL logits (no tanh)
 
-        # Policy head
+        # Policy head (returns raw logits; callers apply softmax/log_softmax)
         p = F.relu(self.policy_bn(self.policy_conv(x)))
         p = p.view(p.size(0), -1)
-        p = F.softmax(self.policy_fc(p), dim=1)
+        p = self.policy_fc(p)
 
         return v, p
 
@@ -105,7 +105,8 @@ class AlphaZeroNet(nn.Module):
         # WDL logits → scalar: v = P(win) - P(loss)
         probs = F.softmax(v, dim=1)
         value = (probs[0, 0] - probs[0, 2]).item()
-        return value, p.squeeze(0).cpu().numpy()
+        policy = F.softmax(p, dim=1).squeeze(0).cpu().numpy()
+        return value, policy
 
     @torch.no_grad()
     def batch_predict(self, state_inputs, detailed_timing=False):
@@ -150,7 +151,7 @@ class AlphaZeroNet(nn.Module):
         # WDL logits → scalar: v = P(win) - P(loss)
         probs = F.softmax(v.float(), dim=1)[:n]
         values = (probs[:, 0] - probs[:, 2]).cpu().numpy().tolist()
-        policies = p.float()[:n].cpu().numpy()
+        policies = F.softmax(p.float(), dim=1)[:n].cpu().numpy()
         result_time = time.time() - t0
 
         if detailed_timing:
@@ -196,5 +197,13 @@ class AlphaZeroNet(nn.Module):
             return False
         device = next(self.parameters()).device
         state_dict = torch.load(path, weights_only=True, map_location=device)
-        self.load_state_dict(state_dict, strict=False)
+        try:
+            self.load_state_dict(state_dict, strict=True)
+        except RuntimeError as e:
+            missing = [k for k in self.state_dict() if k not in state_dict]
+            unexpected = [k for k in state_dict if k not in self.state_dict()]
+            print(f"  [WARNING] Checkpoint mismatch: "
+                  f"missing={missing}, unexpected={unexpected}")
+            print(f"  Loading with strict=False — mismatched layers keep random weights")
+            self.load_state_dict(state_dict, strict=False)
         return True

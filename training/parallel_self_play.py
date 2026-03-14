@@ -16,6 +16,7 @@ class BatchedSelfPlay:
     def __init__(self, game, net, num_games, num_simulations,
                  selects_per_round=1, vl_value=0.0,
                  temp_threshold=15, c_puct=1.5,
+                 dirichlet_alpha=1.0, dirichlet_epsilon=0.25,
                  tree_reuse=True, resign_threshold=-1.0,
                  resign_min_moves=99, resign_check_prob=0.0):
         self.game = game
@@ -25,6 +26,8 @@ class BatchedSelfPlay:
         self.selects_per_round = selects_per_round
         self.vl_value = vl_value
         self.temp_threshold = temp_threshold
+        self.dirichlet_alpha = dirichlet_alpha
+        self.dirichlet_epsilon = dirichlet_epsilon
         self.tree_reuse = tree_reuse
         self.resign_threshold = resign_threshold
         self.resign_min_moves = resign_min_moves
@@ -105,9 +108,9 @@ class BatchedSelfPlay:
         # Batch-evaluate all initial roots
         self._batch_evaluate_nodes(roots)
 
-        # Add Dirichlet noise to root priors
+        # Add Dirichlet noise to root priors (legal actions only)
         for root in roots:
-            root.P = add_dirichlet_noise(root.P, 0.03, 0.25)
+            root.P = add_dirichlet_noise(root.P, self.dirichlet_alpha, self.dirichlet_epsilon, root.available_actions_mask)
 
         while active:
             self._active_per_move.append(len(active))
@@ -170,7 +173,7 @@ class BatchedSelfPlay:
                     )
 
                 # Diagnostic: record per-move stats
-                self._game_value_preds[i].append((states[i].player, root.nnet_value, root.Q))
+                self._game_value_preds[i].append((states[i].player, root.nnet_value, -root.Q))
 
                 # Temperature: explore early, exploit late
                 move_num = len(examples[i])
@@ -224,11 +227,11 @@ class BatchedSelfPlay:
                 new_roots = [roots[i] for i in next_active_fresh]
                 self._batch_evaluate_nodes(new_roots)
                 for i in next_active_fresh:
-                    roots[i].P = add_dirichlet_noise(roots[i].P, 0.03, 0.25)
+                    roots[i].P = add_dirichlet_noise(roots[i].P, self.dirichlet_alpha, self.dirichlet_epsilon, roots[i].available_actions_mask)
 
             # Add Dirichlet noise to reused roots too (for exploration)
             for i in next_active_reused:
-                roots[i].P = add_dirichlet_noise(roots[i].P, 0.03, 0.25)
+                roots[i].P = add_dirichlet_noise(roots[i].P, self.dirichlet_alpha, self.dirichlet_epsilon, roots[i].available_actions_mask)
 
             active = next_active_fresh + next_active_reused
 

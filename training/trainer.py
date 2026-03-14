@@ -190,10 +190,11 @@ class Trainer:
             data_prep_time += time.time() - t0
 
             t0 = time.time()
-            pred_vs, pred_pis = self.net(states)  # pred_vs: [B, 3] WDL logits
+            pred_vs, pred_pi_logits = self.net(states)  # pred_vs: [B, 3] WDL logits
 
             value_loss = F.cross_entropy(pred_vs, target_vs)
-            policy_loss = -torch.mean(torch.sum(target_pis * torch.log(pred_pis + 1e-8), dim=1))
+            log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
+            policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
             loss = effective_vlw * value_loss + policy_loss
 
             self.optimizer.zero_grad()
@@ -319,17 +320,18 @@ class Trainer:
                 # (P) Policy quality metrics
                 with torch.no_grad():
                     # Policy entropy: H = -sum(p * log(p))
-                    log_pi = torch.log(pred_pis + 1e-8)
+                    pred_pis = F.softmax(pred_pi_logits.detach(), dim=1)
+                    log_pi = F.log_softmax(pred_pi_logits.detach(), dim=1)
                     batch_entropy = -(pred_pis * log_pi).sum(dim=1).mean().item()
                     all_policy_entropy.append(batch_entropy)
 
                     # Policy top-1 accuracy: does argmax match?
-                    pred_top = pred_pis.argmax(dim=1)
+                    pred_top = pred_pi_logits.argmax(dim=1)
                     target_top = target_pis.argmax(dim=1)
                     top1_correct_sum += (pred_top == target_top).float().sum().item()
 
                     # Policy top-3 accuracy: is MCTS best move in network's top 3?
-                    pred_top3 = pred_pis.topk(3, dim=1).indices
+                    pred_top3 = pred_pi_logits.topk(3, dim=1).indices
                     target_argmax = target_pis.argmax(dim=1).unsqueeze(1)
                     top3_correct_sum += (pred_top3 == target_argmax).any(dim=1).float().sum().item()
 
@@ -400,9 +402,9 @@ class Trainer:
                 vt_pi = torch.FloatTensor(np.array([s[1] for s in vb])).to(self.device)
                 vt_raw = np.array([s[2] for s in vb])
                 vt_v = torch.LongTensor((1 - vt_raw).astype(np.int64)).to(self.device)
-                pv, pp = self.net(vs)
+                pv, pp_logits = self.net(vs)
                 val_vloss += F.cross_entropy(pv, vt_v).item()
-                val_ploss += -torch.mean(torch.sum(vt_pi * torch.log(pp + 1e-8), dim=1)).item()
+                val_ploss += -torch.mean(torch.sum(vt_pi * F.log_softmax(pp_logits, dim=1), dim=1)).item()
                 val_batches += 1
             if val_batches > 0:
                 val_vloss /= val_batches
@@ -853,10 +855,10 @@ class Trainer:
                 rb_gd_hooks.append(block.register_forward_hook(make_rb_gd_hook(idx)))
 
             self.optimizer.zero_grad()
-            gd_pred_v, gd_pred_p = self.net(gd_states)
+            gd_pred_v, gd_pred_p_logits = self.net(gd_states)
 
             gd_v_loss = F.cross_entropy(gd_pred_v, gd_targets_v)
-            gd_p_loss = -torch.mean(torch.sum(gd_targets_pi * torch.log(gd_pred_p + 1e-8), dim=1))
+            gd_p_loss = -torch.mean(torch.sum(gd_targets_pi * F.log_softmax(gd_pred_p_logits, dim=1), dim=1))
 
             bb_x = bb_ref['x']  # [batch, 256, H, W]
             h_bb.remove()
@@ -1201,6 +1203,7 @@ class Trainer:
             vl_value=self.config.get("vl_value", 0.0),
             temp_threshold=self.config.get("temp_threshold", 15),
             c_puct=self.config.get("c_puct", 1.5),
+            dirichlet_alpha=self.config.get("dirichlet_alpha", 1.0),
             tree_reuse=self.config.get("tree_reuse", True),
             resign_threshold=self.config.get("resign_threshold", -1.0),
             resign_min_moves=self.config.get("resign_min_moves", 99),

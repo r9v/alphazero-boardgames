@@ -14,9 +14,21 @@ from libc.math cimport sqrt
 cnp.import_array()
 
 
-def add_dirichlet_noise(arr, double alpha, double epsilon):
-    """Add Dirichlet noise to a policy array."""
-    noise = np.random.dirichlet(np.ones(len(arr)) * alpha)
+def add_dirichlet_noise(arr, double alpha, double epsilon, mask=None):
+    """Add Dirichlet noise to a policy array.
+
+    If mask is provided (binary array, 1=legal), noise is only generated
+    for legal actions and distributed among them. Illegal actions keep
+    their original (near-zero) prior scaled by (1-epsilon).
+    """
+    if mask is not None:
+        legal = np.nonzero(mask)[0]
+        if len(legal) == 0:
+            return arr
+        noise = np.zeros(len(arr))
+        noise[legal] = np.random.dirichlet(np.ones(len(legal)) * alpha)
+    else:
+        noise = np.random.dirichlet(np.ones(len(arr)) * alpha)
     return arr * (1.0 - epsilon) + epsilon * noise
 
 
@@ -217,7 +229,7 @@ cdef class CMCTS:
 
         cdef CNode root = CNode(None, state, self.game, self.net)
         if add_dirichlet:
-            root.P = add_dirichlet_noise(root.P, 0.03, 0.25)
+            root.P = add_dirichlet_noise(root.P, 0.03, 0.25, root._avail_mask)
 
         cdef int sim
         for sim in range(num_simulations):

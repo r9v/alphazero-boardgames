@@ -12,6 +12,8 @@ GAME_CONFIGS = {
         "target_epochs": 4,
         "buffer_size": 2_000,
         "value_loss_weight": 1.0,
+        "lr": 0.01,
+        "batch_size": 64,
 
         # --- Self-play ---
         "default_iterations": 24,
@@ -21,6 +23,7 @@ GAME_CONFIGS = {
         "vl_value": 0.0,
         "temp_threshold": 3,
         "c_puct": 1.5,
+        "dirichlet_alpha": 1.1,        # ~10 / 9 legal moves
 
         # --- Tree reuse & Resign ---
         "tree_reuse": True,
@@ -46,6 +49,8 @@ GAME_CONFIGS = {
         "target_epochs": 4,
         "buffer_size": 50_000,
         "value_loss_weight": 3.0,
+        "lr": 0.01,
+        "batch_size": 64,
 
         # --- Self-play ---
         "default_iterations": 128,
@@ -55,6 +60,7 @@ GAME_CONFIGS = {
         "vl_value": 0.0,
         "temp_threshold": 15,
         "c_puct": 1.5,
+        "dirichlet_alpha": 1.4,        # ~10 / 7 legal moves
 
         # --- Tree reuse & Resign ---
         "tree_reuse": True,
@@ -80,6 +86,8 @@ GAME_CONFIGS = {
         "target_epochs": 4,
         "buffer_size": 55000,
         "value_loss_weight": 3.0,
+        "lr": 0.01,
+        "batch_size": 64,
 
         # --- Self-play ---
         "default_iterations": 64,
@@ -89,6 +97,7 @@ GAME_CONFIGS = {
         "vl_value": 3.0,
         "temp_threshold": 15,
         "c_puct": 1.5,
+        "dirichlet_alpha": 0.25,       # ~10 / ~40 avg legal moves
 
         # --- Tree reuse & Resign ---
         "tree_reuse": True,
