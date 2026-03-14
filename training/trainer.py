@@ -45,7 +45,7 @@ class Trainer:
             {'params': no_decay_params, 'weight_decay': 0.0},
         ], lr=self.lr)
 
-        self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
+        self._last_vp_ratio = 1.0  # v/p gradient ratio from previous iteration
 
         game_name = self.config.get("game_name", "unknown")
         timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -138,8 +138,10 @@ class Trainer:
         # Linearly scale from 1 epoch (empty) to target_epochs (full)
         scaled_epochs = 1.0 + (self.target_epochs - 1.0) * fill_ratio
         target_steps = int(scaled_epochs * (n_samples // self.batch_size))
-        # Ramp value_loss_weight: 1.0 (empty) -> configured value (full)
-        effective_vlw = 1.0 + (self.value_loss_weight - 1.0) * fill_ratio
+        # Adaptive vlw: use last iteration's v/p gradient ratio to equalize
+        # backbone influence. 1/ratio means if value grad is 5x weaker
+        # (ratio=0.2), vlw becomes 5 to compensate.
+        effective_vlw = min(1.0 / max(self._last_vp_ratio, 0.1), 20.0)
         num_steps = max(1, min(self.max_train_steps, target_steps))
         effective_epochs = (num_steps * self.batch_size) / n_samples
         early_cutoff = max(num_steps // 10, 1)
@@ -886,6 +888,8 @@ class Trainer:
                 "bb_grad_conflict_channels": bb_grad_conflict_channels,
                 "bb_grad_aligned_channels": bb_grad_aligned_channels,
             })
+            # Update v/p ratio for next iteration's adaptive vlw
+            self._last_vp_ratio = v_grad_bb_norm / max(p_grad_bb_norm, 1e-10)
         except Exception:
             pass
 
@@ -1264,6 +1268,7 @@ class Trainer:
                       f"buf={d['buffer_fill']}/{d['buffer_capacity']}"
                       f"{' FULL' if d['buffer_full'] else ''}")
                 self.writer.add_scalar("diag/val_vloss", d["val_vloss"], iteration)
+                self.writer.add_scalar("diag/effective_vlw", d.get("effective_vlw", 1.0), iteration)
                 self.writer.add_scalar("diag/val_ploss", d["val_ploss"], iteration)
                 print(f"  Diag: pred_v mean={d['pred_v_mean']:+.3f} "
                       f"std={d['pred_v_std']:.3f} "

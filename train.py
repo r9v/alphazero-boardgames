@@ -97,7 +97,6 @@ def main():
         "buffer_size": game_cfg.get("buffer_size", 100000),
         "selects_per_round": game_cfg.get("selects_per_round", 1),
         "vl_value": game_cfg.get("vl_value", 0.0),
-        "value_loss_weight": game_cfg.get("value_loss_weight", 1.0),
         "temp_threshold": game_cfg.get("temp_threshold", 15),
         "c_puct": game_cfg.get("c_puct", 1.5),
         "tree_reuse": game_cfg.get("tree_reuse", True),
