@@ -137,8 +137,8 @@ checkpoints/**/*.pt
 checkpoints/**/*.txt
 .claude
 
-*.txt
+#*.txt
 !requirements.txt
-*.md
+#*.md
 !README.md
 nul

@@ -477,6 +477,15 @@ class Trainer:
             rb_hooks = []
             for idx, block in enumerate(self.net.res_blocks):
                 rb_hooks.append(block.register_forward_hook(make_rb_hook(idx)))
+            # BN2 intermediate hooks (conv2 raw output → BN2 input, and BN2 output)
+            def make_rb_bn2_hook(idx):
+                def hook(module, input, output):
+                    captured[f'rb{idx}_bn2_in'] = input[0]   # conv2 raw output
+                    captured[f'rb{idx}_bn2_out'] = output     # BN2 normalized output
+                return hook
+            rb_bn2_hooks = []
+            for idx, block in enumerate(self.net.res_blocks):
+                rb_bn2_hooks.append(block.bn2.register_forward_hook(make_rb_bn2_hook(idx)))
 
             h0 = self.net.value_conv.register_forward_hook(hook_vconv)
             h0b = self.net.value_bn.register_forward_hook(hook_vbn)
@@ -495,6 +504,8 @@ class Trainer:
             h1.remove()
             h2.remove()
             for h in rb_hooks:
+                h.remove()
+            for h in rb_bn2_hooks:
                 h.remove()
 
             backbone_raw_np = captured['backbone_raw'].cpu().numpy()  # [batch, filters, H, W]
@@ -577,6 +588,13 @@ class Trainer:
             init_conv_w_norm_delta = init_conv_w_norm - self._prev_init_conv_w_norm
             self._prev_init_conv_w_norm = init_conv_w_norm
 
+            # (#6) Per-conv weight norms inside ResBlocks
+            rb_conv_norms = {}
+            for bi in range(len(self.net.res_blocks)):
+                c1_norm = float(self.net.res_blocks[bi].conv1.weight.data.norm().item())
+                c2_norm = float(self.net.res_blocks[bi].conv2.weight.data.norm().item())
+                rb_conv_norms[bi] = {"conv1": c1_norm, "conv2": c2_norm}
+
             # --- Metric 1: Gradient flow split by alive/dead neurons ---
             grad_dead_mean = 0.0
             grad_alive_mean = 0.0
@@ -637,6 +655,47 @@ class Trainer:
                     skip_norm = float(rb_in.norm().item())
                     res_norm = float(residual.norm().item())
                     rb_residual_ratios[idx] = res_norm / max(skip_norm, 1e-10)
+
+            # (#7) BN2 output scale (post-activation validation)
+            # In post-act ResBlock, BN2 normalizes conv2 output → output ≈ gamma.
+            # Track actual BN2 output magnitude to verify stabilization.
+            rb_bn2_stats = {}
+            for idx in range(len(self.net.res_blocks)):
+                bn2_out_key = f'rb{idx}_bn2_out'
+                bn2_in_key = f'rb{idx}_bn2_in'
+                if bn2_out_key in captured:
+                    bn2_out = captured[bn2_out_key].cpu().numpy()
+                    stats = {
+                        "bn2_out_std": float(bn2_out.std()),
+                        "bn2_out_abs": float(np.abs(bn2_out).mean()),
+                    }
+                    # (#8) Pre-BN2 activation variance (Conv2 raw output)
+                    # This measures how much conv2 weights have grown.
+                    # With post-act, BN2 absorbs this; pre-act would pass it through.
+                    if bn2_in_key in captured:
+                        bn2_in = captured[bn2_in_key].cpu().numpy()
+                        stats["conv2_raw_var"] = float(bn2_in.var())
+                        stats["conv2_raw_abs"] = float(np.abs(bn2_in).mean())
+                    rb_bn2_stats[idx] = stats
+
+            # (#11) Residual path effective rank
+            # SVD of mean residual (output - input) per block.
+            # Low rank = residual collapsed to few directions.
+            rb_res_rank = {}
+            for idx in range(len(self.net.res_blocks)):
+                in_key = f'rb{idx}_in'
+                out_key = f'rb{idx}_out'
+                if in_key in captured and out_key in captured:
+                    residual = captured[out_key] - captured[in_key]
+                    r_mean = residual.mean(dim=0).flatten(1)  # [C, H*W]
+                    svs = torch.linalg.svdvals(r_mean)
+                    energy = (svs**2).cumsum(0) / (svs**2).sum()
+                    rank90 = int((energy <= 0.9).sum().item()) + 1
+                    rank99 = int((energy <= 0.99).sum().item()) + 1
+                    rb_res_rank[idx] = {
+                        "rank90": rank90, "rank99": rank99,
+                        "total": r_mean.shape[0],
+                    }
 
             # (b) Pre-BN signal (value_conv output, before BatchNorm)
             vconv_pre_bn_abs = float(np.abs(vconv_np).mean())
@@ -744,6 +803,12 @@ class Trainer:
                 "init_conv_w_norm": init_conv_w_norm,
                 "init_conv_w_abs_mean": init_conv_w_abs_mean,
                 "init_conv_w_norm_delta": init_conv_w_norm_delta,
+                # (#6) Per-conv weight norms in ResBlocks
+                "rb_conv_norms": rb_conv_norms,
+                # (#7) BN2 output scale + (#8) pre-BN2 variance
+                "rb_bn2_stats": rb_bn2_stats,
+                # (#11) Residual path effective rank
+                "rb_res_rank": rb_res_rank,
             }
             self.net.train()
         except Exception:
@@ -763,6 +828,15 @@ class Trainer:
             def hook_bb_capture(module, inp, out):
                 bb_ref['x'] = inp[0]
             h_bb = self.net.value_conv.register_forward_hook(hook_bb_capture)
+            # Hooks for per-block channel dominance (#9)
+            rb_gd_refs = {}
+            def make_rb_gd_hook(idx):
+                def hook(module, input, output):
+                    rb_gd_refs[f'rb{idx}'] = output
+                return hook
+            rb_gd_hooks = []
+            for idx, block in enumerate(self.net.res_blocks):
+                rb_gd_hooks.append(block.register_forward_hook(make_rb_gd_hook(idx)))
 
             self.optimizer.zero_grad()
             gd_pred_v, gd_pred_p = self.net(gd_states)
@@ -831,7 +905,8 @@ class Trainer:
             bp_list = [p for _, p in backbone_params]
             v_bp_grads = torch.autograd.grad(gd_v_loss, bp_list,
                                              retain_graph=True, allow_unused=True)
-            p_bp_grads = torch.autograd.grad(gd_p_loss, bp_list, allow_unused=True)
+            p_bp_grads = torch.autograd.grad(gd_p_loss, bp_list,
+                                             retain_graph=True, allow_unused=True)
 
             v_bp_sq = 0.0
             p_bp_sq = 0.0
@@ -858,6 +933,30 @@ class Trainer:
                 rv = rb_v[bn] ** 0.5
                 rp = rb_p.get(bn, 0.0) ** 0.5
                 rb_summary[bn] = (rv, rp, rv / max(rp, 1e-10))
+
+            # (#9) Per-block channel dominance: value-dominated channels at each block output
+            rb_ch_dominance = {}
+            for idx in range(len(self.net.res_blocks)):
+                key = f'rb{idx}'
+                if key in rb_gd_refs:
+                    rb_out = rb_gd_refs[key]
+                    v_grad_rb = torch.autograd.grad(gd_v_loss, rb_out, retain_graph=True)[0]
+                    p_grad_rb = torch.autograd.grad(gd_p_loss, rb_out, retain_graph=True)[0]
+                    v_ch = v_grad_rb.abs().mean(dim=(0, 2, 3)).cpu().numpy()
+                    p_ch = p_grad_rb.abs().mean(dim=(0, 2, 3)).cpu().numpy()
+                    total_ch = v_ch + p_ch + 1e-10
+                    v_frac = v_ch / total_ch
+                    rb_ch_dominance[idx] = int((v_frac > 0.5).sum())
+
+            # (#10) Value gradient survival ratio through backbone depth
+            # How much of value gradient at backbone output survives to each block's parameters
+            rb_v_grad_survival = {}
+            for bn in sorted(rb_v.keys()):
+                rv = rb_v[bn] ** 0.5
+                rb_v_grad_survival[bn] = rv / max(v_grad_bb_norm, 1e-10)
+
+            for h in rb_gd_hooks:
+                h.remove()
 
             self.optimizer.zero_grad()
             self.net.train()
@@ -887,6 +986,10 @@ class Trainer:
                 "bb_grad_cosine_sim": bb_grad_cosine,
                 "bb_grad_conflict_channels": bb_grad_conflict_channels,
                 "bb_grad_aligned_channels": bb_grad_aligned_channels,
+                # (#9) Per-block channel dominance
+                "rb_ch_dominance": rb_ch_dominance,
+                # (#10) Value gradient survival
+                "rb_v_grad_survival": rb_v_grad_survival,
             })
             # Update v/p ratio for next iteration's adaptive vlw
             self._last_vp_ratio = v_grad_bb_norm / max(p_grad_bb_norm, 1e-10)
@@ -939,11 +1042,16 @@ class Trainer:
                     rb_bn_dead = int((rb_eff_gain.abs() < 0.1).sum().item())
                     rb_neg_gamma = int((rb_bn_gamma < -0.01).sum().item())
                     rb_eff_gain_np = rb_eff_gain.cpu().numpy()
+                    rb_sqrt_var = (rb_bn_var + 1e-5).sqrt()
                     all_rb_bn[bi] = {
                         "dead": rb_bn_dead,
                         "neg_gamma": rb_neg_gamma,
                         "eff_gain_mean": float(np.abs(rb_eff_gain_np).mean()),
                         "eff_gain_max": float(np.abs(rb_eff_gain_np).max()),
+                        "gamma_mean": float(rb_bn_gamma.abs().mean().item()),
+                        "gamma_std": float(rb_bn_gamma.std().item()),
+                        "sqrt_var_mean": float(rb_sqrt_var.mean().item()),
+                        "sqrt_var_std": float(rb_sqrt_var.std().item()),
                     }
                 # SVD rank for each block's conv2
                 rb_conv2_w = self.net.res_blocks[bi].conv2.weight.data.flatten(1)
@@ -955,19 +1063,30 @@ class Trainer:
                 all_rb_bn[bi]["svd_rank90"] = rb_rank90
                 all_rb_bn[bi]["svd_total"] = rb_conv2_w.shape[0]
 
-            # (#4) final_bn gamma tracking
-            fbn_gamma = self.net.final_bn.weight.data
-            fbn_var = self.net.final_bn.running_var
-            if fbn_var is not None:
+            # (#4) final_bn gamma tracking (optional, only for pre-act networks)
+            if not hasattr(self.net, 'final_bn'):
+                fbn_eff_gain_mean = fbn_eff_gain_min = fbn_eff_gain_max = 0.0
+                fbn_dead = -1
+                fbn_gamma_mean = fbn_gamma_std = 0.0
+                fbn_sqrt_var_mean = fbn_sqrt_var_std = 0.0
+            elif (fbn_var := self.net.final_bn.running_var) is not None:
+                fbn_gamma = self.net.final_bn.weight.data
                 fbn_eff_gain = fbn_gamma / (fbn_var + 1e-5).sqrt()
                 fbn_eff_gain_np = fbn_eff_gain.cpu().numpy()
                 fbn_eff_gain_mean = float(np.abs(fbn_eff_gain_np).mean())
                 fbn_eff_gain_min = float(np.abs(fbn_eff_gain_np).min())
                 fbn_eff_gain_max = float(np.abs(fbn_eff_gain_np).max())
                 fbn_dead = int((fbn_eff_gain.abs() < 0.1).sum().item())
+                fbn_sqrt_var = (fbn_var + 1e-5).sqrt()
+                fbn_gamma_mean = float(fbn_gamma.abs().mean().item())
+                fbn_gamma_std = float(fbn_gamma.std().item())
+                fbn_sqrt_var_mean = float(fbn_sqrt_var.mean().item())
+                fbn_sqrt_var_std = float(fbn_sqrt_var.std().item())
             else:
                 fbn_eff_gain_mean = fbn_eff_gain_min = fbn_eff_gain_max = 0.0
                 fbn_dead = -1
+                fbn_gamma_mean = fbn_gamma_std = 0.0
+                fbn_sqrt_var_mean = fbn_sqrt_var_std = 0.0
 
             vh_diag.update({
                 "svd_bb_rank90": bb_rank90,
@@ -985,6 +1104,10 @@ class Trainer:
                 "final_bn_eff_gain_min": fbn_eff_gain_min,
                 "final_bn_eff_gain_max": fbn_eff_gain_max,
                 "final_bn_dead": fbn_dead,
+                "final_bn_gamma_mean": fbn_gamma_mean,
+                "final_bn_gamma_std": fbn_gamma_std,
+                "final_bn_sqrt_var_mean": fbn_sqrt_var_mean,
+                "final_bn_sqrt_var_std": fbn_sqrt_var_std,
             })
             self.net.train()
         except Exception:
@@ -1425,6 +1548,11 @@ class Trainer:
                               f"(eff_v={pv_eff:.4f} eff_ratio={pv_eff_ratio:.3f})")
                         if rb_str:
                             print(f"  Diag[BB5]: {rb_str}")
+                        # (#10) Value gradient survival
+                        vgs = vh.get('rb_v_grad_survival', {})
+                        if vgs:
+                            vgs_str = " ".join(f"rb{k}={v:.3f}" for k, v in sorted(vgs.items()))
+                            print(f"  Diag[BB7]: v_grad_survival: {vgs_str}")
                     # (#1) Backbone gradient conflict
                     if 'bb_grad_cosine_sim' in vh:
                         print(f"  Diag[BB6]: grad_cosine={vh['bb_grad_cosine_sim']:+.3f} "
@@ -1462,7 +1590,9 @@ class Trainer:
                             parts.append(f"bn2: dead={rbd.get('dead',0)} "
                                          f"neg_gamma={rbd.get('neg_gamma',0)} "
                                          f"eff_gain={rbd.get('eff_gain_mean',0):.2f}/"
-                                         f"{rbd.get('eff_gain_max',0):.2f}")
+                                         f"{rbd.get('eff_gain_max',0):.2f} "
+                                         f"gamma={rbd.get('gamma_mean',0):.3f}(+/-{rbd.get('gamma_std',0):.3f}) "
+                                         f"sqrt_var={rbd.get('sqrt_var_mean',0):.3f}(+/-{rbd.get('sqrt_var_std',0):.3f})")
                             parts.append(f"svd_rank90={rbd.get('svd_rank90',0)}/"
                                          f"{rbd.get('svd_total',0)}")
                         if bi in rb_act_data:
@@ -1471,16 +1601,41 @@ class Trainer:
                                          f"std={rad['std']:.3f} "
                                          f"dead={rad['dead_channels']}")
                         print(" | ".join(parts))
+                        # Second line: conv weight norms, BN2 output, pre-BN2 var, res rank, ch dominance
+                        parts2 = []
+                        rcn = vh.get('rb_conv_norms', {}).get(bi)
+                        if rcn:
+                            parts2.append(f"w: c1={rcn['conv1']:.3f} c2={rcn['conv2']:.3f}")
+                        rbs = vh.get('rb_bn2_stats', {}).get(bi)
+                        if rbs:
+                            s = f"bn2_out: |x|={rbs['bn2_out_abs']:.3f} std={rbs['bn2_out_std']:.3f}"
+                            if 'conv2_raw_var' in rbs:
+                                s += f" | conv2_raw: var={rbs['conv2_raw_var']:.4f} |x|={rbs['conv2_raw_abs']:.3f}"
+                            parts2.append(s)
+                        rrk = vh.get('rb_res_rank', {}).get(bi)
+                        if rrk:
+                            parts2.append(f"res_rank90={rrk['rank90']}/{rrk['total']}")
+                        rcd = vh.get('rb_ch_dominance', {})
+                        if bi in rcd:
+                            parts2.append(f"ch_vdom={rcd[bi]}/{vh.get('bb_n_channels', '?')}")
+                        if parts2:
+                            print(f"           {' | '.join(parts2)}")
                     # (#4) final_bn gamma tracking
                     if 'final_bn_eff_gain_mean' in vh:
                         print(f"  Diag[FBN]: eff_gain "
                               f"mean={vh['final_bn_eff_gain_mean']:.3f} "
                               f"min={vh['final_bn_eff_gain_min']:.3f} "
                               f"max={vh['final_bn_eff_gain_max']:.3f} "
-                              f"dead={vh['final_bn_dead']}")
+                              f"dead={vh['final_bn_dead']} "
+                              f"| gamma={vh.get('final_bn_gamma_mean',0):.3f}(+/-{vh.get('final_bn_gamma_std',0):.3f}) "
+                              f"sqrt_var={vh.get('final_bn_sqrt_var_mean',0):.3f}(+/-{vh.get('final_bn_sqrt_var_std',0):.3f})")
                         self.writer.add_scalar("diag/final_bn_eff_gain_mean", vh['final_bn_eff_gain_mean'], iteration)
                         self.writer.add_scalar("diag/final_bn_eff_gain_min", vh['final_bn_eff_gain_min'], iteration)
                         self.writer.add_scalar("diag/final_bn_dead", vh['final_bn_dead'], iteration)
+                        self.writer.add_scalar("diag/final_bn_gamma_mean", vh.get('final_bn_gamma_mean', 0), iteration)
+                        self.writer.add_scalar("diag/final_bn_gamma_std", vh.get('final_bn_gamma_std', 0), iteration)
+                        self.writer.add_scalar("diag/final_bn_sqrt_var_mean", vh.get('final_bn_sqrt_var_mean', 0), iteration)
+                        self.writer.add_scalar("diag/final_bn_sqrt_var_std", vh.get('final_bn_sqrt_var_std', 0), iteration)
                     # (#5) Residual contribution ratio
                     rr = vh.get('rb_residual_ratios', {})
                     if rr:
@@ -1561,10 +1716,33 @@ class Trainer:
                         self.writer.add_scalar(f"rb{bi}/bn2_neg_gamma", rbd.get("neg_gamma", 0), iteration)
                         self.writer.add_scalar(f"rb{bi}/bn2_eff_gain_mean", rbd.get("eff_gain_mean", 0), iteration)
                         self.writer.add_scalar(f"rb{bi}/svd_rank90", rbd.get("svd_rank90", 0), iteration)
+                        self.writer.add_scalar(f"rb{bi}/bn2_gamma_mean", rbd.get("gamma_mean", 0), iteration)
+                        self.writer.add_scalar(f"rb{bi}/bn2_sqrt_var_mean", rbd.get("sqrt_var_mean", 0), iteration)
                     for bi, rad in vh.get('rb_act_stats', {}).items():
                         self.writer.add_scalar(f"rb{bi}/act_abs_mean", rad["abs_mean"], iteration)
                         self.writer.add_scalar(f"rb{bi}/act_std", rad["std"], iteration)
                         self.writer.add_scalar(f"rb{bi}/act_dead_channels", rad["dead_channels"], iteration)
+                    # (#6) Per-conv weight norms
+                    for bi, rcn in vh.get('rb_conv_norms', {}).items():
+                        self.writer.add_scalar(f"rb{bi}/conv1_w_norm", rcn["conv1"], iteration)
+                        self.writer.add_scalar(f"rb{bi}/conv2_w_norm", rcn["conv2"], iteration)
+                    # (#7-8) BN2 output scale + pre-BN2 variance
+                    for bi, rbs in vh.get('rb_bn2_stats', {}).items():
+                        self.writer.add_scalar(f"rb{bi}/bn2_out_abs", rbs["bn2_out_abs"], iteration)
+                        self.writer.add_scalar(f"rb{bi}/bn2_out_std", rbs["bn2_out_std"], iteration)
+                        if 'conv2_raw_var' in rbs:
+                            self.writer.add_scalar(f"rb{bi}/conv2_raw_var", rbs["conv2_raw_var"], iteration)
+                            self.writer.add_scalar(f"rb{bi}/conv2_raw_abs", rbs["conv2_raw_abs"], iteration)
+                    # (#11) Residual path effective rank
+                    for bi, rrk in vh.get('rb_res_rank', {}).items():
+                        self.writer.add_scalar(f"rb{bi}/res_rank90", rrk["rank90"], iteration)
+                        self.writer.add_scalar(f"rb{bi}/res_rank99", rrk["rank99"], iteration)
+                    # (#9) Per-block channel dominance
+                    for bi, nv in vh.get('rb_ch_dominance', {}).items():
+                        self.writer.add_scalar(f"rb{bi}/ch_value_dom", nv, iteration)
+                    # (#10) Value gradient survival
+                    for bn, sv in vh.get('rb_v_grad_survival', {}).items():
+                        self.writer.add_scalar(f"rb{bn}/v_grad_survival", sv, iteration)
 
             # === Self-play value prediction diagnostics ===
             if hasattr(self, '_batched') and hasattr(self._batched, 'value_diag'):

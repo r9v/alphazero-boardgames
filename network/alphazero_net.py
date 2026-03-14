@@ -7,24 +7,24 @@ import torch.nn.functional as F
 
 
 class ResBlock(nn.Module):
-    """Pre-activation ResBlock (He et al. 2016).
+    """Post-activation ResBlock (standard AlphaZero).
 
-    BN→ReLU→Conv→BN→ReLU→Conv, then clean identity addition (no ReLU on sum).
-    Prevents the systematic activation magnitude decay caused by ReLU clipping
-    the zero-mean BN output against the positive residual in post-act blocks.
+    Conv→BN→ReLU→Conv→BN, then add skip and ReLU.
+    BN after Conv2 stabilizes residual magnitude (~gamma) regardless of
+    weight growth, preventing the eff_gain collapse seen with pre-activation.
     """
     def __init__(self, num_filters):
         super().__init__()
-        self.bn1 = nn.BatchNorm2d(num_filters)
         self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(num_filters)
+        self.bn1 = nn.BatchNorm2d(num_filters)
         self.conv2 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
+        self.bn2 = nn.BatchNorm2d(num_filters)
 
     def forward(self, x):
         residual = x
-        x = self.conv1(F.relu(self.bn1(x)))
-        x = self.conv2(F.relu(self.bn2(x)))
-        return x + residual
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.bn2(self.conv2(x))
+        return F.relu(x + residual)
 
 
 class AlphaZeroNet(nn.Module):
@@ -41,13 +41,10 @@ class AlphaZeroNet(nn.Module):
         self.conv = nn.Conv2d(input_channels, num_filters, 3, padding=1)
         self.bn = nn.BatchNorm2d(num_filters)
 
-        # Residual blocks (pre-activation)
+        # Residual blocks (post-activation)
         self.res_blocks = nn.ModuleList(
             [ResBlock(num_filters) for _ in range(num_res_blocks)]
         )
-
-        # Final BN+ReLU after pre-act res blocks (normalizes before heads)
-        self.final_bn = nn.BatchNorm2d(num_filters)
 
         # Value head
         self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
@@ -66,7 +63,6 @@ class AlphaZeroNet(nn.Module):
         x = F.relu(self.bn(self.conv(x)))
         for block in self.res_blocks:
             x = block(x)
-        x = F.relu(self.final_bn(x))
 
         # Value head (LeakyReLU prevents permanent neuron death)
         v = F.leaky_relu(self.value_bn(self.value_conv(x)), negative_slope=0.01)
