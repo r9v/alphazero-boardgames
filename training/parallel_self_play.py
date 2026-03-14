@@ -132,9 +132,7 @@ class BatchedSelfPlay:
                     for move_idx, ex in enumerate(examples[i]):
                         player_at_pos = ex[2]
                         raw_target = tv * player_at_pos
-                        moves_to_end = total_moves - 1 - move_idx
-                        discount = 0.95 ** moves_to_end
-                        ex[2] = raw_target * discount
+                        ex[2] = raw_target
                     self._resign_count += 1
                     self._resign_move_sum += move_counts[i]
                 elif should_resign and not resign_allowed[i]:
@@ -200,10 +198,7 @@ class BatchedSelfPlay:
                     for move_idx, ex in enumerate(examples[i]):
                         player_at_pos = ex[2]
                         raw_target = tv * player_at_pos
-                        moves_to_end = total_moves - 1 - move_idx
-                        discount = 0.95 ** moves_to_end
-                        target = raw_target * discount
-                        ex[2] = target
+                        ex[2] = raw_target
                 else:
                     # --- Tree reuse or fresh root ---
                     if self.tree_reuse:

@@ -21,7 +21,7 @@ class Trainer:
         self.checkpoint_dir = self.config.get("checkpoint_dir", "checkpoints")
         self.batch_size = self.config.get("batch_size", 64)
         self.epochs = self.config.get("epochs", 10)
-        self.lr = self.config.get("lr", 0.001)
+        self.lr = self.config.get("lr", 0.01)
         self.device = self.config.get("device", "cpu")
         self.max_train_steps = self.config.get("max_train_steps", 5000)
         self.target_epochs = self.config.get("target_epochs", 4)
@@ -40,12 +40,12 @@ class Trainer:
                 no_decay_params.append(param)
             else:
                 decay_params.append(param)
-        self.optimizer = torch.optim.AdamW([
-            {'params': decay_params, 'weight_decay': 1e-4},
+        self.optimizer = torch.optim.SGD([
+            {'params': decay_params, 'weight_decay': 1e-3},
             {'params': no_decay_params, 'weight_decay': 0.0},
-        ], lr=self.lr)
+        ], lr=self.lr, momentum=0.9)
 
-        self._last_vp_ratio = 1.0  # v/p gradient ratio from previous iteration
+        self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
 
         game_name = self.config.get("game_name", "unknown")
         timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -138,10 +138,8 @@ class Trainer:
         # Linearly scale from 1 epoch (empty) to target_epochs (full)
         scaled_epochs = 1.0 + (self.target_epochs - 1.0) * fill_ratio
         target_steps = int(scaled_epochs * (n_samples // self.batch_size))
-        # Adaptive vlw: use last iteration's v/p gradient ratio to equalize
-        # backbone influence. 1/ratio means if value grad is 5x weaker
-        # (ratio=0.2), vlw becomes 5 to compensate.
-        effective_vlw = min(1.0 / max(self._last_vp_ratio, 0.1), 20.0)
+        # Ramp value_loss_weight: 1.0 (empty) -> configured value (full)
+        effective_vlw = 1.0 + (self.value_loss_weight - 1.0) * fill_ratio
         num_steps = max(1, min(self.max_train_steps, target_steps))
         effective_epochs = (num_steps * self.batch_size) / n_samples
         early_cutoff = max(num_steps // 10, 1)
@@ -294,7 +292,7 @@ class Trainer:
                     ) ** 0.5
                     all_rb_grad_norms.setdefault(i, []).append(rb_norm)
 
-            torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=2.0)
             self.optimizer.step()
             gradient_time += time.time() - t0
 
@@ -991,8 +989,6 @@ class Trainer:
                 # (#10) Value gradient survival
                 "rb_v_grad_survival": rb_v_grad_survival,
             })
-            # Update v/p ratio for next iteration's adaptive vlw
-            self._last_vp_ratio = v_grad_bb_norm / max(p_grad_bb_norm, 1e-10)
         except Exception:
             pass
 
