@@ -51,7 +51,7 @@ class AlphaZeroNet(nn.Module):
         self.value_bn = nn.BatchNorm2d(value_head_channels)
         self.value_fc1 = nn.Linear(value_head_channels * board_area, value_head_fc_size)
         self.value_dropout = nn.Dropout(p=0.2)
-        self.value_fc2 = nn.Linear(value_head_fc_size, 1)
+        self.value_fc2 = nn.Linear(value_head_fc_size, 3)  # WDL: Win/Draw/Loss logits
 
         # Policy head
         self.policy_conv = nn.Conv2d(num_filters, policy_head_channels, 1)
@@ -64,12 +64,12 @@ class AlphaZeroNet(nn.Module):
         for block in self.res_blocks:
             x = block(x)
 
-        # Value head (LeakyReLU prevents permanent neuron death)
+        # Value head
         v = F.leaky_relu(self.value_bn(self.value_conv(x)), negative_slope=0.01)
         v = v.view(v.size(0), -1)
         v = F.leaky_relu(self.value_fc1(v), negative_slope=0.01)
         v = self.value_dropout(v)
-        v = torch.tanh(self.value_fc2(v))
+        v = self.value_fc2(v)  # [B, 3] raw WDL logits (no tanh)
 
         # Policy head
         p = F.relu(self.policy_bn(self.policy_conv(x)))
@@ -102,7 +102,10 @@ class AlphaZeroNet(nn.Module):
         device = next(self.parameters()).device
         x = torch.FloatTensor(state_input).unsqueeze(0).to(device)
         v, p = self(x)
-        return v.item(), p.squeeze(0).cpu().numpy()
+        # WDL logits → scalar: v = P(win) - P(loss)
+        probs = F.softmax(v, dim=1)
+        value = (probs[0, 0] - probs[0, 2]).item()
+        return value, p.squeeze(0).cpu().numpy()
 
     @torch.no_grad()
     def batch_predict(self, state_inputs, detailed_timing=False):
@@ -144,7 +147,9 @@ class AlphaZeroNet(nn.Module):
         forward_time = time.time() - t0
 
         t0 = time.time()
-        values = v.float().squeeze(1)[:n].cpu().numpy().tolist()
+        # WDL logits → scalar: v = P(win) - P(loss)
+        probs = F.softmax(v.float(), dim=1)[:n]
+        values = (probs[:, 0] - probs[:, 2]).cpu().numpy().tolist()
         policies = p.float()[:n].cpu().numpy()
         result_time = time.time() - t0
 
@@ -190,6 +195,6 @@ class AlphaZeroNet(nn.Module):
         if not os.path.exists(path):
             return False
         device = next(self.parameters()).device
-        self.load_state_dict(torch.load(path, weights_only=True,
-                                        map_location=device))
+        state_dict = torch.load(path, weights_only=True, map_location=device)
+        self.load_state_dict(state_dict, strict=False)
         return True

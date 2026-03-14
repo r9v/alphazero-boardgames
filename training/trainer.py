@@ -31,23 +31,17 @@ class Trainer:
         # NOT to BatchNorm gamma/beta or bias terms.  Decaying BN gamma
         # shrinks activations every step (compounding through layers) while
         # BN just rescales — it doesn't regularize, it just causes magnitude decay.
-        # Value head gets lighter weight decay (1e-4) because its gradient
-        # survival through the backbone is low, so standard decay dominates.
         decay_params = []
-        value_decay_params = []
         no_decay_params = []
         for name, param in net.named_parameters():
             if not param.requires_grad:
                 continue
             if 'bn' in name or 'bias' in name:
                 no_decay_params.append(param)
-            elif name.startswith('value_'):
-                value_decay_params.append(param)
             else:
                 decay_params.append(param)
         self.optimizer = torch.optim.SGD([
             {'params': decay_params, 'weight_decay': 1e-3},
-            {'params': value_decay_params, 'weight_decay': 1e-4},
             {'params': no_decay_params, 'weight_decay': 0.0},
         ], lr=self.lr, momentum=0.9)
 
@@ -163,9 +157,10 @@ class Trainer:
             with torch.no_grad():
                 pt_batch = random.choices(samples, k=min(512, len(samples)))
                 pt_states = torch.FloatTensor(np.array([s[0] for s in pt_batch])).to(self.device)
-                pt_targets_v = torch.FloatTensor(np.array([s[2] for s in pt_batch])).unsqueeze(1).to(self.device)
+                pt_raw_v = np.array([s[2] for s in pt_batch])
+                pt_targets_v = torch.LongTensor((1 - pt_raw_v).astype(np.int64)).to(self.device)
                 pt_pred_v, _ = self.net(pt_states)
-                pre_train_vloss = float(F.mse_loss(pt_pred_v, pt_targets_v).item())
+                pre_train_vloss = float(F.cross_entropy(pt_pred_v, pt_targets_v).item())
             self.net.train()
         except Exception:
             pass
@@ -190,13 +185,14 @@ class Trainer:
             t0 = time.time()
             states = torch.FloatTensor(np.array([s[0] for s in batch])).to(self.device)
             target_pis = torch.FloatTensor(np.array([s[1] for s in batch])).to(self.device)
-            target_vs = torch.FloatTensor(np.array([s[2] for s in batch])).unsqueeze(1).to(self.device)
+            raw_v = np.array([s[2] for s in batch])
+            target_vs = torch.LongTensor((1 - raw_v).astype(np.int64)).to(self.device)  # WDL class: +1→0, 0→1, -1→2
             data_prep_time += time.time() - t0
 
             t0 = time.time()
-            pred_vs, pred_pis = self.net(states)
+            pred_vs, pred_pis = self.net(states)  # pred_vs: [B, 3] WDL logits
 
-            value_loss = F.mse_loss(pred_vs, target_vs)
+            value_loss = F.cross_entropy(pred_vs, target_vs)
             policy_loss = -torch.mean(torch.sum(target_pis * torch.log(pred_pis + 1e-8), dim=1))
             loss = effective_vlw * value_loss + policy_loss
 
@@ -213,16 +209,20 @@ class Trainer:
                     is_x = (my_counts == opp_counts)  # X has equal pieces
                     is_o = ~is_x
 
-                    per_sample_vloss = (pred_vs - target_vs).pow(2).squeeze(1)
+                    per_sample_vloss = F.cross_entropy(pred_vs, target_vs, reduction='none')
+                    # Scalar values for diagnostics: P(win) - P(loss)
+                    wdl_probs = F.softmax(pred_vs, dim=1)
+                    scalar_v = wdl_probs[:, 0] - wdl_probs[:, 2]  # [B]
+                    scalar_target = (1 - target_vs.float())  # class→scalar: 0→+1, 1→0, 2→-1
                     if is_x.any():
                         x_vloss_sum += per_sample_vloss[is_x].mean().item()
-                        x_target_sum += target_vs[is_x].mean().item()
-                        x_pred_sum += pred_vs[is_x].mean().item()
+                        x_target_sum += scalar_target[is_x].mean().item()
+                        x_pred_sum += scalar_v[is_x].mean().item()
                         x_count += 1
                     if is_o.any():
                         o_vloss_sum += per_sample_vloss[is_o].mean().item()
-                        o_target_sum += target_vs[is_o].mean().item()
-                        o_pred_sum += pred_vs[is_o].mean().item()
+                        o_target_sum += scalar_target[is_o].mean().item()
+                        o_pred_sum += scalar_v[is_o].mean().item()
                         o_count += 1
 
                     # (#6) Value loss by game phase (infer move count from pieces)
@@ -236,31 +236,24 @@ class Trainer:
             # (F) Gradient direction check every 50 steps
             if step % 50 == 0:
                 with torch.no_grad():
-                    # Check: does the gradient want to push pred_v toward target_v?
-                    # For MSE loss, grad w.r.t. pred = 2*(pred - target)
-                    # Correct direction means: sign(pred - target) should guide update
-                    # After optimizer.step(), pred should move toward target
-                    # We check: does pred_v have same sign error pattern as grad?
-                    error = (pred_vs - target_vs).squeeze(1)
-                    # Gradient is 2*error, optimizer subtracts lr*grad
-                    # So pred should decrease where error > 0, increase where error < 0
-                    # This is always correct for MSE — but we want to verify the
-                    # value head fc layers specifically get the right gradient sign
-                    grad_correct_count += 1  # MSE always has correct direction
+                    # For CE loss, gradient always pushes in correct direction
+                    # (increases probability of correct class)
+                    grad_correct_count += 1
                     grad_total_count += 1
-                    # More useful: check if value head weights actually update correctly
-                    # Log the actual value head gradient statistics
+                    # Scalar value for tracking
+                    wdl_p = F.softmax(pred_vs, dim=1)
+                    sv = wdl_p[:, 0] - wdl_p[:, 2]  # P(W) - P(L)
+                    st = 1 - target_vs.float()  # class→scalar
+                    error_scalar = sv - st
+                    # Log value head gradient statistics
                     fc1_grad = self.net.value_fc1.weight.grad
                     fc2_grad = self.net.value_fc2.weight.grad
                     if fc1_grad is not None and fc2_grad is not None:
-                        # Store for later analysis
                         if not hasattr(self, '_grad_stats'):
                             self._grad_stats = []
-                        # Per-neuron gradient norms for fc1 (each row = one neuron)
-                        fc1_per_neuron_gnorm = fc1_grad.norm(dim=1).cpu().numpy()  # [neurons]
-                        # Value conv + BN gradient norms
+                        fc1_per_neuron_gnorm = fc1_grad.norm(dim=1).cpu().numpy()
                         vconv_g = self.net.value_conv.weight.grad
-                        vbn_g = self.net.value_bn.weight.grad  # gamma grad
+                        vbn_g = self.net.value_bn.weight.grad
                         self._grad_stats.append({
                             'fc1_grad_mean': fc1_grad.mean().item(),
                             'fc1_grad_std': fc1_grad.std().item(),
@@ -268,9 +261,9 @@ class Trainer:
                             'fc2_grad_mean': fc2_grad.mean().item(),
                             'fc2_grad_std': fc2_grad.std().item(),
                             'fc2_grad_norm': fc2_grad.norm().item(),
-                            'pred_mean': pred_vs.mean().item(),
-                            'target_mean': target_vs.mean().item(),
-                            'error_mean': error.mean().item(),
+                            'pred_mean': sv.mean().item(),
+                            'target_mean': st.mean().item(),
+                            'error_mean': error_scalar.mean().item(),
                             'fc1_per_neuron_gnorm': fc1_per_neuron_gnorm,
                             'vconv_grad_norm': vconv_g.norm().item() if vconv_g is not None else 0.0,
                             'vbn_gamma_grad_norm': vbn_g.norm().item() if vbn_g is not None else 0.0,
@@ -317,7 +310,11 @@ class Trainer:
 
             # Sample predictions from last 10% of steps for distribution analysis
             if step >= late_start:
-                all_pred_vs.append(pred_vs.detach().cpu().numpy().flatten())
+                with torch.no_grad():
+                    # Convert WDL logits to scalar values for distribution analysis
+                    wdl_p_late = F.softmax(pred_vs.detach(), dim=1)
+                    scalar_v_late = (wdl_p_late[:, 0] - wdl_p_late[:, 2]).cpu().numpy()
+                all_pred_vs.append(scalar_v_late)
 
                 # (P) Policy quality metrics
                 with torch.no_grad():
@@ -338,19 +335,21 @@ class Trainer:
 
                     policy_acc_count += pred_pis.shape[0]
 
-                    # (C) Value confidence calibration
-                    confident_mask = pred_vs.abs() > 0.5
+                    # (C) Value confidence calibration (using scalar value from WDL)
+                    sv_conf = wdl_p_late[:, 0] - wdl_p_late[:, 2]
+                    scalar_tgt = 1 - target_vs.float()  # class→scalar: 0→+1, 1→0, 2→-1
+                    confident_mask = sv_conf.abs() > 0.5
                     if confident_mask.any():
                         confident_signs_correct = (
-                            pred_vs[confident_mask].sign() == target_vs[confident_mask].sign()
+                            sv_conf[confident_mask].sign() == scalar_tgt[confident_mask].sign()
                         ).float()
                         confident_correct_sum += confident_signs_correct.sum().item()
                         confident_total += confident_mask.sum().item()
 
                     # (#8) Policy loss on value-critical vs ambiguous positions
-                    abs_targets = target_vs.abs().squeeze(1)  # [batch]
-                    decisive_mask = abs_targets > 0.5
-                    ambig_mask = ~decisive_mask
+                    # Decisive = win or loss (class 0 or 2), ambiguous = draw (class 1)
+                    decisive_mask = (target_vs != 1)
+                    ambig_mask = (target_vs == 1)
                     per_sample_ploss = -torch.sum(target_pis * log_pi, dim=1)  # [batch]
                     if decisive_mask.any():
                         ploss_decisive_sum += per_sample_ploss[decisive_mask].mean().item()
@@ -399,9 +398,10 @@ class Trainer:
                     continue
                 vs = torch.FloatTensor(np.array([s[0] for s in vb])).to(self.device)
                 vt_pi = torch.FloatTensor(np.array([s[1] for s in vb])).to(self.device)
-                vt_v = torch.FloatTensor(np.array([s[2] for s in vb])).unsqueeze(1).to(self.device)
+                vt_raw = np.array([s[2] for s in vb])
+                vt_v = torch.LongTensor((1 - vt_raw).astype(np.int64)).to(self.device)
                 pv, pp = self.net(vs)
-                val_vloss += F.mse_loss(pv, vt_v).item()
+                val_vloss += F.cross_entropy(pv, vt_v).item()
                 val_ploss += -torch.mean(torch.sum(vt_pi * torch.log(pp + 1e-8), dim=1)).item()
                 val_batches += 1
             if val_batches > 0:
@@ -420,9 +420,11 @@ class Trainer:
         buffer_fill = sum(1 for s in self.buffer.arr if s is not None)
         buffer_full = buffer_fill >= self.buffer.max_size
 
-        # Theoretical value loss floor: E[(v - target)^2] when v=mean(targets)
-        # For binary ±1 targets, floor = 1 - mean^2
-        val_loss_floor = val_std ** 2  # variance of targets = irreducible MSE
+        # Theoretical value loss floor: entropy of target distribution (irreducible CE)
+        val_loss_floor = 0.0
+        for frac in [frac_neg, frac_draw, frac_pos]:
+            if frac > 0:
+                val_loss_floor -= frac * np.log(frac)
 
         # (A) Per-player averages
         x_vloss_avg = x_vloss_sum / max(x_count, 1)
@@ -453,8 +455,8 @@ class Trainer:
             }
             self._grad_stats = []
 
-        # (V) Value head health: dead neurons, pre-tanh range, saturation,
-        # weight stats, spike decomposition, backbone signal
+        # (V) Value head health: dead neurons, WDL distribution,
+        # weight stats, backbone signal
         vh_diag = {}
         try:
             self.net.eval()
@@ -471,7 +473,7 @@ class Trainer:
                 captured['fc1_out'] = output     # linear output (pre-activation)
             def hook_fc2(module, input, output):
                 captured['fc2_in'] = input[0]    # post-LeakyReLU, post-dropout
-                captured['pre_tanh'] = output
+                captured['wdl_logits'] = output   # [batch, 3] raw WDL logits
             # Per-residual-block activation hooks (capture input for residual ratio)
             def make_rb_hook(idx):
                 def hook(module, input, output):
@@ -518,27 +520,31 @@ class Trainer:
             pconv_np = captured['pconv_out'].cpu().numpy()   # [batch, 2, H, W]
             fc1_np = captured['fc1_out'].cpu().numpy()       # [batch, neurons]
             fc2_in_np = captured['fc2_in'].cpu().numpy()     # [batch, neurons] post-activation
-            pre_tanh_np = captured['pre_tanh'].cpu().numpy().flatten()
-            out_np = v_out.cpu().numpy().flatten()
+            wdl_logits_np = captured['wdl_logits'].cpu().numpy()  # [batch, 3]
+            wdl_probs_diag = F.softmax(captured['wdl_logits'], dim=1).cpu().numpy()  # [batch, 3]
+            scalar_v_diag = wdl_probs_diag[:, 0] - wdl_probs_diag[:, 2]  # [batch]
             fc1_in_np = captured['fc1_in'].cpu().numpy()     # [batch, flat_size]
+
+            # WDL health metrics
+            wdl_entropy_per_sample = -(wdl_probs_diag * np.log(wdl_probs_diag + 1e-8)).sum(axis=1)
+            wdl_confidence = wdl_probs_diag.max(axis=1)
+            # WDL accuracy: compare predicted class vs target class
+            diag_raw_targets = np.array([s[2] for s in diag_batch])
+            diag_target_classes = (1 - diag_raw_targets).astype(np.int64)
+            wdl_pred_classes = wdl_logits_np.argmax(axis=1)
+            wdl_accuracy = float((wdl_pred_classes == diag_target_classes).mean())
 
             n_total_neurons = fc1_np.shape[1]
             # With LeakyReLU, "near-dead" = always near zero (abs < 0.01)
             near_dead = (np.abs(fc1_np) < 0.01).all(axis=0)
             n_dead = int(near_dead.sum())
 
-            # --- fc2 weight stats: are weights growing? ---
-            fc2_w = self.net.value_fc2.weight.detach().cpu().numpy().flatten()
-            fc2_b = self.net.value_fc2.bias.detach().cpu().numpy().flatten()
+            # --- fc2 weight stats: are weights growing? (key WDL health metric) ---
+            fc2_w = self.net.value_fc2.weight.detach().cpu().numpy()  # [3, fc_size]
+            fc2_b = self.net.value_fc2.bias.detach().cpu().numpy()    # [3]
 
             # --- fc1 weight stats ---
             fc1_w = self.net.value_fc1.weight.detach().cpu().numpy()
-
-            # --- Spike decomposition: what causes max pre_tanh? ---
-            max_idx = int(np.argmax(np.abs(pre_tanh_np)))
-            max_sample_acts = fc2_in_np[max_idx]  # activations for spike sample
-            contributions = max_sample_acts * fc2_w  # per-neuron contribution
-            top_neuron = int(np.argmax(np.abs(contributions)))
 
             # --- Per-neuron activity: mean abs activation ---
             neuron_abs_mean = np.abs(fc2_in_np).mean(axis=0)  # [neurons]
@@ -733,23 +739,26 @@ class Trainer:
                 "dead_neurons": n_dead,
                 "total_neurons": n_total_neurons,
                 "active_neurons": active_count,
-                "pre_tanh_min": float(pre_tanh_np.min()),
-                "pre_tanh_max": float(pre_tanh_np.max()),
-                "pre_tanh_std": float(pre_tanh_np.std()),
-                "out_saturated": float((np.abs(out_np) > 0.95).mean()),
-                "out_abs_mean": float(np.abs(out_np).mean()),
-                # fc2 weight diagnostics
+                # WDL metrics (replaces pre_tanh/saturation)
+                "wdl_logit_std": float(wdl_logits_np.std()),
+                "wdl_logit_range": float(wdl_logits_np.max() - wdl_logits_np.min()),
+                "wdl_entropy": float(wdl_entropy_per_sample.mean()),
+                "wdl_confidence": float(wdl_confidence.mean()),
+                "wdl_win_prob": float(wdl_probs_diag[:, 0].mean()),
+                "wdl_draw_prob": float(wdl_probs_diag[:, 1].mean()),
+                "wdl_loss_prob": float(wdl_probs_diag[:, 2].mean()),
+                "wdl_scalar_mean": float(scalar_v_diag.mean()),
+                "wdl_scalar_std": float(scalar_v_diag.std()),
+                "wdl_accuracy": wdl_accuracy,
+                # fc2 weight diagnostics (key WDL health: should stabilize)
                 "fc2_w_max": float(fc2_w.max()),
                 "fc2_w_min": float(fc2_w.min()),
                 "fc2_w_norm": fc2_w_norm_now,
-                "fc2_bias": float(fc2_b[0]),
+                "fc2_bias_w": float(fc2_b[0]),
+                "fc2_bias_d": float(fc2_b[1]),
+                "fc2_bias_l": float(fc2_b[2]),
                 # fc1 weight diagnostics
                 "fc1_w_norm": fc1_w_norm_now,
-                # Spike decomposition
-                "spike_neuron": top_neuron,
-                "spike_contribution": float(contributions[top_neuron]),
-                "spike_fc2_weight": float(fc2_w[top_neuron]),
-                "spike_fc1_act": float(max_sample_acts[top_neuron]),
                 # Backbone signal into value head
                 "backbone_std": float(fc1_in_np.std()),
                 "backbone_abs_mean": float(np.abs(fc1_in_np).mean()),
@@ -824,7 +833,8 @@ class Trainer:
             self.net.eval()  # Don't update BN running stats
             gd_batch = random.choices(samples, k=min(64, len(samples)))
             gd_states = torch.FloatTensor(np.array([s[0] for s in gd_batch])).to(self.device)
-            gd_targets_v = torch.FloatTensor(np.array([s[2] for s in gd_batch])).unsqueeze(1).to(self.device)
+            gd_raw_v = np.array([s[2] for s in gd_batch])
+            gd_targets_v = torch.LongTensor((1 - gd_raw_v).astype(np.int64)).to(self.device)
             gd_targets_pi = torch.FloatTensor(np.array([s[1] for s in gd_batch])).to(self.device)
 
             # Hook to capture backbone output tensor (with grad tracking)
@@ -845,7 +855,7 @@ class Trainer:
             self.optimizer.zero_grad()
             gd_pred_v, gd_pred_p = self.net(gd_states)
 
-            gd_v_loss = F.mse_loss(gd_pred_v, gd_targets_v)
+            gd_v_loss = F.cross_entropy(gd_pred_v, gd_targets_v)
             gd_p_loss = -torch.mean(torch.sum(gd_targets_pi * torch.log(gd_pred_p + 1e-8), dim=1))
 
             bb_x = bb_ref['x']  # [batch, 256, H, W]
@@ -1453,18 +1463,19 @@ class Trainer:
                 if vh:
                     print(f"  Diag[V]: dead={vh['dead_neurons']} "
                           f"active={vh.get('active_neurons','?')}/{vh['total_neurons']} "
-                          f"pre_tanh=[{vh['pre_tanh_min']:+.2f},{vh['pre_tanh_max']:+.2f}] "
-                          f"std={vh['pre_tanh_std']:.3f} "
-                          f"saturated={vh['out_saturated']:.1%} "
-                          f"|v|={vh['out_abs_mean']:.3f}")
+                          f"| WDL: entropy={vh['wdl_entropy']:.3f} "
+                          f"conf={vh['wdl_confidence']:.3f} "
+                          f"acc={vh['wdl_accuracy']:.1%} "
+                          f"v={vh['wdl_scalar_mean']:+.3f}±{vh['wdl_scalar_std']:.3f}")
+                    print(f"  Diag[V1]: WDL probs: W={vh['wdl_win_prob']:.3f} "
+                          f"D={vh['wdl_draw_prob']:.3f} L={vh['wdl_loss_prob']:.3f} | "
+                          f"logit_std={vh['wdl_logit_std']:.3f} "
+                          f"logit_range={vh['wdl_logit_range']:.3f}")
                     print(f"  Diag[V2]: fc2_w=[{vh['fc2_w_min']:+.3f},{vh['fc2_w_max']:+.3f}] "
-                          f"norm={vh['fc2_w_norm']:.3f} bias={vh['fc2_bias']:+.4f} | "
+                          f"norm={vh['fc2_w_norm']:.3f} "
+                          f"bias=[W:{vh['fc2_bias_w']:+.3f} D:{vh['fc2_bias_d']:+.3f} L:{vh['fc2_bias_l']:+.3f}] | "
                           f"fc1_w_norm={vh['fc1_w_norm']:.3f} | "
                           f"backbone std={vh['backbone_std']:.3f} |x|={vh['backbone_abs_mean']:.3f}")
-                    print(f"  Diag[V3]: spike_neuron={vh['spike_neuron']} "
-                          f"contrib={vh['spike_contribution']:+.3f} "
-                          f"(fc2_w={vh['spike_fc2_weight']:+.4f} * "
-                          f"act={vh['spike_fc1_act']:+.4f})")
                     # Metric 2: activation percentiles
                     print(f"  Diag[V4]: fc1_act p10={vh['fc1_act_p10']:.4f} "
                           f"p50={vh['fc1_act_p50']:.4f} "
@@ -1654,9 +1665,17 @@ class Trainer:
                     # Tensorboard
                     self.writer.add_scalar("vh/dead_neurons", vh["dead_neurons"], iteration)
                     self.writer.add_scalar("vh/active_neurons", vh.get("active_neurons", 0), iteration)
-                    self.writer.add_scalar("vh/pre_tanh_max", vh["pre_tanh_max"], iteration)
-                    self.writer.add_scalar("vh/pre_tanh_min", vh["pre_tanh_min"], iteration)
-                    self.writer.add_scalar("vh/saturated", vh["out_saturated"], iteration)
+                    # WDL metrics (replaces pre_tanh/saturated)
+                    self.writer.add_scalar("vh/wdl_entropy", vh["wdl_entropy"], iteration)
+                    self.writer.add_scalar("vh/wdl_confidence", vh["wdl_confidence"], iteration)
+                    self.writer.add_scalar("vh/wdl_accuracy", vh["wdl_accuracy"], iteration)
+                    self.writer.add_scalar("vh/wdl_logit_std", vh["wdl_logit_std"], iteration)
+                    self.writer.add_scalar("vh/wdl_logit_range", vh["wdl_logit_range"], iteration)
+                    self.writer.add_scalar("vh/wdl_win_prob", vh["wdl_win_prob"], iteration)
+                    self.writer.add_scalar("vh/wdl_draw_prob", vh["wdl_draw_prob"], iteration)
+                    self.writer.add_scalar("vh/wdl_loss_prob", vh["wdl_loss_prob"], iteration)
+                    self.writer.add_scalar("vh/wdl_scalar_mean", vh["wdl_scalar_mean"], iteration)
+                    self.writer.add_scalar("vh/wdl_scalar_std", vh["wdl_scalar_std"], iteration)
                     self.writer.add_scalar("vh/fc2_w_max", vh["fc2_w_max"], iteration)
                     self.writer.add_scalar("vh/fc2_w_min", vh["fc2_w_min"], iteration)
                     self.writer.add_scalar("vh/fc2_w_norm", vh["fc2_w_norm"], iteration)
@@ -1760,14 +1779,14 @@ class Trainer:
                     self.writer.add_scalar("selfplay_diag/mean_when_o_moves", vd["mean_when_o_moves"], iteration)
                     print(f"  SelfPlay: nnet_v mean={vd['mean_nnet_value']:+.3f} "
                           f"std={vd['std_nnet_value']:.3f} | "
-                          f"saturated={vd['frac_saturated_any']:.1%} | "
+                          f"hi_conf={vd['frac_saturated_any']:.1%} | "
                           f"sign_acc={vd['sign_accuracy']:.1%} | "
                           f"MAE={vd['mae_vs_outcome']:.3f} | "
                           f"corr={vd['pred_outcome_corr']:+.3f}")
                     print(f"  SelfPlay: v_when_X={vd['mean_when_x_moves']:+.3f} "
                           f"v_when_O={vd['mean_when_o_moves']:+.3f} | "
-                          f"sat+={vd['frac_saturated_pos']:.1%} "
-                          f"sat-={vd['frac_saturated_neg']:.1%}")
+                          f"conf+={vd['frac_saturated_pos']:.1%} "
+                          f"conf-={vd['frac_saturated_neg']:.1%}")
                     if 'mcts_visit_entropy_mean' in vd:
                         self.writer.add_scalar("selfplay_diag/mcts_visit_entropy",
                                                vd["mcts_visit_entropy_mean"], iteration)
@@ -1830,18 +1849,22 @@ class Trainer:
         positions.append(("empty_board", self.game.state_to_input(s), "expect ~0"))
 
         # Position 2: X about to win horizontally (X to move)
+        # Valid piece counts: X to move → X_count == O_count
         board = np.zeros((6, 7), dtype="int")
-        board[0][0:3] = -1  # X has 3 in row
-        board[0][4] = 1     # some O piece
-        s = C4State(None, board, player=-1)
+        board[0][0:3] = -1  # X has 3 in row (cols 0-2)
+        board[0][4] = 1     # O pieces scattered (3 total)
+        board[0][5] = 1
+        board[1][4] = 1
+        s = C4State(None, board, player=-1)  # X=3 O=3, X to move
         positions.append(("x_wins_next", self.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
         # Position 3: O about to win horizontally (O to move)
+        # Valid piece counts: O to move → X_count == O_count + 1
         board = np.zeros((6, 7), dtype="int")
-        board[0][0:3] = 1   # O has 3 in row
-        board[0][4] = -1    # some X piece
+        board[0][0:3] = 1   # O has 3 in row (cols 0-2)
+        board[0][4:7] = -1  # X pieces scattered (4 total)
         board[1][4] = -1
-        s = C4State(None, board, player=1)
+        s = C4State(None, board, player=1)  # X=4 O=3, O to move
         positions.append(("o_wins_next", self.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
         # Position 4: The diagonal threat position from the bug report
