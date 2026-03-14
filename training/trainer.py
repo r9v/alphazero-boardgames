@@ -31,17 +31,23 @@ class Trainer:
         # NOT to BatchNorm gamma/beta or bias terms.  Decaying BN gamma
         # shrinks activations every step (compounding through layers) while
         # BN just rescales — it doesn't regularize, it just causes magnitude decay.
+        # Value head gets lighter weight decay (1e-4) because its gradient
+        # survival through the backbone is low, so standard decay dominates.
         decay_params = []
+        value_decay_params = []
         no_decay_params = []
         for name, param in net.named_parameters():
             if not param.requires_grad:
                 continue
             if 'bn' in name or 'bias' in name:
                 no_decay_params.append(param)
+            elif name.startswith('value_'):
+                value_decay_params.append(param)
             else:
                 decay_params.append(param)
         self.optimizer = torch.optim.SGD([
             {'params': decay_params, 'weight_decay': 1e-3},
+            {'params': value_decay_params, 'weight_decay': 1e-4},
             {'params': no_decay_params, 'weight_decay': 0.0},
         ], lr=self.lr, momentum=0.9)
 
