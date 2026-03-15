@@ -36,7 +36,7 @@ class Trainer:
         for name, param in net.named_parameters():
             if not param.requires_grad:
                 continue
-            if 'bn' in name or 'bias' in name:
+            if 'bn' in name or 'bias' in name or 'log_sigma2' in name:
                 no_decay_params.append(param)
             else:
                 decay_params.append(param)
@@ -187,7 +187,7 @@ class Trainer:
         # Linearly scale from 1 epoch (empty) to target_epochs (full)
         scaled_epochs = 1.0 + (self.target_epochs - 1.0) * fill_ratio
         target_steps = int(scaled_epochs * (n_samples // self.batch_size))
-        # Ramp value_loss_weight: 1.0 (empty) -> configured value (full)
+        # Effective vlw tracked for diagnostics only (loss uses learned uncertainty weights)
         effective_vlw = 1.0 + (self.value_loss_weight - 1.0) * fill_ratio
         num_steps = max(1, min(self.max_train_steps, target_steps))
         effective_epochs = (num_steps * self.batch_size) / n_samples
@@ -244,7 +244,14 @@ class Trainer:
             value_loss = F.cross_entropy(pred_vs, target_vs)
             log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
             policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
-            loss = effective_vlw * value_loss + policy_loss
+
+            # Uncertainty weighting (Kendall et al. 2018):
+            # L = (1/(2*sigma_v^2)) * L_v + (1/(2*sigma_p^2)) * L_p + log(sigma_v) + log(sigma_p)
+            # Using log_sigma2 = log(sigma^2): weight = 1/(2*exp(s)) = 0.5*exp(-s), reg = s/2
+            log_s_v = self.net.log_sigma2_value
+            log_s_p = self.net.log_sigma2_policy
+            loss = (0.5 * torch.exp(-log_s_v) * value_loss + 0.5 * log_s_v +
+                    0.5 * torch.exp(-log_s_p) * policy_loss + 0.5 * log_s_p)
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -1246,6 +1253,12 @@ class Trainer:
             # (V) Value head health
             "vh_diag": vh_diag,
             "effective_vlw": effective_vlw,
+            # Uncertainty weighting: learned task weights
+            "uw_log_sigma2_v": float(self.net.log_sigma2_value.item()),
+            "uw_log_sigma2_p": float(self.net.log_sigma2_policy.item()),
+            "uw_weight_v": float(0.5 * torch.exp(-self.net.log_sigma2_value).item()),
+            "uw_weight_p": float(0.5 * torch.exp(-self.net.log_sigma2_policy).item()),
+            "uw_effective_vlw": float((torch.exp(self.net.log_sigma2_policy - self.net.log_sigma2_value)).item()),
             # (P) Policy quality metrics
             "policy_entropy": avg_policy_entropy,
             "policy_top1_acc": policy_top1_acc,
@@ -1525,6 +1538,17 @@ class Trainer:
                 self.writer.add_scalar("diag/val_vloss", d["val_vloss"], iteration)
                 self.writer.add_scalar("diag/effective_vlw", d.get("effective_vlw", 1.0), iteration)
                 self.writer.add_scalar("diag/val_ploss", d["val_ploss"], iteration)
+                # Uncertainty weighting diagnostics
+                print(f"  Diag[UW]: log_s2: v={d['uw_log_sigma2_v']:+.4f} "
+                      f"p={d['uw_log_sigma2_p']:+.4f} | "
+                      f"weights: v={d['uw_weight_v']:.4f} "
+                      f"p={d['uw_weight_p']:.4f} | "
+                      f"eff_vlw={d['uw_effective_vlw']:.3f}")
+                self.writer.add_scalar("uw/log_sigma2_value", d["uw_log_sigma2_v"], iteration)
+                self.writer.add_scalar("uw/log_sigma2_policy", d["uw_log_sigma2_p"], iteration)
+                self.writer.add_scalar("uw/weight_value", d["uw_weight_v"], iteration)
+                self.writer.add_scalar("uw/weight_policy", d["uw_weight_p"], iteration)
+                self.writer.add_scalar("uw/effective_vlw", d["uw_effective_vlw"], iteration)
                 print(f"  Diag: pred_v mean={d['pred_v_mean']:+.3f} "
                       f"std={d['pred_v_std']:.3f} "
                       f"|v|={d['pred_v_abs_mean']:.3f} | "

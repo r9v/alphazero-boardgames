@@ -32,7 +32,8 @@ class AlphaZeroNet(nn.Module):
     def __init__(self, input_channels, board_shape, action_size,
                  num_res_blocks=2, num_filters=256,
                  value_head_channels=2, value_head_fc_size=64,
-                 policy_head_channels=2):
+                 policy_head_channels=2,
+                 backbone_dropout=0.15):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
@@ -50,6 +51,17 @@ class AlphaZeroNet(nn.Module):
         # Final BN→ReLU after all ResBlocks (standard pre-norm pattern)
         # Ensures backbone output is normalized before heads
         self.final_bn = nn.BatchNorm2d(num_filters)
+
+        # Channel dropout on backbone output before heads split.
+        # Prevents channel ownership/segregation between value and policy heads.
+        # Drops entire channels (Dropout2d) so neither head can exclusively own channels.
+        self.backbone_dropout = nn.Dropout2d(p=backbone_dropout)
+
+        # Uncertainty weighting (Kendall et al. 2018): learned task weights.
+        # log_sigma^2 for each task; loss_weight = 1/(2*exp(log_sigma2)) + log_sigma2/2
+        # Replaces manual value_loss_weight.
+        self.log_sigma2_value = nn.Parameter(torch.zeros(1))   # init: sigma=1 → weight=0.5
+        self.log_sigma2_policy = nn.Parameter(torch.zeros(1))  # init: sigma=1 → weight=0.5
 
         # Value head
         self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
@@ -69,6 +81,9 @@ class AlphaZeroNet(nn.Module):
         for block in self.res_blocks:
             x = block(x)
         x = F.relu(self.final_bn(x))
+
+        # Channel dropout: prevent head channel segregation
+        x = self.backbone_dropout(x)
 
         # Value head
         v = F.leaky_relu(self.value_bn(self.value_conv(x)), negative_slope=0.01)
