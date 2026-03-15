@@ -6,13 +6,26 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class ResBlock(nn.Module):
-    """Pre-activation ResBlock with ReZero gating.
+def ws_conv2d(x, conv):
+    """Conv2d with Weight Standardization (Qiao et al., 2019).
 
-    BN→ReLU→Conv→BN→ReLU→Conv→(×α) + skip.
-    Clean residual path (skip untouched). Learnable res_scale (α) initialized
-    to 0 (ReZero) — block starts as identity and gradually learns to contribute.
-    Prevents conv2 weight explosion by gating the residual branch magnitude.
+    Normalizes conv weights to zero-mean unit-variance per output filter
+    before applying convolution. Weights learn direction only; magnitude
+    is always ~1.0 per filter. Prevents weight explosion in pre-norm ResBlocks.
+    """
+    w = conv.weight
+    mean = w.mean(dim=[1, 2, 3], keepdim=True)
+    std = w.std(dim=[1, 2, 3], keepdim=True) + 1e-5
+    w = (w - mean) / std
+    return F.conv2d(x, w, conv.bias, conv.stride, conv.padding)
+
+
+class ResBlock(nn.Module):
+    """Pre-activation ResBlock with Weight Standardization on conv2.
+
+    BN→ReLU→Conv1→BN→ReLU→WS-Conv2 + skip.
+    Clean residual path. Weight Standardization on conv2 prevents weight
+    explosion by normalizing weights per filter before each forward pass.
     """
     def __init__(self, num_filters):
         super().__init__()
@@ -20,12 +33,11 @@ class ResBlock(nn.Module):
         self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
         self.bn2 = nn.BatchNorm2d(num_filters)
         self.conv2 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
-        self.res_scale = nn.Parameter(torch.zeros(1))  # ReZero: start as identity
 
     def forward(self, x):
         residual = x
         x = self.conv1(F.relu(self.bn1(x)))
-        x = self.res_scale * self.conv2(F.relu(self.bn2(x)))
+        x = ws_conv2d(F.relu(self.bn2(x)), self.conv2)
         return x + residual
 
 

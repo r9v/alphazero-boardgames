@@ -36,7 +36,7 @@ class Trainer:
         for name, param in net.named_parameters():
             if not param.requires_grad:
                 continue
-            if 'bn' in name or 'bias' in name or 'log_sigma2' in name or 'res_scale' in name:
+            if 'bn' in name or 'bias' in name or 'log_sigma2' in name:
                 no_decay_params.append(param)
             else:
                 decay_params.append(param)
@@ -1822,16 +1822,6 @@ class Trainer:
                         self.writer.add_scalar("diag/final_bn_gamma_std", vh.get('final_bn_gamma_std', 0), iteration)
                         self.writer.add_scalar("diag/final_bn_sqrt_var_mean", vh.get('final_bn_sqrt_var_mean', 0), iteration)
                         self.writer.add_scalar("diag/final_bn_sqrt_var_std", vh.get('final_bn_sqrt_var_std', 0), iteration)
-                    # ReZero res_scale values
-                    res_scales = []
-                    for bi, block in enumerate(self.net.res_blocks):
-                        if hasattr(block, 'res_scale'):
-                            rs = float(block.res_scale.item())
-                            res_scales.append((bi, rs))
-                            self.writer.add_scalar(f"rb{bi}/res_scale", rs, iteration)
-                    if res_scales:
-                        rs_str = " ".join(f"rb{bi}={rs:.4f}" for bi, rs in res_scales)
-                        print(f"  Diag[RS]: res_scale: {rs_str}")
                     # (#5) Residual contribution ratio
                     rr = vh.get('rb_residual_ratios', {})
                     if rr:
