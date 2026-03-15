@@ -75,12 +75,6 @@ class AlphaZeroNet(nn.Module):
         # Drops entire channels (Dropout2d) so neither head can exclusively own channels.
         self.backbone_dropout = nn.Dropout2d(p=backbone_dropout)
 
-        # Uncertainty weighting (Kendall et al. 2018): learned task weights.
-        # log_sigma^2 for each task; loss_weight = 1/(2*exp(log_sigma2)) + log_sigma2/2
-        # Replaces manual value_loss_weight.
-        self.log_sigma2_value = nn.Parameter(torch.zeros(1))   # init: sigma=1 → weight=0.5
-        self.log_sigma2_policy = nn.Parameter(torch.zeros(1))  # init: sigma=1 → weight=0.5
-
         # Value head
         self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
         self.value_bn = nn.BatchNorm2d(value_head_channels)

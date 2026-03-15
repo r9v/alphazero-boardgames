@@ -48,7 +48,7 @@ GAME_CONFIGS = {
         "max_train_steps": 3_200,
         "target_epochs": 4,
         "buffer_size": 50_000,
-        "value_loss_weight": 1.0,  # legacy (loss uses learned uncertainty weights)
+        "value_loss_weight": 3.0,
         "lr": 0.01,
         "batch_size": 64,
 
