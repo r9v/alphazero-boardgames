@@ -46,6 +46,7 @@ class Trainer:
         ], lr=self.lr, momentum=0.9)
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
+        self.ownership_loss_weight = self.config.get("ownership_loss_weight", 0.0)
 
         game_name = self.config.get("game_name", "unknown")
         timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -135,6 +136,7 @@ class Trainer:
         total_loss = 0
         total_value_loss = 0
         total_policy_loss = 0
+        total_ownership_loss = 0
         num_batches = 0
         data_prep_time = 0.0
         gradient_time = 0.0
@@ -208,7 +210,7 @@ class Trainer:
                 pt_states = torch.FloatTensor(np.array([s[0] for s in pt_batch])).to(self.device)
                 pt_raw_v = np.array([s[2] for s in pt_batch])
                 pt_targets_v = torch.LongTensor((1 - pt_raw_v).astype(np.int64)).to(self.device)
-                pt_pred_v, _ = self.net(pt_states)
+                pt_pred_v = self.net(pt_states)[0]
                 pre_train_vloss = float(F.cross_entropy(pt_pred_v, pt_targets_v).item())
             self.net.train()
         except Exception:
@@ -236,16 +238,26 @@ class Trainer:
             target_pis = torch.FloatTensor(np.array([s[1] for s in batch])).to(self.device)
             raw_v = np.array([s[2] for s in batch])
             target_vs = torch.LongTensor((1 - raw_v).astype(np.int64)).to(self.device)  # WDL class: +1→0, 0→1, -1→2
+            has_own = len(batch[0]) > 3 and self.ownership_loss_weight > 0
+            if has_own:
+                target_own = torch.FloatTensor(np.array([s[3] for s in batch])).to(self.device)
             data_prep_time += time.time() - t0
 
             t0 = time.time()
-            pred_vs, pred_pi_logits = self.net(states)  # pred_vs: [B, 3] WDL logits
+            net_out = self.net(states)
+            pred_vs, pred_pi_logits = net_out[0], net_out[1]
+            pred_own = net_out[2] if len(net_out) > 2 else None
 
             value_loss = F.cross_entropy(pred_vs, target_vs)
             log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
             policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
 
             loss = effective_vlw * value_loss + policy_loss
+
+            if has_own and pred_own is not None:
+                own_loss = F.mse_loss(pred_own, target_own)
+                loss = loss + self.ownership_loss_weight * own_loss
+                total_ownership_loss += own_loss.item()
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -420,6 +432,7 @@ class Trainer:
         avg_loss = total_loss / max(num_batches, 1)
         avg_value_loss = total_value_loss / max(num_batches, 1)
         avg_policy_loss = total_policy_loss / max(num_batches, 1)
+        avg_ownership_loss = total_ownership_loss / max(num_batches, 1)
         early_vloss /= max(early_cutoff, 1)
         early_ploss /= max(early_cutoff, 1)
         late_vloss /= max(early_cutoff, 1)
@@ -459,7 +472,8 @@ class Trainer:
                 vt_pi = torch.FloatTensor(np.array([s[1] for s in vb])).to(self.device)
                 vt_raw = np.array([s[2] for s in vb])
                 vt_v = torch.LongTensor((1 - vt_raw).astype(np.int64)).to(self.device)
-                pv, pp_logits = self.net(vs)
+                val_out = self.net(vs)
+                pv, pp_logits = val_out[0], val_out[1]
                 val_vloss += F.cross_entropy(pv, vt_v).item()
                 val_ploss += -torch.mean(torch.sum(vt_pi * F.log_softmax(pp_logits, dim=1), dim=1)).item()
                 val_batches += 1
@@ -568,7 +582,7 @@ class Trainer:
                 diag_inp = torch.FloatTensor(
                     np.array([s[0] for s in diag_batch])
                 ).to(self.device)
-                v_out, _ = self.net(diag_inp)
+                v_out = self.net(diag_inp)[0]
             h0.remove()
             h0b.remove()
             h0p.remove()
@@ -933,7 +947,7 @@ class Trainer:
                 rb_gd_hooks.append(block.register_forward_hook(make_rb_gd_hook(idx)))
 
             self.optimizer.zero_grad()
-            gd_pred_v, gd_pred_p_logits = self.net(gd_states)
+            gd_pred_v, gd_pred_p_logits = self.net(gd_states)[:2]
 
             gd_v_loss = F.cross_entropy(gd_pred_v, gd_targets_v)
             gd_p_loss = -torch.mean(torch.sum(gd_targets_pi * F.log_softmax(gd_pred_p_logits, dim=1), dim=1))
@@ -1276,6 +1290,8 @@ class Trainer:
             "policy_loss_decisive": ploss_decisive_sum / max(decisive_count, 1),
             "policy_loss_ambiguous": ploss_ambiguous_sum / max(ambiguous_count, 1),
             "decisive_frac": decisive_count / max(decisive_count + ambiguous_count, 1),
+            # Ownership auxiliary loss
+            "avg_ownership_loss": avg_ownership_loss,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -1308,8 +1324,12 @@ class Trainer:
             # Augment with symmetries (e.g. left-right mirror for Connect4)
             augmented = []
             for ex in all_examples:
-                for sym_input, sym_policy in self.game.get_symmetries(ex[0], ex[1]):
-                    augmented.append([sym_input, sym_policy, ex[2]])
+                ownership = ex[3] if len(ex) > 3 else None
+                for sym_input, sym_policy, sym_own in self.game.get_symmetries(ex[0], ex[1], ownership):
+                    entry = [sym_input, sym_policy, ex[2]]
+                    if sym_own is not None:
+                        entry.append(sym_own)
+                    augmented.append(entry)
             self.buffer.insert_batch(augmented)
 
             # === Per-iteration 3-in-a-row target bias (fresh batch only) ===
@@ -1371,8 +1391,13 @@ class Trainer:
                 self.writer.add_scalar("loss/total", avg_loss, iteration)
                 self.writer.add_scalar("loss/value", avg_value_loss, iteration)
                 self.writer.add_scalar("loss/policy", avg_policy_loss, iteration)
+                own_loss_str = ""
+                if hasattr(self, '_train_diag') and self._train_diag.get("avg_ownership_loss", 0) > 0:
+                    own_l = self._train_diag["avg_ownership_loss"]
+                    self.writer.add_scalar("loss/ownership", own_l, iteration)
+                    own_loss_str = f" o={own_l:.4f}"
                 print(f"  Iter {iteration+1}/{num_iterations}: loss={avg_loss:.4f} "
-                      f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}) | "
+                      f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}{own_loss_str}) | "
                       f"games: p1={wins_p1} p2={wins_p2} draw={draws} | "
                       f"avg_len={avg_length:.1f} ({min_length}-{max_length}) | "
                       f"self_play={self_play_time:.1f}s train={train_time:.1f}s "

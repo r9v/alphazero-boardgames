@@ -442,7 +442,7 @@ class CSantoriniGame:
 
         return inp
 
-    def get_symmetries(self, state_input, policy):
+    def get_symmetries(self, state_input, policy, ownership=None):
         """D4 symmetry: 8 transforms (4 rotations + 4 reflections)."""
         from .symmetry import get_symmetries as _get_symmetries
-        return _get_symmetries(state_input, policy)
+        return _get_symmetries(state_input, policy, ownership)

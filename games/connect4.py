@@ -77,13 +77,14 @@ class Connect4Game(Game):
         next_board[row][action] = state.player
         return GameState(state, next_board, state.player * -1)
 
-    def get_symmetries(self, state_input, policy):
+    def get_symmetries(self, state_input, policy, ownership=None):
         """Connect4 has left-right mirror symmetry."""
-        syms = [(state_input, policy)]
+        syms = [(state_input, policy, ownership)]
         # Flip columns: board channels flip along axis 2, policy reverses
         flipped_input = state_input[:, :, ::-1].copy()
         flipped_policy = policy[::-1].copy()
-        syms.append((flipped_input, flipped_policy))
+        flipped_own = ownership[:, ::-1].copy() if ownership is not None else None
+        syms.append((flipped_input, flipped_policy, flipped_own))
         return syms
 
     input_channels = 3
