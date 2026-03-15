@@ -39,7 +39,7 @@ GAME_CONFIGS = {
     "connect4": {
         # --- Network ---
         "num_filters": 128,
-        "num_res_blocks": 2,
+        "num_res_blocks": 4,
         "value_head_channels": 4,
         "value_head_fc_size": 128,
         "policy_head_channels": 2,

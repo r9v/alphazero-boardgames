@@ -42,10 +42,14 @@ class AlphaZeroNet(nn.Module):
         self.conv = nn.Conv2d(input_channels, num_filters, 3, padding=1)
         self.bn = nn.BatchNorm2d(num_filters)
 
-        # Residual blocks (post-activation)
+        # Residual blocks (pre-activation / pre-norm)
         self.res_blocks = nn.ModuleList(
             [ResBlock(num_filters) for _ in range(num_res_blocks)]
         )
+
+        # Final BN→ReLU after all ResBlocks (standard pre-norm pattern)
+        # Ensures backbone output is normalized before heads
+        self.final_bn = nn.BatchNorm2d(num_filters)
 
         # Value head
         self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
@@ -64,6 +68,7 @@ class AlphaZeroNet(nn.Module):
         x = F.relu(self.bn(self.conv(x)))
         for block in self.res_blocks:
             x = block(x)
+        x = F.relu(self.final_bn(x))
 
         # Value head
         v = F.leaky_relu(self.value_bn(self.value_conv(x)), negative_slope=0.01)
