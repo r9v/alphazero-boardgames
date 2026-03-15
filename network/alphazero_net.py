@@ -7,12 +7,12 @@ import torch.nn.functional as F
 
 
 class ResBlock(nn.Module):
-    """Pre-activation ResBlock (ResNet v2).
+    """Pre-activation ResBlock with ReZero gating.
 
-    BN→ReLU→Conv→BN→ReLU→Conv, then add skip (clean residual path).
-    BN is inside the branch, not on the residual path, so conv2 output
-    goes directly to the skip add. This prevents eff_gain compression
-    from BN absorbing weight scale on the residual path.
+    BN→ReLU→Conv→BN→ReLU→Conv→(×α) + skip.
+    Clean residual path (skip untouched). Learnable res_scale (α) initialized
+    to 0 (ReZero) — block starts as identity and gradually learns to contribute.
+    Prevents conv2 weight explosion by gating the residual branch magnitude.
     """
     def __init__(self, num_filters):
         super().__init__()
@@ -20,11 +20,12 @@ class ResBlock(nn.Module):
         self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
         self.bn2 = nn.BatchNorm2d(num_filters)
         self.conv2 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
+        self.res_scale = nn.Parameter(torch.zeros(1))  # ReZero: start as identity
 
     def forward(self, x):
         residual = x
         x = self.conv1(F.relu(self.bn1(x)))
-        x = self.conv2(F.relu(self.bn2(x)))
+        x = self.res_scale * self.conv2(F.relu(self.bn2(x)))
         return x + residual
 
 
