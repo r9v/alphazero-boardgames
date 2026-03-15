@@ -910,8 +910,8 @@ class Trainer:
                 "rb_res_rank": rb_res_rank,
             }
             self.net.train()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  [DIAG-DBG] Value head diagnostic block failed: {e}")
 
         # === Backbone gradient decomposition: value vs policy ===
         # Separate backward passes to see which head drives each backbone channel
@@ -1091,8 +1091,8 @@ class Trainer:
                 # (#10) Value gradient survival
                 "rb_v_grad_survival": rb_v_grad_survival,
             })
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  [DIAG-DBG] Backbone gradient decomposition failed: {e}")
 
         # === SVD rank tracking & policy head internals ===
         try:
@@ -1161,30 +1161,34 @@ class Trainer:
                 all_rb_bn[bi]["svd_rank90"] = rb_rank90
                 all_rb_bn[bi]["svd_total"] = rb_conv2_w.shape[0]
 
-            # (#4) final_bn gamma tracking (optional, only for pre-act networks)
-            if not hasattr(self.net, 'final_bn'):
-                fbn_eff_gain_mean = fbn_eff_gain_min = fbn_eff_gain_max = 0.0
-                fbn_dead = -1
-                fbn_gamma_mean = fbn_gamma_std = 0.0
-                fbn_sqrt_var_mean = fbn_sqrt_var_std = 0.0
-            elif (fbn_var := self.net.final_bn.running_var) is not None:
-                fbn_gamma = self.net.final_bn.weight.data
-                fbn_eff_gain = fbn_gamma / (fbn_var + 1e-5).sqrt()
-                fbn_eff_gain_np = fbn_eff_gain.cpu().numpy()
-                fbn_eff_gain_mean = float(np.abs(fbn_eff_gain_np).mean())
-                fbn_eff_gain_min = float(np.abs(fbn_eff_gain_np).min())
-                fbn_eff_gain_max = float(np.abs(fbn_eff_gain_np).max())
-                fbn_dead = int((fbn_eff_gain.abs() < 0.1).sum().item())
-                fbn_sqrt_var = (fbn_var + 1e-5).sqrt()
-                fbn_gamma_mean = float(fbn_gamma.abs().mean().item())
-                fbn_gamma_std = float(fbn_gamma.std().item())
-                fbn_sqrt_var_mean = float(fbn_sqrt_var.mean().item())
-                fbn_sqrt_var_std = float(fbn_sqrt_var.std().item())
-            else:
-                fbn_eff_gain_mean = fbn_eff_gain_min = fbn_eff_gain_max = 0.0
-                fbn_dead = -1
-                fbn_gamma_mean = fbn_gamma_std = 0.0
-                fbn_sqrt_var_mean = fbn_sqrt_var_std = 0.0
+            # (#4) final_bn gamma tracking (for pre-act networks)
+            fbn_eff_gain_mean = fbn_eff_gain_min = fbn_eff_gain_max = 0.0
+            fbn_dead = -1
+            fbn_gamma_mean = fbn_gamma_std = 0.0
+            fbn_sqrt_var_mean = fbn_sqrt_var_std = 0.0
+            try:
+                fbn = getattr(self.net, 'final_bn', None)
+                if fbn is not None:
+                    fbn_var = fbn.running_var
+                    if fbn_var is not None:
+                        fbn_gamma = fbn.weight.data
+                        fbn_eff_gain = fbn_gamma / (fbn_var + 1e-5).sqrt()
+                        fbn_eff_gain_np = fbn_eff_gain.cpu().numpy()
+                        fbn_eff_gain_mean = float(np.abs(fbn_eff_gain_np).mean())
+                        fbn_eff_gain_min = float(np.abs(fbn_eff_gain_np).min())
+                        fbn_eff_gain_max = float(np.abs(fbn_eff_gain_np).max())
+                        fbn_dead = int((fbn_eff_gain.abs() < 0.1).sum().item())
+                        fbn_sqrt_var = (fbn_var + 1e-5).sqrt()
+                        fbn_gamma_mean = float(fbn_gamma.abs().mean().item())
+                        fbn_gamma_std = float(fbn_gamma.std().item())
+                        fbn_sqrt_var_mean = float(fbn_sqrt_var.mean().item())
+                        fbn_sqrt_var_std = float(fbn_sqrt_var.std().item())
+                    else:
+                        print("  [FBN-DBG] final_bn.running_var is None")
+                else:
+                    print("  [FBN-DBG] final_bn not found on net")
+            except Exception as e:
+                print(f"  [FBN-DBG] Exception in FBN diagnostic: {e}")
 
             vh_diag.update({
                 "svd_bb_rank90": bb_rank90,
@@ -1208,8 +1212,8 @@ class Trainer:
                 "final_bn_sqrt_var_std": fbn_sqrt_var_std,
             })
             self.net.train()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  [DIAG-DBG] SVD/rank diagnostic block failed: {e}")
 
         self._train_perf = {
             "data_prep_time": data_prep_time,

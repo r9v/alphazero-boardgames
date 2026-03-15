@@ -7,24 +7,29 @@ import torch.nn.functional as F
 
 
 def ws_conv2d(x, conv):
-    """Conv2d with Weight Standardization (Qiao et al., 2019).
+    """Conv2d with Weight Standardization + Kaiming scaling.
 
-    Normalizes conv weights to zero-mean unit-variance per output filter
-    before applying convolution. Weights learn direction only; magnitude
-    is always ~1.0 per filter. Prevents weight explosion in pre-norm ResBlocks.
+    Normalizes conv weights to zero-mean, then scales to Kaiming magnitude
+    (sqrt(2/fan_in)) per output filter. Weights learn direction only;
+    magnitude is fixed at the variance-preserving scale.
+
+    Without the Kaiming factor, WS normalizes to std=1.0 per filter, but
+    with fan_in=C*kH*kW=1152 elements, this makes activations ~24x too large.
+    The Kaiming factor corrects this to preserve activation variance.
     """
     w = conv.weight
     mean = w.mean(dim=[1, 2, 3], keepdim=True)
     std = w.std(dim=[1, 2, 3], keepdim=True) + 1e-5
-    w = (w - mean) / std
+    fan_in = w.shape[1] * w.shape[2] * w.shape[3]
+    w = (w - mean) / std * (2.0 / fan_in) ** 0.5
     return F.conv2d(x, w, conv.bias, conv.stride, conv.padding)
 
 
 class ResBlock(nn.Module):
-    """Pre-activation ResBlock with Weight Standardization on conv2.
+    """Pre-activation ResBlock with Weight Standardization on both convs.
 
-    BN→ReLU→Conv1→BN→ReLU→WS-Conv2 + skip.
-    Clean residual path. Weight Standardization on conv2 prevents weight
+    BN→ReLU→WS-Conv1→BN→ReLU→WS-Conv2 + skip.
+    Clean residual path. Weight Standardization on all convs prevents weight
     explosion by normalizing weights per filter before each forward pass.
     """
     def __init__(self, num_filters):
@@ -36,7 +41,7 @@ class ResBlock(nn.Module):
 
     def forward(self, x):
         residual = x
-        x = self.conv1(F.relu(self.bn1(x)))
+        x = ws_conv2d(F.relu(self.bn1(x)), self.conv1)
         x = ws_conv2d(F.relu(self.bn2(x)), self.conv2)
         return x + residual
 
@@ -90,7 +95,7 @@ class AlphaZeroNet(nn.Module):
 
     def forward(self, x):
         # Backbone
-        x = F.relu(self.bn(self.conv(x)))
+        x = F.relu(self.bn(ws_conv2d(x, self.conv)))
         for block in self.res_blocks:
             x = block(x)
         x = F.relu(self.final_bn(x))
