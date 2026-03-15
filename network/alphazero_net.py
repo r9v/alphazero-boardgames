@@ -31,19 +31,22 @@ class ResBlock(nn.Module):
     BN→ReLU→WS-Conv1→BN→ReLU→WS-Conv2 + skip.
     Clean residual path. Weight Standardization on all convs prevents weight
     explosion by normalizing weights per filter before each forward pass.
+    Residual branch scaled by 1/√L (Fixup-style) to prevent variance
+    explosion through depth: Var grows as (1+1/L)^L ≈ e instead of 2^L.
     """
-    def __init__(self, num_filters):
+    def __init__(self, num_filters, res_scale=0.5):
         super().__init__()
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
         self.bn2 = nn.BatchNorm2d(num_filters)
         self.conv2 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
+        self.res_scale = res_scale
 
     def forward(self, x):
         residual = x
         x = ws_conv2d(F.relu(self.bn1(x)), self.conv1)
         x = ws_conv2d(F.relu(self.bn2(x)), self.conv2)
-        return x + residual
+        return x * self.res_scale + residual
 
 
 class AlphaZeroNet(nn.Module):
@@ -62,8 +65,11 @@ class AlphaZeroNet(nn.Module):
         self.bn = nn.BatchNorm2d(num_filters)
 
         # Residual blocks (pre-activation / pre-norm)
+        # Scale residual branch by 1/√L to control variance growth through depth
+        res_scale = num_res_blocks ** -0.5
         self.res_blocks = nn.ModuleList(
-            [ResBlock(num_filters) for _ in range(num_res_blocks)]
+            [ResBlock(num_filters, res_scale=res_scale)
+             for _ in range(num_res_blocks)]
         )
 
         # Final BN→ReLU after all ResBlocks (standard pre-norm pattern)
