@@ -2008,7 +2008,8 @@ class Trainer:
             value, policy = self.net.predict(state_input)
             top_action = np.argmax(policy)
             # Channel-swap: evaluate with ch0↔ch1 swapped to measure channel discrimination
-            swapped_input = state_input[[1, 0]]
+            swapped_input = state_input.copy()
+            swapped_input[0], swapped_input[1] = state_input[1].copy(), state_input[0].copy()
             swap_value, _ = self.net.predict(swapped_input)
             swap_delta = value - swap_value
             self.writer.add_scalar(f"fixed_eval/{name}_value", value, iteration)

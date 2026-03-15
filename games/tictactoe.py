@@ -64,9 +64,12 @@ class TTTGame(Game):
         next_board[x][y] = state.player
         return GameState(state, next_board, state.player * -1)
 
+    input_channels = 3
+
     def state_to_input(self, state):
-        inp = np.zeros((2, 3, 3), dtype="float32")
+        inp = np.zeros((3, 3, 3), dtype="float32")
         me = state.player
         inp[0] = (state.board == me).astype("float32")
         inp[1] = (state.board == -me).astype("float32")
+        inp[2] = me  # current player plane: +1 or -1
         return inp
