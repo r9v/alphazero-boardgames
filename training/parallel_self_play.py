@@ -136,10 +136,18 @@ class BatchedSelfPlay:
                     tv = -states[i].player
                     terminal_values[i] = tv
                     total_moves = len(examples[i])
+                    # Assert: last example's player should be the winner
+                    if tv != 0 and len(examples[i]) > 0:
+                        assert examples[i][-1][2] == tv, \
+                            f"Resign sign-chain: last_player={examples[i][-1][2]}, tv={tv}"
                     for move_idx, ex in enumerate(examples[i]):
                         player_at_pos = ex[2]
                         raw_target = tv * player_at_pos
                         ex[2] = raw_target
+                    # Assert: after target conversion, winner's last target must be +1
+                    if tv != 0 and len(examples[i]) > 0:
+                        assert abs(examples[i][-1][2] - 1.0) < 1e-6, \
+                            f"Resign target: last={examples[i][-1][2]:.4f}, expected +1"
                     self._resign_count += 1
                     self._resign_move_sum += move_counts[i]
                 elif should_resign and not resign_allowed[i]:
@@ -211,10 +219,21 @@ class BatchedSelfPlay:
                         if resigner_outcome >= 0:  # drew or won
                             self._resign_false_positive_count += 1
                     total_moves = len(examples[i])
+                    # Assert: last example's player should be the winner
+                    if tv != 0 and len(examples[i]) > 0:
+                        assert examples[i][-1][2] == tv, \
+                            f"Terminal sign-chain: last_player={examples[i][-1][2]}, tv={tv}"
                     for move_idx, ex in enumerate(examples[i]):
                         player_at_pos = ex[2]
                         raw_target = tv * player_at_pos
                         ex[2] = raw_target
+                    # Assert: after target conversion, winner's last target must be +1
+                    if tv != 0 and len(examples[i]) > 0:
+                        assert abs(examples[i][-1][2] - 1.0) < 1e-6, \
+                            f"Terminal target: last={examples[i][-1][2]:.4f}, expected +1"
+                        if len(examples[i]) >= 2:
+                            assert abs(examples[i][-2][2] - (-1.0)) < 1e-6, \
+                                f"Terminal target: 2nd_last={examples[i][-2][2]:.4f}, expected -1"
                 else:
                     # --- Tree reuse or fresh root ---
                     if self.tree_reuse:

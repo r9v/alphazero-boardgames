@@ -41,7 +41,7 @@ class Trainer:
             else:
                 decay_params.append(param)
         self.optimizer = torch.optim.SGD([
-            {'params': decay_params, 'weight_decay': 1e-3},
+            {'params': decay_params, 'weight_decay': 5e-4},
             {'params': no_decay_params, 'weight_decay': 0.0},
         ], lr=self.lr, momentum=0.9)
 
@@ -89,12 +89,38 @@ class Trainer:
                 v3 = ch_data[:, :-2, :] * ch_data[:, 1:-1, :] * ch_data[:, 2:, :]
                 has_v3 = v3.any(axis=(1, 2))
                 mask = has_h3 | has_v3
+                if ch == 0:
+                    _ch0_3r_mask = mask
                 count = int(mask.sum())
                 mean_target = float(all_values[mask].mean()) if count > 0 else 0.0
                 three_r_diag[ch_name] = {
                     'count': count, 'mean_target': mean_target,
                     'frac': count / len(samples),
                 }
+            # Sign distribution + board dump for ch0 3-in-a-row examples
+            if _ch0_3r_mask is not None and _ch0_3r_mask.any():
+                _tgts = all_values[_ch0_3r_mask]
+                _n_pos = int((_tgts > 0).sum())
+                _n_neg = int((_tgts < 0).sum())
+                _n_zero = int((_tgts == 0).sum())
+                print(f"  Diag[SIGN]: ch0_3row: +:{_n_pos} -:{_n_neg} 0:{_n_zero} "
+                      f"(n={len(_tgts)}, mean={_tgts.mean():+.4f})")
+                _idx = np.where(_ch0_3r_mask)[0]
+                _pos_i = _idx[_tgts > 0][:1] if _n_pos > 0 else np.array([], dtype=int)
+                _neg_i = _idx[_tgts < 0][:1] if _n_neg > 0 else np.array([], dtype=int)
+                _mid_i = _idx[len(_idx)//2:len(_idx)//2+1]
+                _dump = list(dict.fromkeys(
+                    [int(x) for x in np.concatenate([_pos_i, _neg_i, _mid_i])]))[:3]
+                for _di in _dump:
+                    _inp = all_inputs[_di]
+                    _t = all_values[_di]
+                    _rows = []
+                    for _r in range(_inp.shape[1]):
+                        _row = ""
+                        for _c in range(_inp.shape[2]):
+                            _row += "M" if _inp[0,_r,_c] > 0 else ("O" if _inp[1,_r,_c] > 0 else ".")
+                        _rows.append(_row)
+                    print(f"    [{_di}] t={_t:+.1f} {'/'.join(_rows)}")
         except Exception:
             pass
 
@@ -315,7 +341,14 @@ class Trainer:
                     ) ** 0.5
                     all_rb_grad_norms.setdefault(i, []).append(rb_norm)
 
-            torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=2.0)
+                    # Effective LR: grad_norm / weight_norm for conv2
+                    # With BN, this is the actual step size relative to scale
+                    c2w = block.conv2.weight
+                    if c2w.grad is not None:
+                        c2_eff_lr = c2w.grad.norm().item() / max(c2w.data.norm().item(), 1e-8)
+                        all_rb_grad_norms.setdefault(f'{i}_eff_lr', []).append(c2_eff_lr)
+
+            torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=5.0)
             self.optimizer.step()
             gradient_time += time.time() - t0
 
@@ -625,10 +658,14 @@ class Trainer:
 
             # (#6) Per-conv weight norms inside ResBlocks
             rb_conv_norms = {}
+            if not hasattr(self, '_prev_rb_c2_norms'):
+                self._prev_rb_c2_norms = {}
             for bi in range(len(self.net.res_blocks)):
                 c1_norm = float(self.net.res_blocks[bi].conv1.weight.data.norm().item())
                 c2_norm = float(self.net.res_blocks[bi].conv2.weight.data.norm().item())
-                rb_conv_norms[bi] = {"conv1": c1_norm, "conv2": c2_norm}
+                c2_delta = c2_norm - self._prev_rb_c2_norms.get(bi, c2_norm)
+                self._prev_rb_c2_norms[bi] = c2_norm
+                rb_conv_norms[bi] = {"conv1": c1_norm, "conv2": c2_norm, "c2_delta": c2_delta}
 
             # --- Metric 1: Gradient flow split by alive/dead neurons ---
             grad_dead_mean = 0.0
@@ -711,6 +748,16 @@ class Trainer:
                         bn2_in = captured[bn2_in_key].cpu().numpy()
                         stats["conv2_raw_var"] = float(bn2_in.var())
                         stats["conv2_raw_abs"] = float(np.abs(bn2_in).mean())
+                        # Batch variance per channel vs BN running variance
+                        bn2_in_t = captured[bn2_in_key]  # [B, C, H, W]
+                        batch_var = bn2_in_t.var(dim=(0, 2, 3))  # [C]
+                        run_var = self.net.res_blocks[idx].bn2.running_var
+                        if run_var is not None:
+                            ratio = (batch_var / (run_var + 1e-5)).cpu().numpy()
+                            stats["bn2_batch_vs_run_var_mean"] = float(ratio.mean())
+                            stats["bn2_batch_vs_run_var_std"] = float(ratio.std())
+                            stats["bn2_batch_var_mean"] = float(batch_var.mean().item())
+                            stats["bn2_run_var_mean"] = float(run_var.mean().item())
                     rb_bn2_stats[idx] = stats
 
             # (#11) Residual path effective rank
@@ -1253,6 +1300,37 @@ class Trainer:
                     augmented.append([sym_input, sym_policy, ex[2]])
             self.buffer.insert_batch(augmented)
 
+            # === Per-iteration 3-in-a-row target bias (fresh batch only) ===
+            try:
+                _iter_inputs = np.array([ex[0] for ex in augmented])  # (N, 2, H, W)
+                _iter_targets = np.array([ex[2] for ex in augmented])  # (N,)
+                _iter_3r = {}
+                for _ch, _cname in [(0, 'mine'), (1, 'opp')]:
+                    _cd = _iter_inputs[:, _ch]
+                    _h3 = _cd[:, :, :-2] * _cd[:, :, 1:-1] * _cd[:, :, 2:]
+                    _v3 = _cd[:, :-2, :] * _cd[:, 1:-1, :] * _cd[:, 2:, :]
+                    _m = _h3.any(axis=(1, 2)) | _v3.any(axis=(1, 2))
+                    _cnt = int(_m.sum())
+                    _mt = float(_iter_targets[_m].mean()) if _cnt > 0 else 0.0
+                    _iter_3r[_cname] = {'count': _cnt, 'mean': _mt}
+                _mine = _iter_3r['mine']
+                _opp = _iter_3r['opp']
+                print(f"  Diag[3R-iter]: fresh batch ch0: n={_mine['count']} target={_mine['mean']:+.3f} | "
+                      f"ch1: n={_opp['count']} target={_opp['mean']:+.3f}")
+                self.writer.add_scalar("diag/iter_3r_ch0_target", _mine['mean'], iteration)
+                self.writer.add_scalar("diag/iter_3r_ch1_target", _opp['mean'], iteration)
+                # Sign split for this iteration's ch0 3-in-a-row
+                _cd0 = _iter_inputs[:, 0]
+                _h3_0 = _cd0[:, :, :-2] * _cd0[:, :, 1:-1] * _cd0[:, :, 2:]
+                _v3_0 = _cd0[:, :-2, :] * _cd0[:, 1:-1, :] * _cd0[:, 2:, :]
+                _ch0m = _h3_0.any(axis=(1, 2)) | _v3_0.any(axis=(1, 2))
+                if _ch0m.any():
+                    _t0 = _iter_targets[_ch0m]
+                    print(f"  Diag[SIGN-iter]: ch0_3row: +:{int((_t0>0).sum())} -:{int((_t0<0).sum())} "
+                          f"0:{int((_t0==0).sum())} (n={len(_t0)})")
+            except Exception:
+                pass
+
             # Log self-play stats
             wins_p1 = results.count(-1)
             wins_p2 = results.count(1)
@@ -1464,8 +1542,14 @@ class Trainer:
                 # (RB) Per-block gradient norms
                 rb_gn = d.get('rb_grad_norms', {})
                 if rb_gn:
-                    rb_str = " ".join(f"rb{i}={n:.4f}" for i, n in sorted(rb_gn.items()))
-                    print(f"  Diag[RB]: grad_norms: {rb_str}")
+                    rb_items = sorted((i, n) for i, n in rb_gn.items() if isinstance(i, int))
+                    rb_str = " ".join(f"rb{i}={n:.4f}" for i, n in rb_items)
+                    eff_lr_items = sorted((k, v) for k, v in rb_gn.items() if isinstance(k, str) and 'eff_lr' in k)
+                    eff_lr_str = " ".join(f"rb{k.replace('_eff_lr','')}={v:.5f}" for k, v in eff_lr_items)
+                    line = f"  Diag[RB]: grad_norms: {rb_str}"
+                    if eff_lr_str:
+                        line += f" | c2_eff_lr: {eff_lr_str}"
+                    print(line)
                 # Value target histogram
                 vh_bins = d.get('val_hist', [])
                 if vh_bins:
@@ -1666,12 +1750,17 @@ class Trainer:
                         parts2 = []
                         rcn = vh.get('rb_conv_norms', {}).get(bi)
                         if rcn:
-                            parts2.append(f"w: c1={rcn['conv1']:.3f} c2={rcn['conv2']:.3f}")
+                            parts2.append(f"w: c1={rcn['conv1']:.3f} c2={rcn['conv2']:.3f} c2_d={rcn.get('c2_delta',0):+.3f}")
                         rbs = vh.get('rb_bn2_stats', {}).get(bi)
                         if rbs:
                             s = f"bn2_out: |x|={rbs['bn2_out_abs']:.3f} std={rbs['bn2_out_std']:.3f}"
                             if 'conv2_raw_var' in rbs:
                                 s += f" | conv2_raw: var={rbs['conv2_raw_var']:.4f} |x|={rbs['conv2_raw_abs']:.3f}"
+                            if 'bn2_batch_vs_run_var_mean' in rbs:
+                                s += (f" | bv/rv={rbs['bn2_batch_vs_run_var_mean']:.3f}"
+                                      f"(+/-{rbs['bn2_batch_vs_run_var_std']:.3f})"
+                                      f" bv={rbs['bn2_batch_var_mean']:.4f}"
+                                      f" rv={rbs['bn2_run_var_mean']:.4f}")
                             parts2.append(s)
                         rrk = vh.get('rb_res_rank', {}).get(bi)
                         if rrk:
@@ -1795,6 +1884,7 @@ class Trainer:
                     for bi, rcn in vh.get('rb_conv_norms', {}).items():
                         self.writer.add_scalar(f"rb{bi}/conv1_w_norm", rcn["conv1"], iteration)
                         self.writer.add_scalar(f"rb{bi}/conv2_w_norm", rcn["conv2"], iteration)
+                        self.writer.add_scalar(f"rb{bi}/conv2_w_delta", rcn.get("c2_delta", 0), iteration)
                     # (#7-8) BN2 output scale + pre-BN2 variance
                     for bi, rbs in vh.get('rb_bn2_stats', {}).items():
                         self.writer.add_scalar(f"rb{bi}/bn2_out_abs", rbs["bn2_out_abs"], iteration)
@@ -1802,6 +1892,10 @@ class Trainer:
                         if 'conv2_raw_var' in rbs:
                             self.writer.add_scalar(f"rb{bi}/conv2_raw_var", rbs["conv2_raw_var"], iteration)
                             self.writer.add_scalar(f"rb{bi}/conv2_raw_abs", rbs["conv2_raw_abs"], iteration)
+                        if 'bn2_batch_vs_run_var_mean' in rbs:
+                            self.writer.add_scalar(f"rb{bi}/bn2_bv_rv_ratio", rbs["bn2_batch_vs_run_var_mean"], iteration)
+                            self.writer.add_scalar(f"rb{bi}/bn2_batch_var", rbs["bn2_batch_var_mean"], iteration)
+                            self.writer.add_scalar(f"rb{bi}/bn2_run_var", rbs["bn2_run_var_mean"], iteration)
                     # (#11) Residual path effective rank
                     for bi, rrk in vh.get('rb_res_rank', {}).items():
                         self.writer.add_scalar(f"rb{bi}/res_rank90", rrk["rank90"], iteration)
