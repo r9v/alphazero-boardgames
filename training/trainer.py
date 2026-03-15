@@ -75,6 +75,29 @@ class Trainer:
             float(((all_values > 0.5) & (all_values <= 1.0)).mean()),    # strong O
         ]
 
+        # === DIAGNOSTIC: 3-in-a-row target bias ===
+        # Scan buffer for positions with 3+ consecutive pieces on ch0 vs ch1
+        three_r_diag = {}
+        try:
+            all_inputs = np.array([s[0] for s in samples])  # (N, 2, H, W)
+            for ch, ch_name in [(0, 'mine'), (1, 'opp')]:
+                ch_data = all_inputs[:, ch]  # (N, H, W)
+                # Horizontal 3-in-a-row
+                h3 = ch_data[:, :, :-2] * ch_data[:, :, 1:-1] * ch_data[:, :, 2:]
+                has_h3 = h3.any(axis=(1, 2))
+                # Vertical 3-in-a-row
+                v3 = ch_data[:, :-2, :] * ch_data[:, 1:-1, :] * ch_data[:, 2:, :]
+                has_v3 = v3.any(axis=(1, 2))
+                mask = has_h3 | has_v3
+                count = int(mask.sum())
+                mean_target = float(all_values[mask].mean()) if count > 0 else 0.0
+                three_r_diag[ch_name] = {
+                    'count': count, 'mean_target': mean_target,
+                    'frac': count / len(samples),
+                }
+        except Exception:
+            pass
+
         # Split into train/val for overfitting detection (90/10)
         random.shuffle(samples)
         val_size = max(len(samples) // 10, self.batch_size)
@@ -1180,6 +1203,8 @@ class Trainer:
             "rb_grad_norms": avg_rb_grad_norms,
             # Value target histogram
             "val_hist": val_hist,
+            # 3-in-a-row target bias
+            "three_r_diag": three_r_diag,
             # (#2) Per-iteration value loss delta
             "pre_train_vloss": pre_train_vloss,
             "vloss_delta": (val_vloss - pre_train_vloss) if pre_train_vloss is not None else None,
@@ -1339,6 +1364,13 @@ class Trainer:
                     if resign_checks > 0:
                         fp_rate = resign_fp / resign_checks
                         self.writer.add_scalar("self_play/resign_fp_rate", fp_rate, iteration)
+                # Immediate-win stats
+                imm_win_n = perf.get("imm_win_count", 0)
+                imm_win_frac = perf.get("imm_win_frac", 0)
+                imm_win_total = imm_win_n / max(imm_win_frac, 1e-9) if imm_win_frac > 0 else 0
+                print(f"  ImmWin: {imm_win_n}/{int(imm_win_total)} ({imm_win_frac:.1%}) positions have immediate winning move")
+                self.writer.add_scalar("self_play/imm_win_frac", imm_win_frac, iteration)
+                self.writer.add_scalar("self_play/imm_win_count", imm_win_n, iteration)
             if hasattr(self, '_train_perf'):
                 tp = self._train_perf
                 self.writer.add_scalar("perf/train_data_prep", tp["data_prep_time"], iteration)
@@ -1440,6 +1472,19 @@ class Trainer:
                     print(f"  Diag[TH]: targets [-1,-0.5)={vh_bins[0]:.1%} "
                           f"[-0.5,0)={vh_bins[1]:.1%} [0]={vh_bins[2]:.1%} "
                           f"(0,0.5]={vh_bins[3]:.1%} (0.5,1]={vh_bins[4]:.1%}")
+                # 3-in-a-row target bias
+                tr = d.get('three_r_diag', {})
+                if tr:
+                    mine = tr.get('mine', {})
+                    opp = tr.get('opp', {})
+                    print(f"  Diag[3R]: ch0_3row: n={mine.get('count',0)} target={mine.get('mean_target',0):+.3f} "
+                          f"({mine.get('frac',0):.1%}) | "
+                          f"ch1_3row: n={opp.get('count',0)} target={opp.get('mean_target',0):+.3f} "
+                          f"({opp.get('frac',0):.1%})")
+                    self.writer.add_scalar("diag/three_r_ch0_target", mine.get('mean_target', 0), iteration)
+                    self.writer.add_scalar("diag/three_r_ch1_target", opp.get('mean_target', 0), iteration)
+                    self.writer.add_scalar("diag/three_r_ch0_frac", mine.get('frac', 0), iteration)
+                    self.writer.add_scalar("diag/three_r_ch1_frac", opp.get('frac', 0), iteration)
                 # (A) Per-player value breakdown
                 print(f"  Diag[A]: X_vloss={d['x_vloss']:.4f} O_vloss={d['o_vloss']:.4f} | "
                       f"X_target={d['x_target_mean']:+.3f} O_target={d['o_target_mean']:+.3f} | "
@@ -1832,9 +1877,14 @@ class Trainer:
         for name, state_input, expected_str in positions:
             value, policy = self.net.predict(state_input)
             top_action = np.argmax(policy)
+            # Channel-swap: evaluate with ch0↔ch1 swapped to measure channel discrimination
+            swapped_input = state_input[[1, 0]]
+            swap_value, _ = self.net.predict(swapped_input)
+            swap_delta = value - swap_value
             self.writer.add_scalar(f"fixed_eval/{name}_value", value, iteration)
             self.writer.add_scalar(f"fixed_eval/{name}_top_action", top_action, iteration)
-            print(f"    {name}: V={value:+.4f} top_act={top_action} ({expected_str})")
+            self.writer.add_scalar(f"fixed_eval/{name}_swap_delta", swap_delta, iteration)
+            print(f"    {name}: V={value:+.4f} top_act={top_action} swap_d={swap_delta:+.4f} ({expected_str})")
 
     def _get_diagnostic_positions(self):
         """Return a list of (name, state_input, expected_description) for fixed evaluation."""

@@ -87,6 +87,10 @@ class BatchedSelfPlay:
         self._resign_false_positive_count = 0
         self._resign_check_count = 0  # verification games that wanted to resign
 
+        # Immediate-win tracking: how many positions have a legal winning move
+        self._imm_win_count = 0
+        self._imm_win_total = 0
+
         # Initialize all games
         states = [self.game.new_game() for _ in range(self.num_games)]
         examples = [[] for _ in range(self.num_games)]
@@ -181,6 +185,15 @@ class BatchedSelfPlay:
                     action = np.random.choice(len(pi), p=pi)
                 else:
                     action = np.argmax(pi)
+                # Check if current player has an immediate winning move
+                self._imm_win_total += 1
+                for a in range(len(states[i].available_actions)):
+                    if states[i].available_actions[a]:
+                        ns = self.game.step(states[i], a)
+                        if ns.terminal and ns.terminal_value != 0:
+                            self._imm_win_count += 1
+                            break
+
                 # Training target is always the full visit distribution
                 examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player])
                 move_counts[i] += 1
@@ -278,6 +291,8 @@ class BatchedSelfPlay:
             "resign_avg_move": (self._resign_move_sum / max(self._resign_count, 1)),
             "resign_check_count": self._resign_check_count,
             "resign_false_positives": self._resign_false_positive_count,
+            "imm_win_count": self._imm_win_count,
+            "imm_win_frac": self._imm_win_count / max(self._imm_win_total, 1),
         }
 
         # Compute self-play value prediction diagnostics
