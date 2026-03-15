@@ -7,24 +7,25 @@ import torch.nn.functional as F
 
 
 class ResBlock(nn.Module):
-    """Post-activation ResBlock (standard AlphaZero).
+    """Pre-activation ResBlock (ResNet v2).
 
-    Conv→BN→ReLU→Conv→BN, then add skip and ReLU.
-    BN after Conv2 stabilizes residual magnitude (~gamma) regardless of
-    weight growth, preventing the eff_gain collapse seen with pre-activation.
+    BN→ReLU→Conv→BN→ReLU→Conv, then add skip (clean residual path).
+    BN is inside the branch, not on the residual path, so conv2 output
+    goes directly to the skip add. This prevents eff_gain compression
+    from BN absorbing weight scale on the residual path.
     """
     def __init__(self, num_filters):
         super().__init__()
-        self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
         self.bn1 = nn.BatchNorm2d(num_filters)
-        self.conv2 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
+        self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
         self.bn2 = nn.BatchNorm2d(num_filters)
+        self.conv2 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
 
     def forward(self, x):
         residual = x
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = self.bn2(self.conv2(x))
-        return F.relu(x + residual)
+        x = self.conv1(F.relu(self.bn1(x)))
+        x = self.conv2(F.relu(self.bn2(x)))
+        return x + residual
 
 
 class AlphaZeroNet(nn.Module):

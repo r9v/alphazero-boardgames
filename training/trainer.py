@@ -541,15 +541,21 @@ class Trainer:
             rb_hooks = []
             for idx, block in enumerate(self.net.res_blocks):
                 rb_hooks.append(block.register_forward_hook(make_rb_hook(idx)))
-            # BN2 intermediate hooks (conv2 raw output → BN2 input, and BN2 output)
+            # BN2 hooks (pre-norm: bn2 sits between conv1 and conv2)
+            # Also hook conv2 to capture raw residual branch output
             def make_rb_bn2_hook(idx):
                 def hook(module, input, output):
-                    captured[f'rb{idx}_bn2_in'] = input[0]   # conv2 raw output
-                    captured[f'rb{idx}_bn2_out'] = output     # BN2 normalized output
+                    captured[f'rb{idx}_bn2_in'] = input[0]   # conv1 output (bn2 input)
+                    captured[f'rb{idx}_bn2_out'] = output     # bn2 normalized output
+                return hook
+            def make_rb_conv2_hook(idx):
+                def hook(module, input, output):
+                    captured[f'rb{idx}_conv2_out'] = output   # raw residual branch output
                 return hook
             rb_bn2_hooks = []
             for idx, block in enumerate(self.net.res_blocks):
                 rb_bn2_hooks.append(block.bn2.register_forward_hook(make_rb_bn2_hook(idx)))
+                rb_bn2_hooks.append(block.conv2.register_forward_hook(make_rb_conv2_hook(idx)))
 
             h0 = self.net.value_conv.register_forward_hook(hook_vconv)
             h0b = self.net.value_bn.register_forward_hook(hook_vbn)
@@ -728,36 +734,37 @@ class Trainer:
                     res_norm = float(residual.norm().item())
                     rb_residual_ratios[idx] = res_norm / max(skip_norm, 1e-10)
 
-            # (#7) BN2 output scale (post-activation validation)
-            # In post-act ResBlock, BN2 normalizes conv2 output → output ≈ gamma.
-            # Track actual BN2 output magnitude to verify stabilization.
+            # (#7) Residual branch output stats (pre-norm: conv2 output goes directly to skip)
+            # Track conv2 raw output magnitude — this is what gets added to the skip.
+            # Also track BN2 stats (bn2 is between conv1 and conv2 in pre-norm).
             rb_bn2_stats = {}
             for idx in range(len(self.net.res_blocks)):
+                conv2_out_key = f'rb{idx}_conv2_out'
                 bn2_out_key = f'rb{idx}_bn2_out'
                 bn2_in_key = f'rb{idx}_bn2_in'
+                stats = {}
+                # Conv2 raw output = residual branch output (no BN after it)
+                if conv2_out_key in captured:
+                    conv2_out = captured[conv2_out_key].cpu().numpy()
+                    stats["conv2_raw_var"] = float(conv2_out.var())
+                    stats["conv2_raw_abs"] = float(np.abs(conv2_out).mean())
+                # BN2 output (feeds into ReLU→Conv2)
                 if bn2_out_key in captured:
                     bn2_out = captured[bn2_out_key].cpu().numpy()
-                    stats = {
-                        "bn2_out_std": float(bn2_out.std()),
-                        "bn2_out_abs": float(np.abs(bn2_out).mean()),
-                    }
-                    # (#8) Pre-BN2 activation variance (Conv2 raw output)
-                    # This measures how much conv2 weights have grown.
-                    # With post-act, BN2 absorbs this; pre-act would pass it through.
-                    if bn2_in_key in captured:
-                        bn2_in = captured[bn2_in_key].cpu().numpy()
-                        stats["conv2_raw_var"] = float(bn2_in.var())
-                        stats["conv2_raw_abs"] = float(np.abs(bn2_in).mean())
-                        # Batch variance per channel vs BN running variance
-                        bn2_in_t = captured[bn2_in_key]  # [B, C, H, W]
-                        batch_var = bn2_in_t.var(dim=(0, 2, 3))  # [C]
-                        run_var = self.net.res_blocks[idx].bn2.running_var
-                        if run_var is not None:
-                            ratio = (batch_var / (run_var + 1e-5)).cpu().numpy()
-                            stats["bn2_batch_vs_run_var_mean"] = float(ratio.mean())
-                            stats["bn2_batch_vs_run_var_std"] = float(ratio.std())
-                            stats["bn2_batch_var_mean"] = float(batch_var.mean().item())
-                            stats["bn2_run_var_mean"] = float(run_var.mean().item())
+                    stats["bn2_out_std"] = float(bn2_out.std())
+                    stats["bn2_out_abs"] = float(np.abs(bn2_out).mean())
+                # BN2 batch vs running variance
+                if bn2_in_key in captured:
+                    bn2_in_t = captured[bn2_in_key]  # [B, C, H, W]
+                    batch_var = bn2_in_t.var(dim=(0, 2, 3))  # [C]
+                    run_var = self.net.res_blocks[idx].bn2.running_var
+                    if run_var is not None:
+                        ratio = (batch_var / (run_var + 1e-5)).cpu().numpy()
+                        stats["bn2_batch_vs_run_var_mean"] = float(ratio.mean())
+                        stats["bn2_batch_vs_run_var_std"] = float(ratio.std())
+                        stats["bn2_batch_var_mean"] = float(batch_var.mean().item())
+                        stats["bn2_run_var_mean"] = float(run_var.mean().item())
+                if stats:
                     rb_bn2_stats[idx] = stats
 
             # (#11) Residual path effective rank
@@ -1746,22 +1753,27 @@ class Trainer:
                                          f"std={rad['std']:.3f} "
                                          f"dead={rad['dead_channels']}")
                         print(" | ".join(parts))
-                        # Second line: conv weight norms, BN2 output, pre-BN2 var, res rank, ch dominance
+                        # Second line: conv weight norms, conv2 raw output (residual branch), bn2 stats, res rank, ch dominance
                         parts2 = []
                         rcn = vh.get('rb_conv_norms', {}).get(bi)
                         if rcn:
                             parts2.append(f"w: c1={rcn['conv1']:.3f} c2={rcn['conv2']:.3f} c2_d={rcn.get('c2_delta',0):+.3f}")
                         rbs = vh.get('rb_bn2_stats', {}).get(bi)
                         if rbs:
-                            s = f"bn2_out: |x|={rbs['bn2_out_abs']:.3f} std={rbs['bn2_out_std']:.3f}"
+                            s = ""
+                            if 'bn2_out_abs' in rbs:
+                                s += f"bn2_out: |x|={rbs['bn2_out_abs']:.3f} std={rbs['bn2_out_std']:.3f}"
                             if 'conv2_raw_var' in rbs:
-                                s += f" | conv2_raw: var={rbs['conv2_raw_var']:.4f} |x|={rbs['conv2_raw_abs']:.3f}"
+                                if s: s += " | "
+                                s += f"conv2_raw: var={rbs['conv2_raw_var']:.4f} |x|={rbs['conv2_raw_abs']:.3f}"
                             if 'bn2_batch_vs_run_var_mean' in rbs:
-                                s += (f" | bv/rv={rbs['bn2_batch_vs_run_var_mean']:.3f}"
+                                if s: s += " | "
+                                s += (f"bv/rv={rbs['bn2_batch_vs_run_var_mean']:.3f}"
                                       f"(+/-{rbs['bn2_batch_vs_run_var_std']:.3f})"
                                       f" bv={rbs['bn2_batch_var_mean']:.4f}"
                                       f" rv={rbs['bn2_run_var_mean']:.4f}")
-                            parts2.append(s)
+                            if s:
+                                parts2.append(s)
                         rrk = vh.get('rb_res_rank', {}).get(bi)
                         if rrk:
                             parts2.append(f"res_rank90={rrk['rank90']}/{rrk['total']}")
