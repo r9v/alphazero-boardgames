@@ -77,6 +77,26 @@ class Trainer:
             float(((all_values > 0.5) & (all_values <= 1.0)).mean()),    # strong O
         ]
 
+        # === DIAGNOSTIC: Per-player target bias (BUFFER_BIAS + TARGET_BY_PLAYER) ===
+        # Use channel 2 (player indicator plane) to identify whose turn it is
+        n_x_buf, n_o_buf = 0, 0
+        mean_tgt_x, mean_tgt_o = 0.0, 0.0
+        frac_pos_x, frac_pos_o = 0.0, 0.0
+        try:
+            player_planes = np.array([s[0][2, 0, 0] for s in samples])
+            is_x_buf = player_planes < 0  # player=-1 → X to move
+            is_o_buf = player_planes > 0  # player=+1 → O to move
+            n_x_buf = int(is_x_buf.sum())
+            n_o_buf = int(is_o_buf.sum())
+            if n_x_buf > 0:
+                mean_tgt_x = float(all_values[is_x_buf].mean())
+                frac_pos_x = float((all_values[is_x_buf] > 0).mean())
+            if n_o_buf > 0:
+                mean_tgt_o = float(all_values[is_o_buf].mean())
+                frac_pos_o = float((all_values[is_o_buf] > 0).mean())
+        except Exception:
+            pass
+
         # === DIAGNOSTIC: 3-in-a-row target bias ===
         # Scan buffer for positions with 3+ consecutive pieces on ch0 vs ch1
         three_r_diag = {}
@@ -223,6 +243,34 @@ class Trainer:
                 pt_targets_v = torch.LongTensor((1 - pt_raw_v).astype(np.int64)).to(self.device)
                 pt_pred_v = self.net(pt_states)[0]
                 pre_train_vloss = float(F.cross_entropy(pt_pred_v, pt_targets_v).item())
+            self.net.train()
+        except Exception:
+            pass
+
+        # === DIAGNOSTIC: Per-player predictions before training (PRED_BY_PLAYER) ===
+        _pbias_data = None
+        try:
+            self.net.eval()
+            with torch.no_grad():
+                pb_batch = random.choices(samples, k=min(512, len(samples)))
+                pb_states = torch.FloatTensor(np.array([s[0] for s in pb_batch])).to(self.device)
+                pb_targets = np.array([s[2] for s in pb_batch])
+                pb_players = np.array([s[0][2, 0, 0] for s in pb_batch])
+                pb_out = self.net(pb_states)
+                pb_wdl = F.softmax(pb_out[0], dim=1)
+                pb_v = (pb_wdl[:, 0] - pb_wdl[:, 2]).cpu().numpy()
+                pb_is_x = pb_players < 0
+                pb_is_o = pb_players > 0
+                _pre_x_pred = float(pb_v[pb_is_x].mean()) if pb_is_x.any() else 0.0
+                _pre_o_pred = float(pb_v[pb_is_o].mean()) if pb_is_o.any() else 0.0
+                _pre_x_acc = float(((pb_v[pb_is_x] > 0) == (pb_targets[pb_is_x] > 0)).mean()) if pb_is_x.any() else 0.0
+                _pre_o_acc = float(((pb_v[pb_is_o] > 0) == (pb_targets[pb_is_o] > 0)).mean()) if pb_is_o.any() else 0.0
+                _pbias_data = {
+                    'batch': pb_batch, 'targets': pb_targets,
+                    'is_x': pb_is_x, 'is_o': pb_is_o,
+                    'pre_x_pred': _pre_x_pred, 'pre_o_pred': _pre_o_pred,
+                    'pre_x_acc': _pre_x_acc, 'pre_o_acc': _pre_o_acc,
+                }
             self.net.train()
         except Exception:
             pass
@@ -1275,6 +1323,32 @@ class Trainer:
         except Exception as e:
             print(f"  [DIAG-DBG] SVD/rank diagnostic block failed: {e}")
 
+        # === DIAGNOSTIC: Per-player predictions after training (PRED_BY_PLAYER) ===
+        _post_x_pred, _post_o_pred = 0.0, 0.0
+        _post_x_acc, _post_o_acc = 0.0, 0.0
+        if _pbias_data is not None:
+            try:
+                self.net.eval()
+                with torch.no_grad():
+                    pb_states_post = torch.FloatTensor(
+                        np.array([s[0] for s in _pbias_data['batch']])
+                    ).to(self.device)
+                    pb_out_post = self.net(pb_states_post)
+                    pb_wdl_post = F.softmax(pb_out_post[0], dim=1)
+                    pb_v_post = (pb_wdl_post[:, 0] - pb_wdl_post[:, 2]).cpu().numpy()
+                    _pb_targets = _pbias_data['targets']
+                    _pb_is_x = _pbias_data['is_x']
+                    _pb_is_o = _pbias_data['is_o']
+                    if _pb_is_x.any():
+                        _post_x_pred = float(pb_v_post[_pb_is_x].mean())
+                        _post_x_acc = float(((pb_v_post[_pb_is_x] > 0) == (_pb_targets[_pb_is_x] > 0)).mean())
+                    if _pb_is_o.any():
+                        _post_o_pred = float(pb_v_post[_pb_is_o].mean())
+                        _post_o_acc = float(((pb_v_post[_pb_is_o] > 0) == (_pb_targets[_pb_is_o] > 0)).mean())
+                self.net.train()
+            except Exception:
+                pass
+
         self._train_perf = {
             "data_prep_time": data_prep_time,
             "gradient_time": gradient_time,
@@ -1350,6 +1424,17 @@ class Trainer:
             "conf_dist": {k: v / max(conf_total, 1) for k, v in conf_buckets.items()},
             # Intra-iteration value trajectory on FixedEval positions
             "fixed_eval_trajectory": fixed_eval_trajectory,
+            # BUFFER_BIAS: per-player target distribution in buffer
+            "buf_n_x": n_x_buf, "buf_n_o": n_o_buf,
+            "buf_mean_tgt_x": mean_tgt_x, "buf_mean_tgt_o": mean_tgt_o,
+            "buf_frac_pos_x": frac_pos_x, "buf_frac_pos_o": frac_pos_o,
+            # PRED_BY_PLAYER: pre/post training predictions by player
+            "pbias_pre_x_pred": _pbias_data['pre_x_pred'] if _pbias_data else 0.0,
+            "pbias_pre_o_pred": _pbias_data['pre_o_pred'] if _pbias_data else 0.0,
+            "pbias_pre_x_acc": _pbias_data['pre_x_acc'] if _pbias_data else 0.0,
+            "pbias_pre_o_acc": _pbias_data['pre_o_acc'] if _pbias_data else 0.0,
+            "pbias_post_x_pred": _post_x_pred, "pbias_post_o_pred": _post_o_pred,
+            "pbias_post_x_acc": _post_x_acc, "pbias_post_o_acc": _post_o_acc,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -1772,6 +1857,34 @@ class Trainer:
                 print(f"  Diag[A]: X_vloss={d['x_vloss']:.4f} O_vloss={d['o_vloss']:.4f} | "
                       f"X_target={d['x_target_mean']:+.3f} O_target={d['o_target_mean']:+.3f} | "
                       f"X_pred={d['x_pred_mean']:+.3f} O_pred={d['o_pred_mean']:+.3f}")
+                # BUFFER_BIAS: per-player target distribution in buffer
+                print(f"  Diag[BufBias]: X-to-move: n={d.get('buf_n_x',0)} "
+                      f"mean_tgt={d.get('buf_mean_tgt_x',0):+.3f} "
+                      f"frac_pos={d.get('buf_frac_pos_x',0):.1%} | "
+                      f"O-to-move: n={d.get('buf_n_o',0)} "
+                      f"mean_tgt={d.get('buf_mean_tgt_o',0):+.3f} "
+                      f"frac_pos={d.get('buf_frac_pos_o',0):.1%}")
+                self.writer.add_scalar("pbias/buf_mean_tgt_x", d.get('buf_mean_tgt_x', 0), iteration)
+                self.writer.add_scalar("pbias/buf_mean_tgt_o", d.get('buf_mean_tgt_o', 0), iteration)
+                self.writer.add_scalar("pbias/buf_frac_pos_x", d.get('buf_frac_pos_x', 0), iteration)
+                self.writer.add_scalar("pbias/buf_frac_pos_o", d.get('buf_frac_pos_o', 0), iteration)
+                # PRED_BY_PLAYER: pre/post training predictions split by current player
+                print(f"  Diag[PBias]: pre: X_pred={d.get('pbias_pre_x_pred',0):+.3f} "
+                      f"X_acc={d.get('pbias_pre_x_acc',0):.1%} | "
+                      f"O_pred={d.get('pbias_pre_o_pred',0):+.3f} "
+                      f"O_acc={d.get('pbias_pre_o_acc',0):.1%}")
+                print(f"  Diag[PBias]: post: X_pred={d.get('pbias_post_x_pred',0):+.3f} "
+                      f"X_acc={d.get('pbias_post_x_acc',0):.1%} | "
+                      f"O_pred={d.get('pbias_post_o_pred',0):+.3f} "
+                      f"O_acc={d.get('pbias_post_o_acc',0):.1%}")
+                self.writer.add_scalar("pbias/pre_x_pred", d.get('pbias_pre_x_pred', 0), iteration)
+                self.writer.add_scalar("pbias/pre_o_pred", d.get('pbias_pre_o_pred', 0), iteration)
+                self.writer.add_scalar("pbias/post_x_pred", d.get('pbias_post_x_pred', 0), iteration)
+                self.writer.add_scalar("pbias/post_o_pred", d.get('pbias_post_o_pred', 0), iteration)
+                self.writer.add_scalar("pbias/pre_x_acc", d.get('pbias_pre_x_acc', 0), iteration)
+                self.writer.add_scalar("pbias/pre_o_acc", d.get('pbias_pre_o_acc', 0), iteration)
+                self.writer.add_scalar("pbias/post_x_acc", d.get('pbias_post_x_acc', 0), iteration)
+                self.writer.add_scalar("pbias/post_o_acc", d.get('pbias_post_o_acc', 0), iteration)
                 # (#6) Value loss by game phase
                 pc = d.get('phase_counts', {})
                 print(f"  Diag[GP]: vloss early={d['phase_vloss_early']:.4f}({pc.get('early',0)}) "
@@ -2219,6 +2332,26 @@ class Trainer:
         if not positions:
             return
 
+        # ENCODING_CHECK: Print raw tensor encoding once (first call only)
+        if not getattr(self, '_encoding_checked', False):
+            self._encoding_checked = True
+            print(f"  Diag[ENC]: Fixed position encoding check:")
+            for name, state_input, _ in positions:
+                player_val = state_input[2, 0, 0]
+                player_str = "X" if player_val < 0 else "O"
+                ch0_rows = []
+                ch1_rows = []
+                for r in range(state_input.shape[1]):
+                    ch0_rows.append("".join(
+                        "1" if state_input[0, r, c] > 0 else "."
+                        for c in range(state_input.shape[2])))
+                    ch1_rows.append("".join(
+                        "1" if state_input[1, r, c] > 0 else "."
+                        for c in range(state_input.shape[2])))
+                print(f"    {name}: player={player_val:+.0f} ({player_str}) "
+                      f"ch0(me)={'/'.join(ch0_rows)} "
+                      f"ch1(opp)={'/'.join(ch1_rows)}")
+
         print(f"  {label}:")
         for name, state_input, expected_str in positions:
             value, policy = self.net.predict(state_input)
@@ -2228,10 +2361,19 @@ class Trainer:
             swapped_input[0], swapped_input[1] = state_input[1].copy(), state_input[0].copy()
             swap_value, _ = self.net.predict(swapped_input)
             swap_delta = value - swap_value
+            # SYMMETRY: proper mirror test (swap ch0↔ch1 AND negate ch2)
+            # For a symmetric network, V(pos) + V(mirror(pos)) ≈ 0
+            mirror_input = state_input.copy()
+            mirror_input[0], mirror_input[1] = state_input[1].copy(), state_input[0].copy()
+            mirror_input[2] = -state_input[2]  # flip player indicator
+            mirror_value, _ = self.net.predict(mirror_input)
+            sym_err = value + mirror_value  # should be ~0
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_value", value, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_top_action", top_action, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_swap_delta", swap_delta, iteration)
-            print(f"    {name}: V={value:+.4f} top_act={top_action} swap_d={swap_delta:+.4f} ({expected_str})")
+            self.writer.add_scalar(f"fixed_eval/{prefix}{name}_sym_err", sym_err, iteration)
+            print(f"    {name}: V={value:+.4f} top_act={top_action} swap_d={swap_delta:+.4f} "
+                  f"sym={sym_err:+.4f} ({expected_str})")
 
     def _get_diagnostic_positions(self):
         """Return a list of (name, state_input, expected_description) for fixed evaluation."""

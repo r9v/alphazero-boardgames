@@ -38,20 +38,20 @@ GAME_CONFIGS = {
 
     "connect4": {
         # --- Network ---
-        "num_filters": 128,
-        "num_res_blocks": 8,
+        "num_filters": 64,
+        "num_res_blocks": 6,
         "value_head_channels": 4,
-        "value_head_fc_size": 128,
+        "value_head_fc_size": 64,
         "policy_head_channels": 2,
-        "ownership_channels": 32,
+        "ownership_channels": 16,
 
         # --- Training ---
         "max_train_steps": 3_200,
-        "target_epochs": 4,
         "buffer_size": 50_000,
+        "target_epochs": 2,
         "value_loss_weight": 3.0,
         "ownership_loss_weight": 1.0,
-        "lr": 0.01,
+        "lr": 0.005,
         "batch_size": 64,
 
         # --- Self-play ---
