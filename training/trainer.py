@@ -26,6 +26,7 @@ class Trainer:
         self.device = self.config.get("device", "cpu")
         self.max_train_steps = self.config.get("max_train_steps", 5000)
         self.target_epochs = self.config.get("target_epochs", 4)
+        self.train_ratio = self.config.get("train_ratio", 0)  # gradient steps per new position; 0 = use epoch-based
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
 
         # Separate params: apply weight decay only to conv/linear weights,
@@ -55,7 +56,7 @@ class Trainer:
         log_dir = self.config.get("log_dir", f"runs/{game_name}/{timestr}")
         self.writer = SummaryWriter(log_dir)
 
-    def train_network(self):
+    def train_network(self, n_new_positions=0):
         """Train the network on samples from the replay buffer."""
         samples = [s for s in self.buffer.arr if s is not None]
         if len(samples) < self.batch_size:
@@ -154,6 +155,12 @@ class Trainer:
         train_samples = samples[val_size:]
         samples = train_samples  # train on the 90%
 
+        # Stratified sampling pools: split by player to ensure 50/50 X/O batches
+        x_pool = [s for s in samples if s[0][2, 0, 0] < 0]  # ch2 < 0 → X to move
+        o_pool = [s for s in samples if s[0][2, 0, 0] > 0]  # ch2 > 0 → O to move
+        use_stratified = len(x_pool) > 0 and len(o_pool) > 0
+        half_batch = self.batch_size // 2
+
         self.net.train()
         total_loss = 0
         total_value_loss = 0
@@ -214,17 +221,21 @@ class Trainer:
         # Intra-iteration value trajectory on FixedEval positions (every ~300 steps)
         fixed_eval_trajectory = []  # list of {step, pos_name: value, ...}
 
-        # Dynamic training steps: target N effective epochs, capped by max_train_steps
-        # Scale epochs with buffer fill to prevent memorization when buffer is small
+        # Dynamic training steps
         n_samples = len(samples)
         buffer_capacity = self.buffer.max_size
         fill_ratio = min(n_samples / max(buffer_capacity, 1), 1.0)
-        # Linearly scale from 1 epoch (empty) to target_epochs (full)
-        scaled_epochs = 1.0 + (self.target_epochs - 1.0) * fill_ratio
-        target_steps = int(scaled_epochs * (n_samples // self.batch_size))
+        if self.train_ratio > 0 and n_new_positions > 0:
+            # Ratio-based: N gradient steps per new position added
+            target_steps = int(n_new_positions * self.train_ratio / self.batch_size)
+            num_steps = max(1, target_steps)
+        else:
+            # Legacy epoch-based: scale epochs with buffer fill
+            scaled_epochs = 1.0 + (self.target_epochs - 1.0) * fill_ratio
+            target_steps = int(scaled_epochs * (n_samples // self.batch_size))
+            num_steps = max(1, min(self.max_train_steps, target_steps))
         # Ramp vlw from 1.0 to target as buffer fills
         effective_vlw = 1.0 + (self.value_loss_weight - 1.0) * fill_ratio
-        num_steps = max(1, min(self.max_train_steps, target_steps))
         effective_epochs = (num_steps * self.batch_size) / n_samples
         early_cutoff = max(num_steps // 10, 1)
         late_start = num_steps - early_cutoff
@@ -292,7 +303,10 @@ class Trainer:
             lr = lr_min + 0.5 * (self.lr - lr_min) * (1 + math.cos(math.pi * step / num_steps))
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = lr
-            batch = random.choices(samples, k=self.batch_size)
+            if use_stratified:
+                batch = random.choices(x_pool, k=half_batch) + random.choices(o_pool, k=half_batch)
+            else:
+                batch = random.choices(samples, k=self.batch_size)
 
             t0 = time.time()
             states = torch.FloatTensor(np.array([s[0] for s in batch])).to(self.device)
@@ -1497,6 +1511,7 @@ class Trainer:
                     if sym_own is not None:
                         entry.append(sym_own)
                     augmented.append(entry)
+            n_new_positions = len(augmented)
             self.buffer.insert_batch(augmented)
 
             # === Per-iteration 3-in-a-row target bias (fresh batch only) ===
@@ -1605,7 +1620,7 @@ class Trainer:
 
             # Train
             t0 = time.time()
-            train_result = self.train_network()
+            train_result = self.train_network(n_new_positions=n_new_positions)
             train_time = time.time() - t0
 
             # === Post-training diagnostics: backbone drift + weight delta ===

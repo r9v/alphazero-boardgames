@@ -46,19 +46,18 @@ GAME_CONFIGS = {
         "ownership_channels": 16,
 
         # --- Training ---
-        "max_train_steps": 3_200,
-        "buffer_size": 50_000,
-        "target_epochs": 2,
+        "train_ratio": 4,
         "value_loss_weight": 3.0,
         "ownership_loss_weight": 1.0,
         "symmetry_loss_weight": 1.0,
+        "buffer_size": 25_000,
         "lr": 0.005,
-        "batch_size": 64,
+        "batch_size": 256,
 
         # --- Self-play ---
-        "default_iterations": 128,
-        "default_games": 64,
-        "default_simulations": 400,
+        "default_iterations": 64,
+        "default_games": 256,
+        "default_simulations": 200,
         "selects_per_round": 1,
         "vl_value": 0.0,
         "temp_threshold": 15,

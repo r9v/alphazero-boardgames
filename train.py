@@ -95,6 +95,7 @@ def main():
         "device": device,
         "max_train_steps": game_cfg.get("max_train_steps", 6400),
         "target_epochs": game_cfg.get("target_epochs", 4),
+        "train_ratio": game_cfg.get("train_ratio", 0),
         "buffer_size": game_cfg.get("buffer_size", 100000),
         "lr": game_cfg.get("lr", 0.01),
         "batch_size": game_cfg.get("batch_size", 64),
@@ -109,6 +110,7 @@ def main():
         "resign_min_moves": game_cfg.get("resign_min_moves", 99),
         "resign_check_prob": game_cfg.get("resign_check_prob", 0.0),
         "ownership_loss_weight": game_cfg.get("ownership_loss_weight", 0.0),
+        "symmetry_loss_weight": game_cfg.get("symmetry_loss_weight", 0.0),
     }
 
     trainer = Trainer(game, net, config)
