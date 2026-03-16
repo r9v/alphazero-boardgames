@@ -21,15 +21,17 @@ def raw_value_to_wdl_class(raw_v):
     return (1 - raw_v).astype(np.int64)
 
 
-def compute_three_in_a_row(inputs, values):
+def compute_three_in_a_row(inputs, values, sign_split=False):
     """Scan for positions with 3+ consecutive pieces on ch0 vs ch1.
 
     Args:
         inputs: np.array of shape (N, C, H, W)
         values: np.array of shape (N,) target values
+        sign_split: if True, also compute sign distribution for ch0 3-in-a-row
 
     Returns:
-        dict with 'mine' and 'opp' keys, each containing count/mean_target/frac
+        dict with 'mine' and 'opp' keys, each containing count/mean_target/frac.
+        If sign_split=True, also includes 'sign_split' key with pos/neg/zero/n.
     """
     result = {}
     for ch, ch_name in [(0, 'mine'), (1, 'opp')]:
@@ -45,6 +47,19 @@ def compute_three_in_a_row(inputs, values):
             'count': count, 'mean_target': mean_target,
             'frac': count / len(inputs),
         }
+    if sign_split:
+        ch0_data = inputs[:, 0]
+        h3 = ch0_data[:, :, :-2] * ch0_data[:, :, 1:-1] * ch0_data[:, :, 2:]
+        v3 = ch0_data[:, :-2, :] * ch0_data[:, 1:-1, :] * ch0_data[:, 2:, :]
+        ch0_mask = h3.any(axis=(1, 2)) | v3.any(axis=(1, 2))
+        if ch0_mask.any():
+            _tgts = values[ch0_mask]
+            result['sign_split'] = {
+                'pos': int((_tgts > 0).sum()),
+                'neg': int((_tgts < 0).sum()),
+                'zero': int((_tgts == 0).sum()),
+                'n': len(_tgts),
+            }
     return result
 
 
@@ -510,7 +525,7 @@ def compute_value_head_diagnostics(trainer, samples, grad_stats_summary):
             "rb_res_rank": rb_res_rank,
         }
         net.train()
-    except Exception as e:
+    except (RuntimeError, ValueError, IndexError, AttributeError) as e:
         print(f"  [DIAG-DBG] Value head diagnostic block failed: {e}")
     return vh_diag
 
@@ -659,7 +674,7 @@ def compute_backbone_gradient_decomposition(trainer, samples, vh_diag):
             "rb_ch_dominance": rb_ch_dominance,
             "rb_v_grad_survival": rb_v_grad_survival,
         })
-    except Exception as e:
+    except (RuntimeError, ValueError, IndexError) as e:
         print(f"  [DIAG-DBG] Backbone gradient decomposition failed: {e}")
 
 
@@ -773,5 +788,5 @@ def compute_svd_rank_diagnostics(net, vh_diag):
             "final_bn_sqrt_var_std": fbn_sqrt_var_std,
         })
         net.train()
-    except Exception as e:
+    except (RuntimeError, ValueError, torch.linalg.LinAlgError) as e:
         print(f"  [DIAG-DBG] SVD/rank diagnostic block failed: {e}")
