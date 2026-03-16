@@ -51,6 +51,10 @@ class Trainer:
         self.ownership_loss_weight = self.config.get("ownership_loss_weight", 0.0)
         self.symmetry_loss_weight = self.config.get("symmetry_loss_weight", 0.0)
 
+        # Mixed precision training: FP16 forward/loss, FP32 gradients
+        self.use_amp = (self.device == "cuda")
+        self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp)
+
         game_name = self.config.get("game_name", "unknown")
         timestr = time.strftime("%Y%m%d-%H%M%S")
         log_dir = self.config.get("log_dir", f"runs/{game_name}/{timestr}")
@@ -319,42 +323,45 @@ class Trainer:
             data_prep_time += time.time() - t0
 
             t0 = time.time()
-            net_out = self.net(states)
-            pred_vs, pred_pi_logits = net_out[0], net_out[1]
-            pred_own = net_out[2] if len(net_out) > 2 else None
+            with torch.autocast('cuda', enabled=self.use_amp):
+                net_out = self.net(states)
+                pred_vs, pred_pi_logits = net_out[0], net_out[1]
+                pred_own = net_out[2] if len(net_out) > 2 else None
 
-            value_loss = F.cross_entropy(pred_vs, target_vs)
-            log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
-            policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
+                value_loss = F.cross_entropy(pred_vs, target_vs)
+                log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
+                policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
 
-            loss = effective_vlw * value_loss + policy_loss
+                loss = effective_vlw * value_loss + policy_loss
 
-            if has_own and pred_own is not None:
-                own_loss = F.mse_loss(pred_own, target_own)
-                loss = loss + self.ownership_loss_weight * own_loss
-                total_ownership_loss += own_loss.item()
+                if has_own and pred_own is not None:
+                    own_loss = F.mse_loss(pred_own, target_own)
+                    loss = loss + self.ownership_loss_weight * own_loss
+                    total_ownership_loss += own_loss.item()
 
-            # === SYMMETRY LOSS: zero-sum constraint V(state) + V(swap(state)) = 0 ===
-            if self.symmetry_loss_weight > 0:
-                # Player-swap: ch0↔ch1, negate ch2
-                states_swap = states.clone()
-                states_swap[:, 0], states_swap[:, 1] = states[:, 1].clone(), states[:, 0].clone()
-                states_swap[:, 2] = -states[:, 2]
-                # Forward pass on swapped states (only need value head)
-                swap_out = self.net(states_swap)
-                swap_vs = swap_out[0]  # WDL logits
-                # Scalar values: P(W) - P(L)
-                probs_orig = F.softmax(pred_vs, dim=1)
-                probs_swap = F.softmax(swap_vs, dim=1)
-                val_orig = probs_orig[:, 0] - probs_orig[:, 2]
-                val_swap = probs_swap[:, 0] - probs_swap[:, 2]
-                # Detach original: supervised loss governs orig, sym loss governs swap
-                sym_loss = ((val_orig.detach() + val_swap) ** 2).mean()
-                loss = loss + self.symmetry_loss_weight * sym_loss
-                total_symmetry_loss += sym_loss.item()
+                # === SYMMETRY LOSS: zero-sum constraint V(state) + V(swap(state)) = 0 ===
+                if self.symmetry_loss_weight > 0:
+                    # Player-swap: ch0↔ch1, negate ch2
+                    states_swap = states.clone()
+                    states_swap[:, 0], states_swap[:, 1] = states[:, 1].clone(), states[:, 0].clone()
+                    states_swap[:, 2] = -states[:, 2]
+                    # Forward pass on swapped states (only need value head)
+                    swap_out = self.net(states_swap)
+                    swap_vs = swap_out[0]  # WDL logits
+                    # Scalar values: P(W) - P(L)
+                    probs_orig = F.softmax(pred_vs, dim=1)
+                    probs_swap = F.softmax(swap_vs, dim=1)
+                    val_orig = probs_orig[:, 0] - probs_orig[:, 2]
+                    val_swap = probs_swap[:, 0] - probs_swap[:, 2]
+                    # Detach original: supervised loss governs orig, sym loss governs swap
+                    sym_loss = ((val_orig.detach() + val_swap) ** 2).mean()
+                    loss = loss + self.symmetry_loss_weight * sym_loss
+                    total_symmetry_loss += sym_loss.item()
 
             self.optimizer.zero_grad()
-            loss.backward()
+            self.scaler.scale(loss).backward()
+            # Unscale gradients before diagnostics read them and before clip_grad_norm
+            self.scaler.unscale_(self.optimizer)
 
             # (A) Per-player loss breakdown every 10 steps
             if step % 10 == 0:
@@ -472,7 +479,8 @@ class Trainer:
                 })
 
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=5.0)
-            self.optimizer.step()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
             gradient_time += time.time() - t0
 
             # Intra-iteration value trajectory on FixedEval positions (every 300 steps + first + last)
