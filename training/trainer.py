@@ -307,10 +307,10 @@ class Trainer:
             lr = lr_min + 0.5 * (self.lr - lr_min) * (1 + math.cos(math.pi * step / num_steps))
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = lr
-            if use_stratified:
-                batch = random.choices(x_pool, k=half_batch) + random.choices(o_pool, k=half_batch)
+            if use_stratified and len(x_pool) >= half_batch and len(o_pool) >= half_batch:
+                batch = random.sample(x_pool, k=half_batch) + random.sample(o_pool, k=half_batch)
             else:
-                batch = random.choices(samples, k=self.batch_size)
+                batch = random.sample(samples, k=min(self.batch_size, len(samples)))
 
             t0 = time.time()
             states = torch.FloatTensor(np.array([s[0] for s in batch])).to(self.device)
