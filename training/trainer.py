@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from training.replay_buffer import ReplayBuffer
 from training.parallel_self_play import BatchedSelfPlay
+from network.alphazero_net import ws_conv2d
 
 
 class Trainer:
@@ -180,6 +181,16 @@ class Trainer:
 
         # (RB) Per-residual-block gradient norms (sampled every 100 steps)
         all_rb_grad_norms = {}
+
+        # Sub-iteration logging (every 100 steps) for intra-iteration dynamics
+        sub_iter_log = []
+
+        # Value confidence distribution (from last 10% of steps)
+        conf_buckets = {'very_low': 0, 'low': 0, 'medium': 0, 'high': 0, 'very_high': 0}
+        conf_total = 0
+
+        # Intra-iteration value trajectory on FixedEval positions (every ~300 steps)
+        fixed_eval_trajectory = []  # list of {step, pos_name: value, ...}
 
         # Dynamic training steps: target N effective epochs, capped by max_train_steps
         # Scale epochs with buffer fill to prevent memorization when buffer is small
@@ -361,9 +372,40 @@ class Trainer:
                         c2_eff_lr = c2w.grad.norm().item() / max(c2w.data.norm().item(), 1e-8)
                         all_rb_grad_norms.setdefault(f'{i}_eff_lr', []).append(c2_eff_lr)
 
+                # Sub-iteration logging: capture intra-iteration dynamics
+                with torch.no_grad():
+                    _wdl_sub = F.softmax(pred_vs.detach(), dim=1)
+                    _sv_sub = (_wdl_sub[:, 0] - _wdl_sub[:, 2])
+                    _mean_conf = _sv_sub.abs().mean().item()
+                    _mean_v = _sv_sub.mean().item()
+                sub_iter_log.append({
+                    'step': step,
+                    'vloss': value_loss.item(),
+                    'ploss': policy_loss.item(),
+                    'v_grad': value_grad_norms[-1] if value_grad_norms else 0,
+                    'p_grad': policy_grad_norms[-1] if policy_grad_norms else 0,
+                    'mean_conf': _mean_conf,
+                    'mean_v': _mean_v,
+                })
+
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=5.0)
             self.optimizer.step()
             gradient_time += time.time() - t0
+
+            # Intra-iteration value trajectory on FixedEval positions (every 300 steps + first + last)
+            _fe_inputs = getattr(self, '_fixed_eval_inputs', None)
+            _fe_names = getattr(self, '_fixed_eval_names', None)
+            if _fe_inputs is not None and _fe_names and (step % 300 == 0 or step == num_steps - 1):
+                self.net.eval()
+                with torch.no_grad():
+                    _fe_v, _fe_p = self.net(_fe_inputs)[:2]
+                    _fe_probs = F.softmax(_fe_v, dim=1)
+                    _fe_vals = (_fe_probs[:, 0] - _fe_probs[:, 2]).cpu().numpy()
+                self.net.train()
+                _fe_entry = {'step': step}
+                for _fi, _fn in enumerate(_fe_names):
+                    _fe_entry[_fn] = float(_fe_vals[_fi])
+                fixed_eval_trajectory.append(_fe_entry)
 
             total_loss += loss.item()
             total_value_loss += value_loss.item()
@@ -385,6 +427,16 @@ class Trainer:
                     wdl_p_late = F.softmax(pred_vs.detach(), dim=1)
                     scalar_v_late = (wdl_p_late[:, 0] - wdl_p_late[:, 2]).cpu().numpy()
                 all_pred_vs.append(scalar_v_late)
+
+                # Value confidence distribution buckets
+                _abs_v = np.abs(scalar_v_late)
+                _n = len(_abs_v)
+                conf_total += _n
+                conf_buckets['very_low'] += int((_abs_v < 0.1).sum())
+                conf_buckets['low'] += int(((_abs_v >= 0.1) & (_abs_v < 0.3)).sum())
+                conf_buckets['medium'] += int(((_abs_v >= 0.3) & (_abs_v < 0.6)).sum())
+                conf_buckets['high'] += int(((_abs_v >= 0.6) & (_abs_v < 0.9)).sum())
+                conf_buckets['very_high'] += int((_abs_v >= 0.9).sum())
 
                 # (P) Policy quality metrics
                 with torch.no_grad():
@@ -1292,6 +1344,12 @@ class Trainer:
             "decisive_frac": decisive_count / max(decisive_count + ambiguous_count, 1),
             # Ownership auxiliary loss
             "avg_ownership_loss": avg_ownership_loss,
+            # Sub-iteration dynamics
+            "sub_iter_log": sub_iter_log,
+            # Value confidence distribution
+            "conf_dist": {k: v / max(conf_total, 1) for k, v in conf_buckets.items()},
+            # Intra-iteration value trajectory on FixedEval positions
+            "fixed_eval_trajectory": fixed_eval_trajectory,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -1379,10 +1437,113 @@ class Trainer:
             self.writer.add_scalar("self_play/buffer_size",
                                    sum(1 for s in self.buffer.arr if s is not None), iteration)
 
+            # === Pre-training diagnostics ===
+            self._eval_diagnostic_positions(iteration, prefix="pre_", label="PreTrainEval")
+
+            # Pre-training segregation (weight-based, no forward pass needed)
+            try:
+                _val_w = self.net.value_conv.weight.data
+                _pol_w = self.net.policy_conv.weight.data
+                _val_ch = _val_w.abs().sum(dim=(0, 2, 3)).cpu().numpy()
+                _pol_ch = _pol_w.abs().sum(dim=(0, 2, 3)).cpu().numpy()
+                pre_vp_corr = float(np.corrcoef(_val_ch, _pol_ch)[0, 1])
+                _pre_top20_v = np.argsort(_val_ch)[-20:]
+                _pre_top20_p = np.argsort(_pol_ch)[-20:]
+                pre_overlap = len(set(_pre_top20_v.tolist()) & set(_pre_top20_p.tolist()))
+                print(f"  PreSeg: vp_corr={pre_vp_corr:.3f} overlap={pre_overlap}/20")
+                self.writer.add_scalar("pre_seg/vp_corr", pre_vp_corr, iteration)
+                self.writer.add_scalar("pre_seg/overlap_20", pre_overlap, iteration)
+            except Exception:
+                pass
+
+            # === Snapshot backbone features + weights BEFORE training ===
+            # (1) Backbone feature drift: run FixedEval positions through backbone
+            # (3) Per-block weight delta: snapshot conv2 weights
+            _pre_bb_features = None
+            _pre_block_weights = {}
+            try:
+                self.net.eval()
+                _diag_positions = self._get_diagnostic_positions()
+                if _diag_positions:
+                    _diag_inputs = torch.FloatTensor(
+                        np.array([p[1] for p in _diag_positions])
+                    ).to(self.device)
+                    # Run through backbone only (conv + res_blocks + final_bn)
+                    with torch.no_grad():
+                        _x = F.relu(self.net.bn(ws_conv2d(_diag_inputs, self.net.conv)))
+                        for block in self.net.res_blocks:
+                            _x = block(_x)
+                        _x = F.relu(self.net.final_bn(_x))
+                        _pre_bb_features = _x.flatten(1).cpu()  # [5, channels*H*W]
+                # Snapshot per-block conv2 weights
+                for bi, block in enumerate(self.net.res_blocks):
+                    _pre_block_weights[bi] = block.conv2.weight.data.clone()
+                self.net.train()
+            except Exception as e:
+                print(f"  [DIAG-DBG] Pre-training snapshot failed: {e}")
+
+            # (2) Store FixedEval inputs for intra-iteration trajectory
+            self._fixed_eval_inputs = None
+            self._fixed_eval_names = None
+            try:
+                if _diag_positions:
+                    self._fixed_eval_inputs = torch.FloatTensor(
+                        np.array([p[1] for p in _diag_positions])
+                    ).to(self.device)
+                    self._fixed_eval_names = [p[0] for p in _diag_positions]
+            except Exception:
+                pass
+
             # Train
             t0 = time.time()
             train_result = self.train_network()
             train_time = time.time() - t0
+
+            # === Post-training diagnostics: backbone drift + weight delta ===
+            # (1) Backbone feature drift: compare backbone features on same positions
+            try:
+                if _pre_bb_features is not None and _diag_positions:
+                    self.net.eval()
+                    with torch.no_grad():
+                        _x2 = F.relu(self.net.bn(ws_conv2d(_diag_inputs, self.net.conv)))
+                        for block in self.net.res_blocks:
+                            _x2 = block(_x2)
+                        _x2 = F.relu(self.net.final_bn(_x2))
+                        _post_bb_features = _x2.flatten(1).cpu()  # [5, channels*H*W]
+                    # Per-position cosine similarity
+                    _cos_sims = F.cosine_similarity(_pre_bb_features, _post_bb_features, dim=1)
+                    _cos_mean = float(_cos_sims.mean())
+                    _cos_min = float(_cos_sims.min())
+                    _pos_names = [p[0] for p in _diag_positions]
+                    _cos_detail = " ".join(
+                        f"{_pos_names[i]}={float(_cos_sims[i]):.4f}"
+                        for i in range(len(_cos_sims))
+                    )
+                    print(f"  Diag[DRIFT]: backbone cosine_sim mean={_cos_mean:.4f} "
+                          f"min={_cos_min:.4f} | {_cos_detail}")
+                    self.writer.add_scalar("drift/bb_cosine_mean", _cos_mean, iteration)
+                    self.writer.add_scalar("drift/bb_cosine_min", _cos_min, iteration)
+                    for i, nm in enumerate(_pos_names):
+                        self.writer.add_scalar(f"drift/{nm}_cosine", float(_cos_sims[i]), iteration)
+                    self.net.train()
+            except Exception as e:
+                print(f"  [DIAG-DBG] Backbone drift measurement failed: {e}")
+
+            # (3) Per-block weight delta magnitude: ||w_after - w_before|| / ||w_before||
+            try:
+                if _pre_block_weights:
+                    _wd_parts = []
+                    for bi, block in enumerate(self.net.res_blocks):
+                        _w_after = block.conv2.weight.data
+                        _w_before = _pre_block_weights[bi]
+                        _delta_norm = float((_w_after - _w_before).norm().item())
+                        _before_norm = float(_w_before.norm().item())
+                        _rel_delta = _delta_norm / max(_before_norm, 1e-10)
+                        _wd_parts.append(f"rb{bi}={_rel_delta:.4f}")
+                        self.writer.add_scalar(f"wdelta/rb{bi}_rel", _rel_delta, iteration)
+                    print(f"  Diag[WDELTA]: {' '.join(_wd_parts)}")
+            except Exception as e:
+                print(f"  [DIAG-DBG] Weight delta measurement failed: {e}")
 
             iter_time = time.time() - iter_t0
 
@@ -1543,6 +1704,7 @@ class Trainer:
                       f"X={d['frac_neg']:.1%} O={d['frac_pos']:.1%} "
                       f"draw={d['frac_draw']:.1%}")
                 overfit_gap = d['val_vloss'] - d['late_vloss']
+                self.writer.add_scalar("diag/overfit_gap_vloss", overfit_gap, iteration)
                 vloss_delta_str = f" delta={d['vloss_delta']:+.4f}" if d.get('vloss_delta') is not None else ""
                 print(f"  Diag: eff_epochs={d['effective_epochs']:.1f} "
                       f"vlw={d.get('effective_vlw',1.0):.2f} "
@@ -1988,6 +2150,51 @@ class Trainer:
                               f"MAE={vd['mcts_nnet_mae']:.3f} "
                               f"correction={vd['mcts_correction_mean']:+.3f}")
 
+            # === Value confidence distribution ===
+            if hasattr(self, '_train_diag'):
+                cd = self._train_diag.get('conf_dist', {})
+                if cd:
+                    print(f"  Diag[CONF]: |v|<0.1={cd.get('very_low',0):.1%} "
+                          f"0.1-0.3={cd.get('low',0):.1%} "
+                          f"0.3-0.6={cd.get('medium',0):.1%} "
+                          f"0.6-0.9={cd.get('high',0):.1%} "
+                          f"|v|>0.9={cd.get('very_high',0):.1%}")
+                    for bk, bv in cd.items():
+                        self.writer.add_scalar(f"conf/{bk}", bv, iteration)
+
+                # === Sub-iteration dynamics summary ===
+                sil = self._train_diag.get('sub_iter_log', [])
+                if len(sil) >= 3:
+                    # Print first, middle, last entries to show intra-iteration trend
+                    indices = [0, len(sil) // 2, len(sil) - 1]
+                    parts = []
+                    for idx in indices:
+                        e = sil[idx]
+                        parts.append(f"s{e['step']}: vl={e['vloss']:.4f} "
+                                     f"pl={e['ploss']:.4f} |v|={e['mean_conf']:.3f} "
+                                     f"v={e['mean_v']:+.3f}")
+                    print(f"  Diag[SUB]: {' -> '.join(parts)}")
+                    # Log first/last to tensorboard for trend detection
+                    self.writer.add_scalar("sub/vloss_first", sil[0]['vloss'], iteration)
+                    self.writer.add_scalar("sub/vloss_last", sil[-1]['vloss'], iteration)
+                    self.writer.add_scalar("sub/conf_first", sil[0]['mean_conf'], iteration)
+                    self.writer.add_scalar("sub/conf_last", sil[-1]['mean_conf'], iteration)
+                    self.writer.add_scalar("sub/mean_v_first", sil[0]['mean_v'], iteration)
+                    self.writer.add_scalar("sub/mean_v_last", sil[-1]['mean_v'], iteration)
+
+            # === Intra-iteration value trajectory on FixedEval positions ===
+            if hasattr(self, '_train_diag'):
+                _traj = self._train_diag.get('fixed_eval_trajectory', [])
+                if _traj and len(_traj) >= 2:
+                    # Print trajectory for each position: step0→step300→...→stepN
+                    _names = [k for k in _traj[0] if k != 'step']
+                    for _pn in _names:
+                        _vals = [f"s{e['step']}:{e[_pn]:+.3f}" for e in _traj]
+                        print(f"  Diag[TRAJ]: {_pn}: {' -> '.join(_vals)}")
+                        # TB: log first and last values for trend detection
+                        self.writer.add_scalar(f"traj/{_pn}_first", _traj[0][_pn], iteration)
+                        self.writer.add_scalar(f"traj/{_pn}_last", _traj[-1][_pn], iteration)
+
             # === Fixed diagnostic position evaluation ===
             self._eval_diagnostic_positions(iteration)
 
@@ -1999,17 +2206,20 @@ class Trainer:
 
         self.writer.close()
 
-    def _eval_diagnostic_positions(self, iteration):
+    def _eval_diagnostic_positions(self, iteration, prefix="", label="FixedEval"):
         """Evaluate the network on fixed diagnostic positions every iteration.
 
         This helps track how the value head evolves over training on known positions.
+        Args:
+            prefix: prefix for tensorboard keys (e.g. "pre_" for pre-training)
+            label: label for console output
         """
         self.net.eval()
         positions = self._get_diagnostic_positions()
         if not positions:
             return
 
-        print(f"  FixedEval:")
+        print(f"  {label}:")
         for name, state_input, expected_str in positions:
             value, policy = self.net.predict(state_input)
             top_action = np.argmax(policy)
@@ -2018,9 +2228,9 @@ class Trainer:
             swapped_input[0], swapped_input[1] = state_input[1].copy(), state_input[0].copy()
             swap_value, _ = self.net.predict(swapped_input)
             swap_delta = value - swap_value
-            self.writer.add_scalar(f"fixed_eval/{name}_value", value, iteration)
-            self.writer.add_scalar(f"fixed_eval/{name}_top_action", top_action, iteration)
-            self.writer.add_scalar(f"fixed_eval/{name}_swap_delta", swap_delta, iteration)
+            self.writer.add_scalar(f"fixed_eval/{prefix}{name}_value", value, iteration)
+            self.writer.add_scalar(f"fixed_eval/{prefix}{name}_top_action", top_action, iteration)
+            self.writer.add_scalar(f"fixed_eval/{prefix}{name}_swap_delta", swap_delta, iteration)
             print(f"    {name}: V={value:+.4f} top_act={top_action} swap_d={swap_delta:+.4f} ({expected_str})")
 
     def _get_diagnostic_positions(self):
