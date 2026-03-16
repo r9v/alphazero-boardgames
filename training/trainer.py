@@ -27,6 +27,7 @@ class Trainer:
         self.max_train_steps = self.config.get("max_train_steps", 5000)
         self.target_epochs = self.config.get("target_epochs", 4)
         self.train_ratio = self.config.get("train_ratio", 0)  # gradient steps per new position; 0 = use epoch-based
+        self.global_step = 0  # global training step counter (persists across iterations)
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
 
         # Separate params: apply weight decay only to conv/linear weights,
@@ -244,10 +245,9 @@ class Trainer:
         early_cutoff = max(num_steps // 10, 1)
         late_start = num_steps - early_cutoff
 
-        # Cosine LR schedule: lr decays from initial to 10% over training steps
+        # Global cosine LR schedule: lr decays from initial to 10% over entire training run
+        # (no per-iteration reset — prevents catastrophic forgetting of previous iterations)
         lr_min = self.lr * 0.1
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = self.lr  # reset to initial at start of each iteration
 
         # (#2) Pre-training value loss: measure before training to compute delta
         pre_train_vloss = None
@@ -303,10 +303,12 @@ class Trainer:
         ambiguous_count = 0
 
         for step in range(num_steps):
-            # Cosine annealing: lr goes from self.lr -> lr_min
-            lr = lr_min + 0.5 * (self.lr - lr_min) * (1 + math.cos(math.pi * step / num_steps))
+            # Global cosine annealing: lr decays over entire training run
+            total = max(self.global_total_steps, 1)
+            lr = lr_min + 0.5 * (self.lr - lr_min) * (1 + math.cos(math.pi * self.global_step / total))
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = lr
+            self.global_step += 1
             if use_stratified and len(x_pool) >= half_batch and len(o_pool) >= half_batch:
                 batch = random.sample(x_pool, k=half_batch) + random.sample(o_pool, k=half_batch)
             else:
@@ -1502,6 +1504,17 @@ class Trainer:
 
     def run(self, num_iterations=1):
         """Run the training loop: self-play -> train -> save."""
+        # Estimate total training steps for global LR schedule
+        # (rough: assumes ~200 steps/iter at full buffer with ratio-based training)
+        avg_game_len = 25  # approximate average game length for Connect4
+        n_syms = 2  # mirror augmentation factor
+        est_new_per_iter = self.games_per_iteration * avg_game_len * n_syms
+        if self.train_ratio > 0:
+            est_steps_per_iter = max(1, int(est_new_per_iter * self.train_ratio / self.batch_size))
+        else:
+            est_steps_per_iter = min(self.max_train_steps,
+                                     int(self.target_epochs * self.buffer.max_size / self.batch_size))
+        self.global_total_steps = est_steps_per_iter * num_iterations
         for iteration in range(num_iterations):
             iter_t0 = time.time()
 

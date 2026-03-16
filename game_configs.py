@@ -47,7 +47,7 @@ GAME_CONFIGS = {
 
         # --- Training ---
         "train_ratio": 4,
-        "value_loss_weight": 3.0,
+        "value_loss_weight": 1.5,
         "ownership_loss_weight": 1.0,
         "symmetry_loss_weight": 1.0,
         "buffer_size": 25_000,
