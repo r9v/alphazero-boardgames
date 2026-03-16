@@ -43,13 +43,10 @@ GAME_CONFIGS = {
         "value_head_channels": 4,
         "value_head_fc_size": 64,
         "policy_head_channels": 2,
-        "ownership_channels": 16,
 
         # --- Training ---
         "train_ratio": 4,
         "value_loss_weight": 1.5,
-        "ownership_loss_weight": 1.0,
-        "symmetry_loss_weight": 1.0,
         "buffer_size": 25_000,
         "lr": 0.005,
         "batch_size": 256,

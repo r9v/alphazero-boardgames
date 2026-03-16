@@ -54,8 +54,7 @@ class AlphaZeroNet(nn.Module):
                  num_res_blocks=2, num_filters=256,
                  value_head_channels=2, value_head_fc_size=64,
                  policy_head_channels=2,
-                 backbone_dropout=0.15,
-                 ownership_channels=0):
+                 backbone_dropout=0.15):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
@@ -78,7 +77,7 @@ class AlphaZeroNet(nn.Module):
         self.final_bn = nn.BatchNorm2d(num_filters)
 
         # Channel dropout on backbone output before heads split.
-        # Prevents channel ownership/segregation between value and policy heads.
+        # Prevents channel segregation between value and policy heads.
         # Drops entire channels (Dropout2d) so neither head can exclusively own channels.
         self.backbone_dropout = nn.Dropout2d(p=backbone_dropout)
 
@@ -93,13 +92,6 @@ class AlphaZeroNet(nn.Module):
         self.policy_conv = nn.Conv2d(num_filters, policy_head_channels, 1)
         self.policy_bn = nn.BatchNorm2d(policy_head_channels)
         self.policy_fc = nn.Linear(policy_head_channels * board_area, action_size)
-
-        # Ownership head (auxiliary): per-cell prediction of final board ownership
-        self.has_ownership = ownership_channels > 0
-        if self.has_ownership:
-            self.own_conv = nn.Conv2d(num_filters, ownership_channels, 1)
-            self.own_bn = nn.BatchNorm2d(ownership_channels)
-            self.own_out = nn.Conv2d(ownership_channels, 1, 1)
 
     def forward(self, x):
         # Backbone
@@ -122,12 +114,6 @@ class AlphaZeroNet(nn.Module):
         p = F.relu(self.policy_bn(self.policy_conv(x)))
         p = p.view(p.size(0), -1)
         p = self.policy_fc(p)
-
-        # Ownership head (auxiliary): predict per-cell final board ownership
-        if self.has_ownership:
-            o = F.relu(self.own_bn(self.own_conv(x)))
-            o = torch.tanh(self.own_out(o).squeeze(1))  # (B, H, W)
-            return v, p, o
 
         return v, p
 
@@ -154,7 +140,7 @@ class AlphaZeroNet(nn.Module):
         self.eval()
         device = next(self.parameters()).device
         x = torch.FloatTensor(state_input).unsqueeze(0).to(device)
-        v, p = self(x)[:2]
+        v, p = self(x)
         # WDL logits → scalar: v = P(win) - P(loss)
         probs = F.softmax(v, dim=1)
         value = (probs[0, 0] - probs[0, 2]).item()
@@ -195,7 +181,7 @@ class AlphaZeroNet(nn.Module):
 
         t0 = time.time()
         with torch.autocast('cuda', enabled=use_fp16):
-            v, p = fwd(x)[:2]
+            v, p = fwd(x)
         if use_fp16:
             torch.cuda.synchronize()
         forward_time = time.time() - t0

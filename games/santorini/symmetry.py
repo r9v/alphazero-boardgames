@@ -155,16 +155,15 @@ def _transform_placement_policy(policy, sym_idx):
     return new_policy
 
 
-def get_symmetries(state_input, policy, ownership=None):
-    """Return all 8 D4 symmetries of (state_input, policy, ownership).
+def get_symmetries(state_input, policy):
+    """Return all 8 D4 symmetries of (state_input, policy).
 
     Args:
         state_input: numpy array (C, 5, 5) — game state encoding
         policy: numpy array (128,) — action probability distribution
-        ownership: optional numpy array (5, 5) — ownership target
 
     Returns:
-        List of 8 (transformed_state, transformed_policy, transformed_ownership) tuples.
+        List of 8 (transformed_state, transformed_policy) tuples.
         First element is always the identity (original).
 
     Handles both placement phase (actions 0-24 = cell positions) and
@@ -179,6 +178,5 @@ def get_symmetries(state_input, policy, ownership=None):
         else:
             swap = _needs_worker_swap(state_input, sym_idx)
             new_policy = _transform_policy(policy, sym_idx, swap)
-        new_own = _transform_state(ownership[np.newaxis], sym_idx)[0] if ownership is not None else None
-        result.append((new_state, new_policy, new_own))
+        result.append((new_state, new_policy))
     return result

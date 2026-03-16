@@ -49,8 +49,6 @@ class Trainer:
         ], lr=self.lr, momentum=0.9)
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
-        self.ownership_loss_weight = self.config.get("ownership_loss_weight", 0.0)
-        self.symmetry_loss_weight = self.config.get("symmetry_loss_weight", 0.0)
 
         # Mixed precision training: FP16 forward/loss, FP32 gradients
         self.use_amp = (self.device == "cuda")
@@ -170,8 +168,6 @@ class Trainer:
         total_loss = 0
         total_value_loss = 0
         total_policy_loss = 0
-        total_ownership_loss = 0
-        total_symmetry_loss = 0
         num_batches = 0
         data_prep_time = 0.0
         gradient_time = 0.0
@@ -258,7 +254,7 @@ class Trainer:
                 pt_states = torch.FloatTensor(np.array([s[0] for s in pt_batch])).to(self.device)
                 pt_raw_v = np.array([s[2] for s in pt_batch])
                 pt_targets_v = torch.LongTensor((1 - pt_raw_v).astype(np.int64)).to(self.device)
-                pt_pred_v = self.net(pt_states)[0]
+                pt_pred_v, _ = self.net(pt_states)
                 pre_train_vloss = float(F.cross_entropy(pt_pred_v, pt_targets_v).item())
             self.net.train()
         except Exception:
@@ -273,8 +269,8 @@ class Trainer:
                 pb_states = torch.FloatTensor(np.array([s[0] for s in pb_batch])).to(self.device)
                 pb_targets = np.array([s[2] for s in pb_batch])
                 pb_players = np.array([s[0][2, 0, 0] for s in pb_batch])
-                pb_out = self.net(pb_states)
-                pb_wdl = F.softmax(pb_out[0], dim=1)
+                pb_v, _ = self.net(pb_states)
+                pb_wdl = F.softmax(pb_v, dim=1)
                 pb_v = (pb_wdl[:, 0] - pb_wdl[:, 2]).cpu().numpy()
                 pb_is_x = pb_players < 0
                 pb_is_o = pb_players > 0
@@ -319,46 +315,17 @@ class Trainer:
             target_pis = torch.FloatTensor(np.array([s[1] for s in batch])).to(self.device)
             raw_v = np.array([s[2] for s in batch])
             target_vs = torch.LongTensor((1 - raw_v).astype(np.int64)).to(self.device)  # WDL class: +1→0, 0→1, -1→2
-            has_own = len(batch[0]) > 3 and self.ownership_loss_weight > 0
-            if has_own:
-                target_own = torch.FloatTensor(np.array([s[3] for s in batch])).to(self.device)
             data_prep_time += time.time() - t0
 
             t0 = time.time()
             with torch.autocast('cuda', enabled=self.use_amp):
-                net_out = self.net(states)
-                pred_vs, pred_pi_logits = net_out[0], net_out[1]
-                pred_own = net_out[2] if len(net_out) > 2 else None
+                pred_vs, pred_pi_logits = self.net(states)
 
                 value_loss = F.cross_entropy(pred_vs, target_vs)
                 log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
                 policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
 
                 loss = effective_vlw * value_loss + policy_loss
-
-                if has_own and pred_own is not None:
-                    own_loss = F.mse_loss(pred_own, target_own)
-                    loss = loss + self.ownership_loss_weight * own_loss
-                    total_ownership_loss += own_loss.item()
-
-                # === SYMMETRY LOSS: zero-sum constraint V(state) + V(swap(state)) = 0 ===
-                if self.symmetry_loss_weight > 0:
-                    # Player-swap: ch0↔ch1, negate ch2
-                    states_swap = states.clone()
-                    states_swap[:, 0], states_swap[:, 1] = states[:, 1].clone(), states[:, 0].clone()
-                    states_swap[:, 2] = -states[:, 2]
-                    # Forward pass on swapped states (only need value head)
-                    swap_out = self.net(states_swap)
-                    swap_vs = swap_out[0]  # WDL logits
-                    # Scalar values: P(W) - P(L)
-                    probs_orig = F.softmax(pred_vs, dim=1)
-                    probs_swap = F.softmax(swap_vs, dim=1)
-                    val_orig = probs_orig[:, 0] - probs_orig[:, 2]
-                    val_swap = probs_swap[:, 0] - probs_swap[:, 2]
-                    # Detach original: supervised loss governs orig, sym loss governs swap
-                    sym_loss = ((val_orig.detach() + val_swap) ** 2).mean()
-                    loss = loss + self.symmetry_loss_weight * sym_loss
-                    total_symmetry_loss += sym_loss.item()
 
             self.optimizer.zero_grad()
             self.scaler.scale(loss).backward()
@@ -491,7 +458,7 @@ class Trainer:
             if _fe_inputs is not None and _fe_names and (step % 300 == 0 or step == num_steps - 1):
                 self.net.eval()
                 with torch.no_grad():
-                    _fe_v, _fe_p = self.net(_fe_inputs)[:2]
+                    _fe_v, _fe_p = self.net(_fe_inputs)
                     _fe_probs = F.softmax(_fe_v, dim=1)
                     _fe_vals = (_fe_probs[:, 0] - _fe_probs[:, 2]).cpu().numpy()
                 self.net.train()
@@ -577,8 +544,6 @@ class Trainer:
         avg_loss = total_loss / max(num_batches, 1)
         avg_value_loss = total_value_loss / max(num_batches, 1)
         avg_policy_loss = total_policy_loss / max(num_batches, 1)
-        avg_ownership_loss = total_ownership_loss / max(num_batches, 1)
-        avg_symmetry_loss = total_symmetry_loss / max(num_batches, 1)
         early_vloss /= max(early_cutoff, 1)
         early_ploss /= max(early_cutoff, 1)
         late_vloss /= max(early_cutoff, 1)
@@ -618,8 +583,7 @@ class Trainer:
                 vt_pi = torch.FloatTensor(np.array([s[1] for s in vb])).to(self.device)
                 vt_raw = np.array([s[2] for s in vb])
                 vt_v = torch.LongTensor((1 - vt_raw).astype(np.int64)).to(self.device)
-                val_out = self.net(vs)
-                pv, pp_logits = val_out[0], val_out[1]
+                pv, pp_logits = self.net(vs)
                 val_vloss += F.cross_entropy(pv, vt_v).item()
                 val_ploss += -torch.mean(torch.sum(vt_pi * F.log_softmax(pp_logits, dim=1), dim=1)).item()
                 val_batches += 1
@@ -728,7 +692,7 @@ class Trainer:
                 diag_inp = torch.FloatTensor(
                     np.array([s[0] for s in diag_batch])
                 ).to(self.device)
-                v_out = self.net(diag_inp)[0]
+                v_out, _ = self.net(diag_inp)
             h0.remove()
             h0b.remove()
             h0p.remove()
@@ -1093,7 +1057,7 @@ class Trainer:
                 rb_gd_hooks.append(block.register_forward_hook(make_rb_gd_hook(idx)))
 
             self.optimizer.zero_grad()
-            gd_pred_v, gd_pred_p_logits = self.net(gd_states)[:2]
+            gd_pred_v, gd_pred_p_logits = self.net(gd_states)
 
             gd_v_loss = F.cross_entropy(gd_pred_v, gd_targets_v)
             gd_p_loss = -torch.mean(torch.sum(gd_targets_pi * F.log_softmax(gd_pred_p_logits, dim=1), dim=1))
@@ -1379,8 +1343,8 @@ class Trainer:
                     pb_states_post = torch.FloatTensor(
                         np.array([s[0] for s in _pbias_data['batch']])
                     ).to(self.device)
-                    pb_out_post = self.net(pb_states_post)
-                    pb_wdl_post = F.softmax(pb_out_post[0], dim=1)
+                    pb_v_post, _ = self.net(pb_states_post)
+                    pb_wdl_post = F.softmax(pb_v_post, dim=1)
                     pb_v_post = (pb_wdl_post[:, 0] - pb_wdl_post[:, 2]).cpu().numpy()
                     _pb_targets = _pbias_data['targets']
                     _pb_is_x = _pbias_data['is_x']
@@ -1462,10 +1426,6 @@ class Trainer:
             "policy_loss_decisive": ploss_decisive_sum / max(decisive_count, 1),
             "policy_loss_ambiguous": ploss_ambiguous_sum / max(ambiguous_count, 1),
             "decisive_frac": decisive_count / max(decisive_count + ambiguous_count, 1),
-            # Ownership auxiliary loss
-            "avg_ownership_loss": avg_ownership_loss,
-            # Symmetry loss (zero-sum constraint)
-            "avg_symmetry_loss": avg_symmetry_loss,
             # Sub-iteration dynamics
             "sub_iter_log": sub_iter_log,
             # Value confidence distribution
@@ -1526,12 +1486,8 @@ class Trainer:
             # Augment with symmetries (e.g. left-right mirror for Connect4)
             augmented = []
             for ex in all_examples:
-                ownership = ex[3] if len(ex) > 3 else None
-                for sym_input, sym_policy, sym_own in self.game.get_symmetries(ex[0], ex[1], ownership):
-                    entry = [sym_input, sym_policy, ex[2]]
-                    if sym_own is not None:
-                        entry.append(sym_own)
-                    augmented.append(entry)
+                for sym_input, sym_policy in self.game.get_symmetries(ex[0], ex[1]):
+                    augmented.append([sym_input, sym_policy, ex[2]])
             n_new_positions = len(augmented)
             self.buffer.insert_batch(augmented)
 
@@ -1697,18 +1653,8 @@ class Trainer:
                 self.writer.add_scalar("loss/total", avg_loss, iteration)
                 self.writer.add_scalar("loss/value", avg_value_loss, iteration)
                 self.writer.add_scalar("loss/policy", avg_policy_loss, iteration)
-                own_loss_str = ""
-                if hasattr(self, '_train_diag') and self._train_diag.get("avg_ownership_loss", 0) > 0:
-                    own_l = self._train_diag["avg_ownership_loss"]
-                    self.writer.add_scalar("loss/ownership", own_l, iteration)
-                    own_loss_str = f" o={own_l:.4f}"
-                sym_loss_str = ""
-                if hasattr(self, '_train_diag') and self._train_diag.get("avg_symmetry_loss", 0) > 0:
-                    sym_l = self._train_diag["avg_symmetry_loss"]
-                    self.writer.add_scalar("loss/symmetry", sym_l, iteration)
-                    sym_loss_str = f" sym={sym_l:.4f}"
                 print(f"  Iter {iteration+1}/{num_iterations}: loss={avg_loss:.4f} "
-                      f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}{own_loss_str}{sym_loss_str}) | "
+                      f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}) | "
                       f"games: p1={wins_p1} p2={wins_p2} draw={draws} | "
                       f"avg_len={avg_length:.1f} ({min_length}-{max_length}) | "
                       f"self_play={self_play_time:.1f}s train={train_time:.1f}s "

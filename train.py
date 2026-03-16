@@ -68,7 +68,6 @@ def main():
         value_head_channels=game_cfg.get("value_head_channels", 2),
         value_head_fc_size=game_cfg.get("value_head_fc_size", 64),
         policy_head_channels=game_cfg.get("policy_head_channels", 2),
-        ownership_channels=game_cfg.get("ownership_channels", 0),
     )
 
     checkpoint_dir = f"checkpoints/{args.game}"
@@ -109,8 +108,6 @@ def main():
         "resign_threshold": game_cfg.get("resign_threshold", -1.0),
         "resign_min_moves": game_cfg.get("resign_min_moves", 99),
         "resign_check_prob": game_cfg.get("resign_check_prob", 0.0),
-        "ownership_loss_weight": game_cfg.get("ownership_loss_weight", 0.0),
-        "symmetry_loss_weight": game_cfg.get("symmetry_loss_weight", 0.0),
     }
 
     trainer = Trainer(game, net, config)

@@ -140,10 +140,8 @@ class BatchedSelfPlay:
                     if tv != 0 and len(examples[i]) > 0:
                         assert examples[i][-1][2] == tv, \
                             f"Resign sign-chain: last_player={examples[i][-1][2]}, tv={tv}"
-                    final_board = states[i].board
                     for move_idx, ex in enumerate(examples[i]):
                         player_at_pos = ex[2]
-                        ex.append((final_board * player_at_pos).astype(np.float32))
                         raw_target = tv * player_at_pos
                         ex[2] = raw_target
                     # Assert: after target conversion, winner's last target must be +1
@@ -225,10 +223,8 @@ class BatchedSelfPlay:
                     if tv != 0 and len(examples[i]) > 0:
                         assert examples[i][-1][2] == tv, \
                             f"Terminal sign-chain: last_player={examples[i][-1][2]}, tv={tv}"
-                    final_board = states[i].board
                     for move_idx, ex in enumerate(examples[i]):
                         player_at_pos = ex[2]
-                        ex.append((final_board * player_at_pos).astype(np.float32))
                         raw_target = tv * player_at_pos
                         ex[2] = raw_target
                     # Assert: after target conversion, winner's last target must be +1
