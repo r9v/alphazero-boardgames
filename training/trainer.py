@@ -48,6 +48,7 @@ class Trainer:
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
         self.ownership_loss_weight = self.config.get("ownership_loss_weight", 0.0)
+        self.symmetry_loss_weight = self.config.get("symmetry_loss_weight", 0.0)
 
         game_name = self.config.get("game_name", "unknown")
         timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -158,6 +159,7 @@ class Trainer:
         total_value_loss = 0
         total_policy_loss = 0
         total_ownership_loss = 0
+        total_symmetry_loss = 0
         num_batches = 0
         data_prep_time = 0.0
         gradient_time = 0.0
@@ -317,6 +319,25 @@ class Trainer:
                 own_loss = F.mse_loss(pred_own, target_own)
                 loss = loss + self.ownership_loss_weight * own_loss
                 total_ownership_loss += own_loss.item()
+
+            # === SYMMETRY LOSS: zero-sum constraint V(state) + V(swap(state)) = 0 ===
+            if self.symmetry_loss_weight > 0:
+                # Player-swap: ch0↔ch1, negate ch2
+                states_swap = states.clone()
+                states_swap[:, 0], states_swap[:, 1] = states[:, 1].clone(), states[:, 0].clone()
+                states_swap[:, 2] = -states[:, 2]
+                # Forward pass on swapped states (only need value head)
+                swap_out = self.net(states_swap)
+                swap_vs = swap_out[0]  # WDL logits
+                # Scalar values: P(W) - P(L)
+                probs_orig = F.softmax(pred_vs, dim=1)
+                probs_swap = F.softmax(swap_vs, dim=1)
+                val_orig = probs_orig[:, 0] - probs_orig[:, 2]
+                val_swap = probs_swap[:, 0] - probs_swap[:, 2]
+                # Detach original: supervised loss governs orig, sym loss governs swap
+                sym_loss = ((val_orig.detach() + val_swap) ** 2).mean()
+                loss = loss + self.symmetry_loss_weight * sym_loss
+                total_symmetry_loss += sym_loss.item()
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -533,6 +554,7 @@ class Trainer:
         avg_value_loss = total_value_loss / max(num_batches, 1)
         avg_policy_loss = total_policy_loss / max(num_batches, 1)
         avg_ownership_loss = total_ownership_loss / max(num_batches, 1)
+        avg_symmetry_loss = total_symmetry_loss / max(num_batches, 1)
         early_vloss /= max(early_cutoff, 1)
         early_ploss /= max(early_cutoff, 1)
         late_vloss /= max(early_cutoff, 1)
@@ -1418,6 +1440,8 @@ class Trainer:
             "decisive_frac": decisive_count / max(decisive_count + ambiguous_count, 1),
             # Ownership auxiliary loss
             "avg_ownership_loss": avg_ownership_loss,
+            # Symmetry loss (zero-sum constraint)
+            "avg_symmetry_loss": avg_symmetry_loss,
             # Sub-iteration dynamics
             "sub_iter_log": sub_iter_log,
             # Value confidence distribution
@@ -1642,8 +1666,13 @@ class Trainer:
                     own_l = self._train_diag["avg_ownership_loss"]
                     self.writer.add_scalar("loss/ownership", own_l, iteration)
                     own_loss_str = f" o={own_l:.4f}"
+                sym_loss_str = ""
+                if hasattr(self, '_train_diag') and self._train_diag.get("avg_symmetry_loss", 0) > 0:
+                    sym_l = self._train_diag["avg_symmetry_loss"]
+                    self.writer.add_scalar("loss/symmetry", sym_l, iteration)
+                    sym_loss_str = f" sym={sym_l:.4f}"
                 print(f"  Iter {iteration+1}/{num_iterations}: loss={avg_loss:.4f} "
-                      f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}{own_loss_str}) | "
+                      f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}{own_loss_str}{sym_loss_str}) | "
                       f"games: p1={wins_p1} p2={wins_p2} draw={draws} | "
                       f"avg_len={avg_length:.1f} ({min_length}-{max_length}) | "
                       f"self_play={self_play_time:.1f}s train={train_time:.1f}s "

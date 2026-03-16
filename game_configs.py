@@ -51,6 +51,7 @@ GAME_CONFIGS = {
         "target_epochs": 2,
         "value_loss_weight": 3.0,
         "ownership_loss_weight": 1.0,
+        "symmetry_loss_weight": 1.0,
         "lr": 0.005,
         "batch_size": 64,
 
