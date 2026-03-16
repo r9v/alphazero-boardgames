@@ -683,10 +683,12 @@ class Trainer:
             self.buffer.insert_batch(augmented)
 
             # === Per-iteration 3-in-a-row target bias (fresh batch only) ===
+            iter_3r = None
+            iter_3r_sign = None
             try:
                 _iter_inputs = np.array([ex[0] for ex in augmented])  # (N, 2, H, W)
                 _iter_targets = np.array([ex[2] for ex in augmented])  # (N,)
-                _iter_3r = {}
+                iter_3r = {}
                 for _ch, _cname in [(0, 'mine'), (1, 'opp')]:
                     _cd = _iter_inputs[:, _ch]
                     _h3 = _cd[:, :, :-2] * _cd[:, :, 1:-1] * _cd[:, :, 2:]
@@ -694,22 +696,18 @@ class Trainer:
                     _m = _h3.any(axis=(1, 2)) | _v3.any(axis=(1, 2))
                     _cnt = int(_m.sum())
                     _mt = float(_iter_targets[_m].mean()) if _cnt > 0 else 0.0
-                    _iter_3r[_cname] = {'count': _cnt, 'mean': _mt}
-                _mine = _iter_3r['mine']
-                _opp = _iter_3r['opp']
-                print(f"  Diag[3R-iter]: fresh batch ch0: n={_mine['count']} target={_mine['mean']:+.3f} | "
-                      f"ch1: n={_opp['count']} target={_opp['mean']:+.3f}")
-                self.writer.add_scalar("diag/iter_3r_ch0_target", _mine['mean'], iteration)
-                self.writer.add_scalar("diag/iter_3r_ch1_target", _opp['mean'], iteration)
-                # Sign split for this iteration's ch0 3-in-a-row
+                    iter_3r[_cname] = {'count': _cnt, 'mean': _mt}
+                # Sign split for ch0 3-in-a-row
                 _cd0 = _iter_inputs[:, 0]
                 _h3_0 = _cd0[:, :, :-2] * _cd0[:, :, 1:-1] * _cd0[:, :, 2:]
                 _v3_0 = _cd0[:, :-2, :] * _cd0[:, 1:-1, :] * _cd0[:, 2:, :]
                 _ch0m = _h3_0.any(axis=(1, 2)) | _v3_0.any(axis=(1, 2))
                 if _ch0m.any():
                     _t0 = _iter_targets[_ch0m]
-                    print(f"  Diag[SIGN-iter]: ch0_3row: +:{int((_t0>0).sum())} -:{int((_t0<0).sum())} "
-                          f"0:{int((_t0==0).sum())} (n={len(_t0)})")
+                    iter_3r_sign = {
+                        'pos': int((_t0 > 0).sum()), 'neg': int((_t0 < 0).sum()),
+                        'zero': int((_t0 == 0).sum()), 'n': len(_t0),
+                    }
             except Exception:
                 pass
 
@@ -721,18 +719,11 @@ class Trainer:
             min_length = int(np.min(game_lengths))
             max_length = int(np.max(game_lengths))
             p1_win_pct = wins_p1 / max(len(results), 1)
-            self.writer.add_scalar("self_play/avg_game_length", avg_length, iteration)
-            self.writer.add_scalar("self_play/wins_p1", wins_p1, iteration)
-            self.writer.add_scalar("self_play/wins_p2", wins_p2, iteration)
-            self.writer.add_scalar("self_play/draws", draws, iteration)
-            self.writer.add_scalar("self_play/p1_win_pct", p1_win_pct, iteration)
-            self.writer.add_scalar("self_play/buffer_size",
-                                   sum(1 for s in self.buffer.arr if s is not None), iteration)
-
             # === Pre-training diagnostics ===
             self._eval_diagnostic_positions(iteration, prefix="pre_", label="PreTrainEval")
 
             # Pre-training segregation (weight-based, no forward pass needed)
+            pre_seg = None
             try:
                 _val_w = self.net.value_conv.weight.data
                 _pol_w = self.net.policy_conv.weight.data
@@ -742,9 +733,7 @@ class Trainer:
                 _pre_top20_v = np.argsort(_val_ch)[-20:]
                 _pre_top20_p = np.argsort(_pol_ch)[-20:]
                 pre_overlap = len(set(_pre_top20_v.tolist()) & set(_pre_top20_p.tolist()))
-                print(f"  PreSeg: vp_corr={pre_vp_corr:.3f} overlap={pre_overlap}/20")
-                self.writer.add_scalar("pre_seg/vp_corr", pre_vp_corr, iteration)
-                self.writer.add_scalar("pre_seg/overlap_20", pre_overlap, iteration)
+                pre_seg = {'vp_corr': pre_vp_corr, 'overlap': pre_overlap}
             except Exception:
                 pass
 
@@ -792,7 +781,7 @@ class Trainer:
             train_time = time.time() - t0
 
             # === Post-training diagnostics: backbone drift + weight delta ===
-            # (1) Backbone feature drift: compare backbone features on same positions
+            drift_result = None
             try:
                 if _pre_bb_features is not None and _diag_positions:
                     self.net.eval()
@@ -801,717 +790,46 @@ class Trainer:
                         for block in self.net.res_blocks:
                             _x2 = block(_x2)
                         _x2 = F.relu(self.net.final_bn(_x2))
-                        _post_bb_features = _x2.flatten(1).cpu()  # [5, channels*H*W]
-                    # Per-position cosine similarity
+                        _post_bb_features = _x2.flatten(1).cpu()
                     _cos_sims = F.cosine_similarity(_pre_bb_features, _post_bb_features, dim=1)
-                    _cos_mean = float(_cos_sims.mean())
-                    _cos_min = float(_cos_sims.min())
                     _pos_names = [p[0] for p in _diag_positions]
-                    _cos_detail = " ".join(
-                        f"{_pos_names[i]}={float(_cos_sims[i]):.4f}"
-                        for i in range(len(_cos_sims))
-                    )
-                    print(f"  Diag[DRIFT]: backbone cosine_sim mean={_cos_mean:.4f} "
-                          f"min={_cos_min:.4f} | {_cos_detail}")
-                    self.writer.add_scalar("drift/bb_cosine_mean", _cos_mean, iteration)
-                    self.writer.add_scalar("drift/bb_cosine_min", _cos_min, iteration)
-                    for i, nm in enumerate(_pos_names):
-                        self.writer.add_scalar(f"drift/{nm}_cosine", float(_cos_sims[i]), iteration)
+                    drift_result = {
+                        'cos_mean': float(_cos_sims.mean()),
+                        'cos_min': float(_cos_sims.min()),
+                        'per_pos': {_pos_names[i]: float(_cos_sims[i]) for i in range(len(_cos_sims))},
+                        'pos_names': _pos_names,
+                    }
                     self.net.train()
             except Exception as e:
                 print(f"  [DIAG-DBG] Backbone drift measurement failed: {e}")
 
-            # (3) Per-block weight delta magnitude: ||w_after - w_before|| / ||w_before||
+            wdelta_result = None
             try:
                 if _pre_block_weights:
-                    _wd_parts = []
+                    wdelta_result = {}
                     for bi, block in enumerate(self.net.res_blocks):
                         _w_after = block.conv2.weight.data
                         _w_before = _pre_block_weights[bi]
                         _delta_norm = float((_w_after - _w_before).norm().item())
                         _before_norm = float(_w_before.norm().item())
-                        _rel_delta = _delta_norm / max(_before_norm, 1e-10)
-                        _wd_parts.append(f"rb{bi}={_rel_delta:.4f}")
-                        self.writer.add_scalar(f"wdelta/rb{bi}_rel", _rel_delta, iteration)
-                    print(f"  Diag[WDELTA]: {' '.join(_wd_parts)}")
+                        wdelta_result[bi] = _delta_norm / max(_before_norm, 1e-10)
             except Exception as e:
                 print(f"  [DIAG-DBG] Weight delta measurement failed: {e}")
 
             iter_time = time.time() - iter_t0
 
-            if train_result is not None:
-                avg_loss, avg_value_loss, avg_policy_loss = train_result
-                self.writer.add_scalar("loss/total", avg_loss, iteration)
-                self.writer.add_scalar("loss/value", avg_value_loss, iteration)
-                self.writer.add_scalar("loss/policy", avg_policy_loss, iteration)
-                print(f"  Iter {iteration+1}/{num_iterations}: loss={avg_loss:.4f} "
-                      f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}) | "
-                      f"games: p1={wins_p1} p2={wins_p2} draw={draws} | "
-                      f"avg_len={avg_length:.1f} ({min_length}-{max_length}) | "
-                      f"self_play={self_play_time:.1f}s train={train_time:.1f}s "
-                      f"total={iter_time:.1f}s")
-
-            self.writer.add_scalar("perf/self_play_time", self_play_time, iteration)
-            self.writer.add_scalar("perf/train_time", train_time, iteration)
-            if hasattr(self, '_batched') and hasattr(self._batched, 'perf'):
-                perf = self._batched.perf
-                avg_batch = perf["sample_count"] / max(perf["batch_count"], 1)
-                self.writer.add_scalar("perf/mcts_select_expand", perf["select_expand_time"], iteration)
-                self.writer.add_scalar("perf/mcts_backup", perf["backup_time"], iteration)
-                self.writer.add_scalar("perf/nn_time", perf["nn_time"], iteration)
-                self.writer.add_scalar("perf/nn_preprocess", perf["preprocess_time"], iteration)
-                self.writer.add_scalar("perf/nn_transfer", perf["transfer_time"], iteration)
-                self.writer.add_scalar("perf/nn_forward", perf["forward_time"], iteration)
-                self.writer.add_scalar("perf/nn_result", perf["result_time"], iteration)
-                self.writer.add_scalar("perf/nn_postprocess", perf["postprocess_time"], iteration)
-                self.writer.add_scalar("perf/batch_count", perf["batch_count"], iteration)
-                self.writer.add_scalar("perf/avg_batch_size", avg_batch, iteration)
-                self.writer.add_scalar("perf/terminal_hits", perf["terminal_hits"], iteration)
-                print(f"  MCTS: select={perf['select_expand_time']:.1f}s "
-                      f"backup={perf['backup_time']:.1f}s "
-                      f"terminal_hits={perf['terminal_hits']}")
-                print(f"  NN:   forward={perf['forward_time']:.1f}s "
-                      f"result={perf['result_time']:.1f}s "
-                      f"preprocess={perf['preprocess_time']:.1f}s "
-                      f"transfer={perf['transfer_time']:.1f}s | "
-                      f"batches={perf['batch_count']} "
-                      f"batch_sz={perf['min_batch']}/{avg_batch:.0f}/{perf['max_batch']}")
-                enc_errs = perf.get("encoding_errors", 0)
-                enc_total = perf.get("encoding_checks", 0)
-                enc_time = perf.get("encoding_time", 0)
-                enc_sampled = enc_total // 50 if enc_total else 0
-                if enc_errs > 0:
-                    print(f"  [WARNING] Encoding errors: {enc_errs}/{enc_sampled} sampled "
-                          f"({enc_total} total) {enc_time:.2f}s")
-                else:
-                    print(f"  Encoding: {enc_sampled}/{enc_total} sampled, all OK, {enc_time:.2f}s")
-                # Batch size histogram
-                hist = perf.get("batch_histogram", [0]*5)
-                print(f"  BatchHist: [1-4]={hist[0]} [5-16]={hist[1]} "
-                      f"[17-32]={hist[2]} [33-64]={hist[3]} [65+]={hist[4]}")
-                # Active games per move step
-                apm = perf.get("active_per_move", [])
-                if apm:
-                    print(f"  ActiveGames: min={min(apm)} avg={np.mean(apm):.1f} "
-                          f"max={max(apm)} steps={len(apm)}")
-                # Accumulation rounds
-                accum = perf.get("accum_rounds", 0)
-                if accum > 0:
-                    print(f"  Accumulation: {accum} move-steps used batch accumulation")
-                # Tree reuse stats
-                tr_count = perf.get("tree_reuse_count", 0)
-                tr_fresh = perf.get("tree_reuse_fresh_count", 0)
-                tr_total = tr_count + tr_fresh
-                if tr_total > 0:
-                    tr_pct = tr_count / tr_total
-                    tr_avg_v = perf.get("tree_reuse_avg_visits", 0)
-                    print(f"  TreeReuse: {tr_count}/{tr_total} ({tr_pct:.0%}) "
-                          f"avg_reused_visits={tr_avg_v:.1f}")
-                    self.writer.add_scalar("perf/tree_reuse_pct", tr_pct, iteration)
-                    self.writer.add_scalar("perf/tree_reuse_avg_visits", tr_avg_v, iteration)
-                # Resign stats
-                resign_count = perf.get("resign_count", 0)
-                resign_checks = perf.get("resign_check_count", 0)
-                resign_fp = perf.get("resign_false_positives", 0)
-                if resign_count > 0 or resign_checks > 0:
-                    resign_avg_move = perf.get("resign_avg_move", 0)
-                    total_games = self.games_per_iteration
-                    resign_pct = resign_count / max(total_games, 1)
-                    fp_str = f"false_pos={resign_fp}/{resign_checks}" if resign_checks > 0 else "no_checks"
-                    print(f"  Resign: {resign_count}/{total_games} ({resign_pct:.0%}) "
-                          f"avg_move={resign_avg_move:.1f} "
-                          f"{fp_str}")
-                    self.writer.add_scalar("self_play/resign_count", resign_count, iteration)
-                    self.writer.add_scalar("self_play/resign_pct", resign_pct, iteration)
-                    self.writer.add_scalar("self_play/resign_avg_move", resign_avg_move, iteration)
-                    if resign_checks > 0:
-                        fp_rate = resign_fp / resign_checks
-                        self.writer.add_scalar("self_play/resign_fp_rate", fp_rate, iteration)
-                # Immediate-win stats
-                imm_win_n = perf.get("imm_win_count", 0)
-                imm_win_frac = perf.get("imm_win_frac", 0)
-                imm_win_total = imm_win_n / max(imm_win_frac, 1e-9) if imm_win_frac > 0 else 0
-                print(f"  ImmWin: {imm_win_n}/{int(imm_win_total)} ({imm_win_frac:.1%}) positions have immediate winning move")
-                self.writer.add_scalar("self_play/imm_win_frac", imm_win_frac, iteration)
-                self.writer.add_scalar("self_play/imm_win_count", imm_win_n, iteration)
-            if hasattr(self, '_train_perf'):
-                tp = self._train_perf
-                self.writer.add_scalar("perf/train_data_prep", tp["data_prep_time"], iteration)
-                self.writer.add_scalar("perf/train_gradient", tp["gradient_time"], iteration)
-                self.writer.add_scalar("perf/train_num_samples", tp["num_samples"], iteration)
-                self.writer.add_scalar("perf/train_num_batches", tp["num_batches"], iteration)
-                print(f"  Train: data={tp['data_prep_time']:.1f}s "
-                      f"grad={tp['gradient_time']:.1f}s | "
-                      f"samples={tp['num_samples']} "
-                      f"batches={tp['num_batches']}")
-            if hasattr(self, '_train_diag'):
-                d = self._train_diag
-                # Tensorboard
-                self.writer.add_scalar("diag/val_target_mean", d["val_target_mean"], iteration)
-                self.writer.add_scalar("diag/val_target_std", d["val_target_std"], iteration)
-                self.writer.add_scalar("diag/frac_xwins", d["frac_neg"], iteration)
-                self.writer.add_scalar("diag/frac_owins", d["frac_pos"], iteration)
-                self.writer.add_scalar("diag/frac_draws", d["frac_draw"], iteration)
-                self.writer.add_scalar("diag/effective_epochs", d["effective_epochs"], iteration)
-                self.writer.add_scalar("diag/early_vloss", d["early_vloss"], iteration)
-                self.writer.add_scalar("diag/late_vloss", d["late_vloss"], iteration)
-                self.writer.add_scalar("diag/early_ploss", d["early_ploss"], iteration)
-                self.writer.add_scalar("diag/late_ploss", d["late_ploss"], iteration)
-                self.writer.add_scalar("diag/buffer_fill", d["buffer_fill"], iteration)
-                self.writer.add_scalar("diag/pred_v_mean", d["pred_v_mean"], iteration)
-                self.writer.add_scalar("diag/pred_v_std", d["pred_v_std"], iteration)
-                self.writer.add_scalar("diag/pred_v_abs_mean", d["pred_v_abs_mean"], iteration)
-                self.writer.add_scalar("diag/policy_grad_frac", d["policy_grad_frac"], iteration)
-                self.writer.add_scalar("diag/val_loss_floor", d["val_loss_floor"], iteration)
-                self.writer.add_scalar("diag/value_grad_norm", d["avg_value_grad_norm"], iteration)
-                self.writer.add_scalar("diag/policy_grad_norm", d["avg_policy_grad_norm"], iteration)
-                # New metrics: policy quality, value confidence, per-block grads
-                self.writer.add_scalar("diag/policy_entropy", d["policy_entropy"], iteration)
-                self.writer.add_scalar("diag/policy_top1_acc", d["policy_top1_acc"], iteration)
-                self.writer.add_scalar("diag/policy_top3_acc", d["policy_top3_acc"], iteration)
-                self.writer.add_scalar("diag/value_confidence_acc", d["value_confidence_acc"], iteration)
-                self.writer.add_scalar("diag/value_confident_frac", d["value_confident_frac"], iteration)
-                for rb_i, rb_gn in d.get("rb_grad_norms", {}).items():
-                    self.writer.add_scalar(f"diag/rb{rb_i}_grad_norm", rb_gn, iteration)
-                # (#2) Value loss delta
-                if d.get("vloss_delta") is not None:
-                    self.writer.add_scalar("diag/vloss_delta", d["vloss_delta"], iteration)
-                    self.writer.add_scalar("diag/pre_train_vloss", d["pre_train_vloss"], iteration)
-                # (#6) Game phase value loss
-                self.writer.add_scalar("diag/phase_vloss_early", d["phase_vloss_early"], iteration)
-                self.writer.add_scalar("diag/phase_vloss_mid", d["phase_vloss_mid"], iteration)
-                self.writer.add_scalar("diag/phase_vloss_late", d["phase_vloss_late"], iteration)
-                # (#8) Policy loss on decisive positions
-                self.writer.add_scalar("diag/policy_loss_decisive", d["policy_loss_decisive"], iteration)
-                self.writer.add_scalar("diag/policy_loss_ambiguous", d["policy_loss_ambiguous"], iteration)
-                self.writer.add_scalar("diag/decisive_frac", d["decisive_frac"], iteration)
-                # Console
-                print(f"  Diag: targets mean={d['val_target_mean']:+.3f} "
-                      f"std={d['val_target_std']:.3f} | "
-                      f"X={d['frac_neg']:.1%} O={d['frac_pos']:.1%} "
-                      f"draw={d['frac_draw']:.1%}")
-                overfit_gap = d['val_vloss'] - d['late_vloss']
-                self.writer.add_scalar("diag/overfit_gap_vloss", overfit_gap, iteration)
-                vloss_delta_str = f" delta={d['vloss_delta']:+.4f}" if d.get('vloss_delta') is not None else ""
-                print(f"  Diag: eff_epochs={d['effective_epochs']:.1f} "
-                      f"vlw={d.get('effective_vlw',1.0):.2f} "
-                      f"steps={d['num_steps']} | "
-                      f"vloss train={d['late_vloss']:.4f} "
-                      f"val={d['val_vloss']:.4f} "
-                      f"(gap={overfit_gap:+.4f}){vloss_delta_str} | "
-                      f"buf={d['buffer_fill']}/{d['buffer_capacity']}"
-                      f"{' FULL' if d['buffer_full'] else ''}")
-                self.writer.add_scalar("diag/val_vloss", d["val_vloss"], iteration)
-                self.writer.add_scalar("diag/effective_vlw", d.get("effective_vlw", 1.0), iteration)
-                self.writer.add_scalar("diag/val_ploss", d["val_ploss"], iteration)
-                print(f"  Diag: pred_v mean={d['pred_v_mean']:+.3f} "
-                      f"std={d['pred_v_std']:.3f} "
-                      f"|v|={d['pred_v_abs_mean']:.3f} | "
-                      f"policy_grad={d['policy_grad_frac']:.1%} | "
-                      f"vloss_floor={d['val_loss_floor']:.4f}")
-                print(f"  Diag: grad_norms value={d['avg_value_grad_norm']:.4f} "
-                      f"policy={d['avg_policy_grad_norm']:.4f} "
-                      f"ratio={d['avg_value_grad_norm']/max(d['avg_policy_grad_norm'],1e-8):.2f}")
-                print(f"  Diag: p1_win={p1_win_pct:.1%} "
-                      f"game_len={avg_length:.1f} ({min_length}-{max_length})")
-                # (P) Policy quality metrics
-                print(f"  Diag[P]: entropy={d['policy_entropy']:.3f} "
-                      f"top1_acc={d['policy_top1_acc']:.1%} "
-                      f"top3_acc={d['policy_top3_acc']:.1%}")
-                # (#8) Policy loss on decisive vs ambiguous
-                print(f"  Diag[P2]: ploss_decisive={d['policy_loss_decisive']:.4f} "
-                      f"ploss_ambiguous={d['policy_loss_ambiguous']:.4f} "
-                      f"decisive_frac={d['decisive_frac']:.1%}")
-                # (C) Value confidence calibration
-                print(f"  Diag[C]: confident_acc={d['value_confidence_acc']:.1%} "
-                      f"(frac_confident={d['value_confident_frac']:.1%})")
-                # (RB) Per-block gradient norms
-                rb_gn = d.get('rb_grad_norms', {})
-                if rb_gn:
-                    rb_items = sorted((i, n) for i, n in rb_gn.items() if isinstance(i, int))
-                    rb_str = " ".join(f"rb{i}={n:.4f}" for i, n in rb_items)
-                    eff_lr_items = sorted((k, v) for k, v in rb_gn.items() if isinstance(k, str) and 'eff_lr' in k)
-                    eff_lr_str = " ".join(f"rb{k.replace('_eff_lr','')}={v:.5f}" for k, v in eff_lr_items)
-                    line = f"  Diag[RB]: grad_norms: {rb_str}"
-                    if eff_lr_str:
-                        line += f" | c2_eff_lr: {eff_lr_str}"
-                    print(line)
-                # Value target histogram
-                vh_bins = d.get('val_hist', [])
-                if vh_bins:
-                    print(f"  Diag[TH]: targets [-1,-0.5)={vh_bins[0]:.1%} "
-                          f"[-0.5,0)={vh_bins[1]:.1%} [0]={vh_bins[2]:.1%} "
-                          f"(0,0.5]={vh_bins[3]:.1%} (0.5,1]={vh_bins[4]:.1%}")
-                # 3-in-a-row target bias
-                tr = d.get('three_r_diag', {})
-                if tr:
-                    mine = tr.get('mine', {})
-                    opp = tr.get('opp', {})
-                    print(f"  Diag[3R]: ch0_3row: n={mine.get('count',0)} target={mine.get('mean_target',0):+.3f} "
-                          f"({mine.get('frac',0):.1%}) | "
-                          f"ch1_3row: n={opp.get('count',0)} target={opp.get('mean_target',0):+.3f} "
-                          f"({opp.get('frac',0):.1%})")
-                    self.writer.add_scalar("diag/three_r_ch0_target", mine.get('mean_target', 0), iteration)
-                    self.writer.add_scalar("diag/three_r_ch1_target", opp.get('mean_target', 0), iteration)
-                    self.writer.add_scalar("diag/three_r_ch0_frac", mine.get('frac', 0), iteration)
-                    self.writer.add_scalar("diag/three_r_ch1_frac", opp.get('frac', 0), iteration)
-                # (A) Per-player value breakdown
-                print(f"  Diag[A]: X_vloss={d['x_vloss']:.4f} O_vloss={d['o_vloss']:.4f} | "
-                      f"X_target={d['x_target_mean']:+.3f} O_target={d['o_target_mean']:+.3f} | "
-                      f"X_pred={d['x_pred_mean']:+.3f} O_pred={d['o_pred_mean']:+.3f}")
-                # BUFFER_BIAS: per-player target distribution in buffer
-                print(f"  Diag[BufBias]: X-to-move: n={d.get('buf_n_x',0)} "
-                      f"mean_tgt={d.get('buf_mean_tgt_x',0):+.3f} "
-                      f"frac_pos={d.get('buf_frac_pos_x',0):.1%} | "
-                      f"O-to-move: n={d.get('buf_n_o',0)} "
-                      f"mean_tgt={d.get('buf_mean_tgt_o',0):+.3f} "
-                      f"frac_pos={d.get('buf_frac_pos_o',0):.1%}")
-                self.writer.add_scalar("pbias/buf_mean_tgt_x", d.get('buf_mean_tgt_x', 0), iteration)
-                self.writer.add_scalar("pbias/buf_mean_tgt_o", d.get('buf_mean_tgt_o', 0), iteration)
-                self.writer.add_scalar("pbias/buf_frac_pos_x", d.get('buf_frac_pos_x', 0), iteration)
-                self.writer.add_scalar("pbias/buf_frac_pos_o", d.get('buf_frac_pos_o', 0), iteration)
-                # PRED_BY_PLAYER: pre/post training predictions split by current player
-                print(f"  Diag[PBias]: pre: X_pred={d.get('pbias_pre_x_pred',0):+.3f} "
-                      f"X_acc={d.get('pbias_pre_x_acc',0):.1%} | "
-                      f"O_pred={d.get('pbias_pre_o_pred',0):+.3f} "
-                      f"O_acc={d.get('pbias_pre_o_acc',0):.1%}")
-                print(f"  Diag[PBias]: post: X_pred={d.get('pbias_post_x_pred',0):+.3f} "
-                      f"X_acc={d.get('pbias_post_x_acc',0):.1%} | "
-                      f"O_pred={d.get('pbias_post_o_pred',0):+.3f} "
-                      f"O_acc={d.get('pbias_post_o_acc',0):.1%}")
-                self.writer.add_scalar("pbias/pre_x_pred", d.get('pbias_pre_x_pred', 0), iteration)
-                self.writer.add_scalar("pbias/pre_o_pred", d.get('pbias_pre_o_pred', 0), iteration)
-                self.writer.add_scalar("pbias/post_x_pred", d.get('pbias_post_x_pred', 0), iteration)
-                self.writer.add_scalar("pbias/post_o_pred", d.get('pbias_post_o_pred', 0), iteration)
-                self.writer.add_scalar("pbias/pre_x_acc", d.get('pbias_pre_x_acc', 0), iteration)
-                self.writer.add_scalar("pbias/pre_o_acc", d.get('pbias_pre_o_acc', 0), iteration)
-                self.writer.add_scalar("pbias/post_x_acc", d.get('pbias_post_x_acc', 0), iteration)
-                self.writer.add_scalar("pbias/post_o_acc", d.get('pbias_post_o_acc', 0), iteration)
-                # (#6) Value loss by game phase
-                pc = d.get('phase_counts', {})
-                print(f"  Diag[GP]: vloss early={d['phase_vloss_early']:.4f}({pc.get('early',0)}) "
-                      f"mid={d['phase_vloss_mid']:.4f}({pc.get('mid',0)}) "
-                      f"late={d['phase_vloss_late']:.4f}({pc.get('late',0)})")
-                # (F) Gradient direction
-                gs = d.get('grad_stats', {})
-                if gs:
-                    err_trend = gs.get('error_mean_trend', [])
-                    trend_str = ""
-                    if len(err_trend) >= 2:
-                        trend_str = f" err_trend={err_trend[0]:+.3f}->{err_trend[-1]:+.3f}"
-                    print(f"  Diag[F]: fc1_grad={gs.get('fc1_grad_norm_mean',0):.4f} "
-                          f"fc2_grad={gs.get('fc2_grad_norm_mean',0):.4f} | "
-                          f"fc1_mean={gs.get('fc1_grad_mean',0):+.6f} "
-                          f"fc2_mean={gs.get('fc2_grad_mean',0):+.6f}"
-                          f"{trend_str}")
-                # (V) Value head health
-                vh = d.get('vh_diag', {})
-                if vh:
-                    print(f"  Diag[V]: dead={vh['dead_neurons']} "
-                          f"active={vh.get('active_neurons','?')}/{vh['total_neurons']} "
-                          f"| WDL: entropy={vh['wdl_entropy']:.3f} "
-                          f"conf={vh['wdl_confidence']:.3f} "
-                          f"acc={vh['wdl_accuracy']:.1%} "
-                          f"v={vh['wdl_scalar_mean']:+.3f}±{vh['wdl_scalar_std']:.3f}")
-                    print(f"  Diag[V1]: WDL probs: W={vh['wdl_win_prob']:.3f} "
-                          f"D={vh['wdl_draw_prob']:.3f} L={vh['wdl_loss_prob']:.3f} | "
-                          f"logit_std={vh['wdl_logit_std']:.3f} "
-                          f"logit_range={vh['wdl_logit_range']:.3f}")
-                    print(f"  Diag[V2]: fc2_w=[{vh['fc2_w_min']:+.3f},{vh['fc2_w_max']:+.3f}] "
-                          f"norm={vh['fc2_w_norm']:.3f} "
-                          f"bias=[W:{vh['fc2_bias_w']:+.3f} D:{vh['fc2_bias_d']:+.3f} L:{vh['fc2_bias_l']:+.3f}] | "
-                          f"fc1_w_norm={vh['fc1_w_norm']:.3f} | "
-                          f"backbone std={vh['backbone_std']:.3f} |x|={vh['backbone_abs_mean']:.3f}")
-                    # Metric 2: activation percentiles
-                    print(f"  Diag[V4]: fc1_act p10={vh['fc1_act_p10']:.4f} "
-                          f"p50={vh['fc1_act_p50']:.4f} "
-                          f"p90={vh['fc1_act_p90']:.4f}")
-                    # Metric 3: value conv channels
-                    ch_str = " ".join(f"ch{i}={vh['vconv_ch_abs_mean'][i]:.3f}"
-                                      for i in range(vh['vconv_n_channels']))
-                    print(f"  Diag[V5]: vconv_channels: {ch_str} "
-                          f"dead_ch={vh['vconv_dead_channels']}/{vh['vconv_n_channels']}")
-                    # Metric 4: neuron death tracking
-                    dead_ids = vh.get('dead_neuron_ids', [])
-                    weak = list(zip(vh['weakest_5_ids'], vh['weakest_5_vals']))
-                    print(f"  Diag[V6]: dead_ids={dead_ids[:10]}"
-                          f"{'...' if len(dead_ids) > 10 else ''} | "
-                          f"weakest={weak}")
-                    # Metric 5: weight growth rate
-                    print(f"  Diag[V7]: fc2_w_d={vh['fc2_w_norm_delta']:+.4f} "
-                          f"fc1_w_d={vh['fc1_w_norm_delta']:+.4f}")
-                    # Metric 1: gradient flow to dead vs alive
-                    print(f"  Diag[V8]: grad_flow "
-                          f"dead={vh['grad_dead_mean']:.6f} "
-                          f"alive={vh['grad_alive_mean']:.6f} "
-                          f"ratio={vh['grad_dead_mean']/max(vh['grad_alive_mean'],1e-10):.3f}")
-                    # Value conv decay chain
-                    print(f"  Diag[VC]: backbone_raw |x|={vh['backbone_raw_abs']:.3f} "
-                          f"std={vh['backbone_raw_std']:.3f} | "
-                          f"vconv_w norm={vh['vc_w_norm']:.3f} |w|={vh['vc_w_abs_mean']:.4f}")
-                    print(f"  Diag[VC2]: pre_bn |x|={vh['vconv_pre_bn_abs']:.3f} "
-                          f"std={vh['vconv_pre_bn_std']:.3f} | "
-                          f"post_bn |x|={vh['vbn_post_abs']:.3f} "
-                          f"std={vh['vbn_post_std']:.3f} | "
-                          f"bn_ratio={vh['bn_ratio']:.3f}")
-                    gamma = vh['vbn_gamma']
-                    beta = vh['vbn_beta']
-                    rvar = vh['vbn_running_var']
-                    gamma_str = " ".join(f"{g:.3f}" for g in gamma)
-                    beta_str = " ".join(f"{b:+.3f}" for b in beta)
-                    rvar_str = " ".join(f"{v:.3f}" for v in rvar)
-                    print(f"  Diag[VC3]: bn_gamma=[{gamma_str}] "
-                          f"min={vh['vbn_gamma_min']:.3f}")
-                    print(f"  Diag[VC4]: bn_beta=[{beta_str}]")
-                    print(f"  Diag[VC5]: bn_run_var=[{rvar_str}]")
-                    print(f"  Diag[VC6]: policy_conv |x|={vh['pconv_abs']:.3f} "
-                          f"std={vh['pconv_std']:.3f} | "
-                          f"vconv_grad={vh['vconv_grad_norm']:.4f}")
-                    # Backbone per-channel stats
-                    if 'bb_n_channels' in vh:
-                        print(f"  Diag[BB]: backbone {vh['bb_n_channels']}ch "
-                              f"dead={vh['bb_dead_channels']} | "
-                              f"|x| p10={vh['bb_ch_p10']:.4f} "
-                              f"p50={vh['bb_ch_p50']:.4f} "
-                              f"p90={vh['bb_ch_p90']:.4f} "
-                              f"max={vh['bb_ch_max']:.4f}")
-                        print(f"  Diag[BB1]: top5={vh['bb_top5']} "
-                              f"bot5={vh['bb_bot5']}")
-                    # Backbone gradient decomposition
-                    if 'bb_v_grad_norm' in vh:
-                        evlw = d.get('effective_vlw', 1.0)
-                        v_eff = vh['bb_v_grad_norm'] * evlw
-                        eff_ratio = v_eff / max(vh['bb_p_grad_norm'], 1e-10)
-                        print(f"  Diag[BB2]: bb_grad output: "
-                              f"v={vh['bb_v_grad_norm']:.4f} "
-                              f"p={vh['bb_p_grad_norm']:.4f} "
-                              f"ratio={vh['bb_grad_ratio']:.3f} "
-                              f"(eff_v={v_eff:.4f} eff_ratio={eff_ratio:.3f})")
-                        print(f"  Diag[BB3]: ch_dominance: "
-                              f"value={vh['bb_n_value_dom']}/{vh.get('bb_n_channels',256)} "
-                              f"policy={vh['bb_n_policy_dom']}/{vh.get('bb_n_channels',256)} | "
-                              f"top_v={vh['bb_top_v_channels'][:3]} "
-                              f"top_p={vh['bb_top_p_channels'][:3]}")
-                    if 'bb_param_v_grad' in vh:
-                        evlw = d.get('effective_vlw', 1.0)
-                        pv_eff = vh['bb_param_v_grad'] * evlw
-                        pv_eff_ratio = pv_eff / max(vh['bb_param_p_grad'], 1e-10)
-                        rb = vh.get('bb_res_block_grads', {})
-                        rb_str = " ".join(
-                            f"rb{k}: v={v[0]:.3f} p={v[1]:.3f} r={v[2]:.2f}"
-                            for k, v in sorted(rb.items()))
-                        print(f"  Diag[BB4]: bb_grad params: "
-                              f"v={vh['bb_param_v_grad']:.4f} "
-                              f"p={vh['bb_param_p_grad']:.4f} "
-                              f"ratio={vh['bb_param_grad_ratio']:.3f} "
-                              f"(eff_v={pv_eff:.4f} eff_ratio={pv_eff_ratio:.3f})")
-                        if rb_str:
-                            print(f"  Diag[BB5]: {rb_str}")
-                        # (#10) Value gradient survival
-                        vgs = vh.get('rb_v_grad_survival', {})
-                        if vgs:
-                            vgs_str = " ".join(f"rb{k}={v:.3f}" for k, v in sorted(vgs.items()))
-                            print(f"  Diag[BB7]: v_grad_survival: {vgs_str}")
-                    # (#1) Backbone gradient conflict
-                    if 'bb_grad_cosine_sim' in vh:
-                        print(f"  Diag[BB6]: grad_cosine={vh['bb_grad_cosine_sim']:+.3f} "
-                              f"conflict_ch={vh['bb_grad_conflict_channels']} "
-                              f"aligned_ch={vh['bb_grad_aligned_channels']}")
-                        self.writer.add_scalar("diag/bb_grad_cosine_sim", vh['bb_grad_cosine_sim'], iteration)
-                        self.writer.add_scalar("diag/bb_grad_conflict_channels", vh['bb_grad_conflict_channels'], iteration)
-                    if 'vp_weight_corr' in vh:
-                        print(f"  Diag[VP]: weight_corr={vh['vp_weight_corr']:.3f} "
-                              f"overlap_top20={vh['vp_overlap_20']}/20 | "
-                              f"act: val_top20={vh['vp_val_top20_act']:.4f} "
-                              f"pol_top20={vh['vp_pol_top20_act']:.4f} "
-                              f"ratio={vh['vp_val_top20_act']/max(vh['vp_pol_top20_act'],1e-10):.2f}")
-                        print(f"  Diag[VP2]: health_corr: "
-                              f"val={vh['vp_val_health_corr']:.3f} "
-                              f"pol={vh['vp_pol_health_corr']:.3f}")
-                    if 'svd_bb_rank90' in vh:
-                        print(f"  Diag[SVD]: backbone rb{len(self.net.res_blocks)-1}.conv2: "
-                              f"rank90={vh['svd_bb_rank90']}/{vh['svd_bb_total']} "
-                              f"rank99={vh['svd_bb_rank99']}/{vh['svd_bb_total']} "
-                              f"near_zero_sv={vh['svd_bb_near_zero']} "
-                              f"bn_dead={vh['bn_dead_deepest']}")
-                        pc_str = " ".join(f"ch{i}={n:.3f}" for i, n in enumerate(vh['pconv_ch_norms']))
-                        print(f"  Diag[PH]: policy_fc: "
-                              f"rank90={vh['svd_pfc_rank90']}/{vh['svd_pfc_max_rank']} "
-                              f"rank99={vh['svd_pfc_rank99']}/{vh['svd_pfc_max_rank']} | "
-                              f"pconv: {pc_str}")
-                    # Per-block BN and activation diagnostics
-                    all_rb_bn_data = vh.get('all_rb_bn', {})
-                    rb_act_data = vh.get('rb_act_stats', {})
-                    for bi in sorted(set(list(all_rb_bn_data.keys()) + list(rb_act_data.keys()))):
-                        parts = [f"  Diag[RB{bi}]:"]
-                        if bi in all_rb_bn_data:
-                            rbd = all_rb_bn_data[bi]
-                            parts.append(f"bn2: dead={rbd.get('dead',0)} "
-                                         f"neg_gamma={rbd.get('neg_gamma',0)} "
-                                         f"eff_gain={rbd.get('eff_gain_mean',0):.2f}/"
-                                         f"{rbd.get('eff_gain_max',0):.2f} "
-                                         f"gamma={rbd.get('gamma_mean',0):.3f}(+/-{rbd.get('gamma_std',0):.3f}) "
-                                         f"sqrt_var={rbd.get('sqrt_var_mean',0):.3f}(+/-{rbd.get('sqrt_var_std',0):.3f})")
-                            parts.append(f"svd_rank90={rbd.get('svd_rank90',0)}/"
-                                         f"{rbd.get('svd_total',0)}")
-                        if bi in rb_act_data:
-                            rad = rb_act_data[bi]
-                            parts.append(f"|x|={rad['abs_mean']:.3f} "
-                                         f"std={rad['std']:.3f} "
-                                         f"dead={rad['dead_channels']}")
-                        print(" | ".join(parts))
-                        # Second line: conv weight norms, conv2 raw output (residual branch), bn2 stats, res rank, ch dominance
-                        parts2 = []
-                        rcn = vh.get('rb_conv_norms', {}).get(bi)
-                        if rcn:
-                            parts2.append(f"w: c1={rcn['conv1']:.3f} c2={rcn['conv2']:.3f} c2_d={rcn.get('c2_delta',0):+.3f}")
-                        rbs = vh.get('rb_bn2_stats', {}).get(bi)
-                        if rbs:
-                            s = ""
-                            if 'bn2_out_abs' in rbs:
-                                s += f"bn2_out: |x|={rbs['bn2_out_abs']:.3f} std={rbs['bn2_out_std']:.3f}"
-                            if 'conv2_raw_var' in rbs:
-                                if s: s += " | "
-                                s += f"conv2_raw: var={rbs['conv2_raw_var']:.4f} |x|={rbs['conv2_raw_abs']:.3f}"
-                            if 'bn2_batch_vs_run_var_mean' in rbs:
-                                if s: s += " | "
-                                s += (f"bv/rv={rbs['bn2_batch_vs_run_var_mean']:.3f}"
-                                      f"(+/-{rbs['bn2_batch_vs_run_var_std']:.3f})"
-                                      f" bv={rbs['bn2_batch_var_mean']:.4f}"
-                                      f" rv={rbs['bn2_run_var_mean']:.4f}")
-                            if s:
-                                parts2.append(s)
-                        rrk = vh.get('rb_res_rank', {}).get(bi)
-                        if rrk:
-                            parts2.append(f"res_rank90={rrk['rank90']}/{rrk['total']}")
-                        rcd = vh.get('rb_ch_dominance', {})
-                        if bi in rcd:
-                            parts2.append(f"ch_vdom={rcd[bi]}/{vh.get('bb_n_channels', '?')}")
-                        if parts2:
-                            print(f"           {' | '.join(parts2)}")
-                    # (#4) final_bn gamma tracking
-                    if 'final_bn_eff_gain_mean' in vh:
-                        print(f"  Diag[FBN]: eff_gain "
-                              f"mean={vh['final_bn_eff_gain_mean']:.3f} "
-                              f"min={vh['final_bn_eff_gain_min']:.3f} "
-                              f"max={vh['final_bn_eff_gain_max']:.3f} "
-                              f"dead={vh['final_bn_dead']} "
-                              f"| gamma={vh.get('final_bn_gamma_mean',0):.3f}(+/-{vh.get('final_bn_gamma_std',0):.3f}) "
-                              f"sqrt_var={vh.get('final_bn_sqrt_var_mean',0):.3f}(+/-{vh.get('final_bn_sqrt_var_std',0):.3f})")
-                        self.writer.add_scalar("diag/final_bn_eff_gain_mean", vh['final_bn_eff_gain_mean'], iteration)
-                        self.writer.add_scalar("diag/final_bn_eff_gain_min", vh['final_bn_eff_gain_min'], iteration)
-                        self.writer.add_scalar("diag/final_bn_dead", vh['final_bn_dead'], iteration)
-                        self.writer.add_scalar("diag/final_bn_gamma_mean", vh.get('final_bn_gamma_mean', 0), iteration)
-                        self.writer.add_scalar("diag/final_bn_gamma_std", vh.get('final_bn_gamma_std', 0), iteration)
-                        self.writer.add_scalar("diag/final_bn_sqrt_var_mean", vh.get('final_bn_sqrt_var_mean', 0), iteration)
-                        self.writer.add_scalar("diag/final_bn_sqrt_var_std", vh.get('final_bn_sqrt_var_std', 0), iteration)
-                    # (#5) Residual contribution ratio
-                    rr = vh.get('rb_residual_ratios', {})
-                    if rr:
-                        rr_str = " ".join(f"rb{k}={v:.3f}" for k, v in sorted(rr.items()))
-                        print(f"  Diag[RR]: residual_ratio: {rr_str}")
-                        for bi, ratio in rr.items():
-                            self.writer.add_scalar(f"rb{bi}/residual_ratio", ratio, iteration)
-                    # (#3) Initial conv weight norm
-                    if 'init_conv_w_norm' in vh:
-                        print(f"  Diag[IC]: conv_w norm={vh['init_conv_w_norm']:.4f} "
-                              f"|w|={vh['init_conv_w_abs_mean']:.5f} "
-                              f"delta={vh['init_conv_w_norm_delta']:+.4f}")
-                        self.writer.add_scalar("diag/init_conv_w_norm", vh['init_conv_w_norm'], iteration)
-                    # Tensorboard
-                    self.writer.add_scalar("vh/dead_neurons", vh["dead_neurons"], iteration)
-                    self.writer.add_scalar("vh/active_neurons", vh.get("active_neurons", 0), iteration)
-                    # WDL metrics (replaces pre_tanh/saturated)
-                    self.writer.add_scalar("vh/wdl_entropy", vh["wdl_entropy"], iteration)
-                    self.writer.add_scalar("vh/wdl_confidence", vh["wdl_confidence"], iteration)
-                    self.writer.add_scalar("vh/wdl_accuracy", vh["wdl_accuracy"], iteration)
-                    self.writer.add_scalar("vh/wdl_logit_std", vh["wdl_logit_std"], iteration)
-                    self.writer.add_scalar("vh/wdl_logit_range", vh["wdl_logit_range"], iteration)
-                    self.writer.add_scalar("vh/wdl_win_prob", vh["wdl_win_prob"], iteration)
-                    self.writer.add_scalar("vh/wdl_draw_prob", vh["wdl_draw_prob"], iteration)
-                    self.writer.add_scalar("vh/wdl_loss_prob", vh["wdl_loss_prob"], iteration)
-                    self.writer.add_scalar("vh/wdl_scalar_mean", vh["wdl_scalar_mean"], iteration)
-                    self.writer.add_scalar("vh/wdl_scalar_std", vh["wdl_scalar_std"], iteration)
-                    self.writer.add_scalar("vh/fc2_w_max", vh["fc2_w_max"], iteration)
-                    self.writer.add_scalar("vh/fc2_w_min", vh["fc2_w_min"], iteration)
-                    self.writer.add_scalar("vh/fc2_w_norm", vh["fc2_w_norm"], iteration)
-                    self.writer.add_scalar("vh/fc1_w_norm", vh["fc1_w_norm"], iteration)
-                    self.writer.add_scalar("vh/backbone_std", vh["backbone_std"], iteration)
-                    self.writer.add_scalar("vh/fc1_act_p10", vh["fc1_act_p10"], iteration)
-                    self.writer.add_scalar("vh/fc1_act_p50", vh["fc1_act_p50"], iteration)
-                    self.writer.add_scalar("vh/fc1_act_p90", vh["fc1_act_p90"], iteration)
-                    self.writer.add_scalar("vh/vconv_dead_channels", vh["vconv_dead_channels"], iteration)
-                    self.writer.add_scalar("vh/fc2_w_norm_delta", vh["fc2_w_norm_delta"], iteration)
-                    self.writer.add_scalar("vh/fc1_w_norm_delta", vh["fc1_w_norm_delta"], iteration)
-                    self.writer.add_scalar("vh/grad_dead_mean", vh["grad_dead_mean"], iteration)
-                    self.writer.add_scalar("vh/grad_alive_mean", vh["grad_alive_mean"], iteration)
-                    self.writer.add_scalar("vc/backbone_raw_abs", vh["backbone_raw_abs"], iteration)
-                    self.writer.add_scalar("vc/vconv_pre_bn_abs", vh["vconv_pre_bn_abs"], iteration)
-                    self.writer.add_scalar("vc/vbn_post_abs", vh["vbn_post_abs"], iteration)
-                    self.writer.add_scalar("vc/bn_ratio", vh["bn_ratio"], iteration)
-                    self.writer.add_scalar("vc/vc_w_norm", vh["vc_w_norm"], iteration)
-                    self.writer.add_scalar("vc/vbn_gamma_min", vh["vbn_gamma_min"], iteration)
-                    self.writer.add_scalar("vc/vbn_gamma_mean", vh["vbn_gamma_mean"], iteration)
-                    self.writer.add_scalar("vc/pconv_abs", vh["pconv_abs"], iteration)
-                    self.writer.add_scalar("vc/vconv_grad_norm", vh["vconv_grad_norm"], iteration)
-                    # Backbone per-channel stats
-                    if 'bb_n_channels' in vh:
-                        self.writer.add_scalar("bb/dead_channels", vh["bb_dead_channels"], iteration)
-                        self.writer.add_scalar("bb/ch_p10", vh["bb_ch_p10"], iteration)
-                        self.writer.add_scalar("bb/ch_p50", vh["bb_ch_p50"], iteration)
-                        self.writer.add_scalar("bb/ch_p90", vh["bb_ch_p90"], iteration)
-                    # Backbone gradient decomposition
-                    if 'bb_v_grad_norm' in vh:
-                        self.writer.add_scalar("bb/v_grad_norm", vh["bb_v_grad_norm"], iteration)
-                        self.writer.add_scalar("bb/p_grad_norm", vh["bb_p_grad_norm"], iteration)
-                        self.writer.add_scalar("bb/grad_ratio", vh["bb_grad_ratio"], iteration)
-                        self.writer.add_scalar("bb/n_value_dom", vh["bb_n_value_dom"], iteration)
-                        self.writer.add_scalar("bb/n_policy_dom", vh["bb_n_policy_dom"], iteration)
-                    if 'bb_param_v_grad' in vh:
-                        self.writer.add_scalar("bb/param_v_grad", vh["bb_param_v_grad"], iteration)
-                        self.writer.add_scalar("bb/param_p_grad", vh["bb_param_p_grad"], iteration)
-                        self.writer.add_scalar("bb/param_grad_ratio", vh["bb_param_grad_ratio"], iteration)
-                    if 'vp_weight_corr' in vh:
-                        self.writer.add_scalar("vp/weight_corr", vh["vp_weight_corr"], iteration)
-                        self.writer.add_scalar("vp/overlap_20", vh["vp_overlap_20"], iteration)
-                        self.writer.add_scalar("vp/val_top20_act", vh["vp_val_top20_act"], iteration)
-                        self.writer.add_scalar("vp/pol_top20_act", vh["vp_pol_top20_act"], iteration)
-                        self.writer.add_scalar("vp/val_health_corr", vh["vp_val_health_corr"], iteration)
-                        self.writer.add_scalar("vp/pol_health_corr", vh["vp_pol_health_corr"], iteration)
-                    if 'svd_bb_rank90' in vh:
-                        self.writer.add_scalar("svd/bb_rank90", vh["svd_bb_rank90"], iteration)
-                        self.writer.add_scalar("svd/bb_rank99", vh["svd_bb_rank99"], iteration)
-                        self.writer.add_scalar("svd/bb_near_zero", vh["svd_bb_near_zero"], iteration)
-                        self.writer.add_scalar("svd/bn_dead_deepest", vh["bn_dead_deepest"], iteration)
-                        self.writer.add_scalar("svd/pfc_rank90", vh["svd_pfc_rank90"], iteration)
-                        self.writer.add_scalar("svd/pfc_rank99", vh["svd_pfc_rank99"], iteration)
-                        for i, n in enumerate(vh['pconv_ch_norms']):
-                            self.writer.add_scalar(f"ph/pconv_ch{i}_norm", n, iteration)
-                    # Per-block BN and activation TensorBoard
-                    for bi, rbd in vh.get('all_rb_bn', {}).items():
-                        self.writer.add_scalar(f"rb{bi}/bn2_dead", rbd.get("dead", 0), iteration)
-                        self.writer.add_scalar(f"rb{bi}/bn2_neg_gamma", rbd.get("neg_gamma", 0), iteration)
-                        self.writer.add_scalar(f"rb{bi}/bn2_eff_gain_mean", rbd.get("eff_gain_mean", 0), iteration)
-                        self.writer.add_scalar(f"rb{bi}/svd_rank90", rbd.get("svd_rank90", 0), iteration)
-                        self.writer.add_scalar(f"rb{bi}/bn2_gamma_mean", rbd.get("gamma_mean", 0), iteration)
-                        self.writer.add_scalar(f"rb{bi}/bn2_sqrt_var_mean", rbd.get("sqrt_var_mean", 0), iteration)
-                    for bi, rad in vh.get('rb_act_stats', {}).items():
-                        self.writer.add_scalar(f"rb{bi}/act_abs_mean", rad["abs_mean"], iteration)
-                        self.writer.add_scalar(f"rb{bi}/act_std", rad["std"], iteration)
-                        self.writer.add_scalar(f"rb{bi}/act_dead_channels", rad["dead_channels"], iteration)
-                    # (#6) Per-conv weight norms
-                    for bi, rcn in vh.get('rb_conv_norms', {}).items():
-                        self.writer.add_scalar(f"rb{bi}/conv1_w_norm", rcn["conv1"], iteration)
-                        self.writer.add_scalar(f"rb{bi}/conv2_w_norm", rcn["conv2"], iteration)
-                        self.writer.add_scalar(f"rb{bi}/conv2_w_delta", rcn.get("c2_delta", 0), iteration)
-                    # (#7-8) BN2 output scale + pre-BN2 variance
-                    for bi, rbs in vh.get('rb_bn2_stats', {}).items():
-                        self.writer.add_scalar(f"rb{bi}/bn2_out_abs", rbs["bn2_out_abs"], iteration)
-                        self.writer.add_scalar(f"rb{bi}/bn2_out_std", rbs["bn2_out_std"], iteration)
-                        if 'conv2_raw_var' in rbs:
-                            self.writer.add_scalar(f"rb{bi}/conv2_raw_var", rbs["conv2_raw_var"], iteration)
-                            self.writer.add_scalar(f"rb{bi}/conv2_raw_abs", rbs["conv2_raw_abs"], iteration)
-                        if 'bn2_batch_vs_run_var_mean' in rbs:
-                            self.writer.add_scalar(f"rb{bi}/bn2_bv_rv_ratio", rbs["bn2_batch_vs_run_var_mean"], iteration)
-                            self.writer.add_scalar(f"rb{bi}/bn2_batch_var", rbs["bn2_batch_var_mean"], iteration)
-                            self.writer.add_scalar(f"rb{bi}/bn2_run_var", rbs["bn2_run_var_mean"], iteration)
-                    # (#11) Residual path effective rank
-                    for bi, rrk in vh.get('rb_res_rank', {}).items():
-                        self.writer.add_scalar(f"rb{bi}/res_rank90", rrk["rank90"], iteration)
-                        self.writer.add_scalar(f"rb{bi}/res_rank99", rrk["rank99"], iteration)
-                    # (#9) Per-block channel dominance
-                    for bi, nv in vh.get('rb_ch_dominance', {}).items():
-                        self.writer.add_scalar(f"rb{bi}/ch_value_dom", nv, iteration)
-                    # (#10) Value gradient survival
-                    for bn, sv in vh.get('rb_v_grad_survival', {}).items():
-                        self.writer.add_scalar(f"rb{bn}/v_grad_survival", sv, iteration)
-
-            # === Self-play value prediction diagnostics ===
-            if hasattr(self, '_batched') and hasattr(self._batched, 'value_diag'):
-                vd = self._batched.value_diag
-                if vd:
-                    self.writer.add_scalar("selfplay_diag/mean_nnet_value", vd["mean_nnet_value"], iteration)
-                    self.writer.add_scalar("selfplay_diag/std_nnet_value", vd["std_nnet_value"], iteration)
-                    self.writer.add_scalar("selfplay_diag/frac_saturated", vd["frac_saturated_any"], iteration)
-                    self.writer.add_scalar("selfplay_diag/sign_accuracy", vd["sign_accuracy"], iteration)
-                    self.writer.add_scalar("selfplay_diag/mae_vs_outcome", vd["mae_vs_outcome"], iteration)
-                    self.writer.add_scalar("selfplay_diag/pred_outcome_corr", vd["pred_outcome_corr"], iteration)
-                    self.writer.add_scalar("selfplay_diag/mean_when_x_moves", vd["mean_when_x_moves"], iteration)
-                    self.writer.add_scalar("selfplay_diag/mean_when_o_moves", vd["mean_when_o_moves"], iteration)
-                    print(f"  SelfPlay: nnet_v mean={vd['mean_nnet_value']:+.3f} "
-                          f"std={vd['std_nnet_value']:.3f} | "
-                          f"hi_conf={vd['frac_saturated_any']:.1%} | "
-                          f"sign_acc={vd['sign_accuracy']:.1%} | "
-                          f"MAE={vd['mae_vs_outcome']:.3f} | "
-                          f"corr={vd['pred_outcome_corr']:+.3f}")
-                    print(f"  SelfPlay: v_when_X={vd['mean_when_x_moves']:+.3f} "
-                          f"v_when_O={vd['mean_when_o_moves']:+.3f} | "
-                          f"conf+={vd['frac_saturated_pos']:.1%} "
-                          f"conf-={vd['frac_saturated_neg']:.1%}")
-                    if 'mcts_visit_entropy_mean' in vd:
-                        self.writer.add_scalar("selfplay_diag/mcts_visit_entropy",
-                                               vd["mcts_visit_entropy_mean"], iteration)
-                        print(f"  SelfPlay: mcts_visit_entropy="
-                              f"{vd['mcts_visit_entropy_mean']:.3f} "
-                              f"(std={vd['mcts_visit_entropy_std']:.3f})")
-                    # (#7) MCTS Q vs nnet value agreement
-                    if 'mcts_nnet_corr' in vd:
-                        self.writer.add_scalar("selfplay_diag/mcts_nnet_corr", vd["mcts_nnet_corr"], iteration)
-                        self.writer.add_scalar("selfplay_diag/mcts_nnet_mae", vd["mcts_nnet_mae"], iteration)
-                        self.writer.add_scalar("selfplay_diag/mcts_correction_mean", vd["mcts_correction_mean"], iteration)
-                        print(f"  SelfPlay: mcts_Q mean={vd['mcts_q_mean']:+.3f} "
-                              f"std={vd['mcts_q_std']:.3f} | "
-                              f"nnet_Q_corr={vd['mcts_nnet_corr']:+.3f} "
-                              f"MAE={vd['mcts_nnet_mae']:.3f} "
-                              f"correction={vd['mcts_correction_mean']:+.3f}")
-
-            # === Value confidence distribution ===
-            if hasattr(self, '_train_diag'):
-                cd = self._train_diag.get('conf_dist', {})
-                if cd:
-                    print(f"  Diag[CONF]: |v|<0.1={cd.get('very_low',0):.1%} "
-                          f"0.1-0.3={cd.get('low',0):.1%} "
-                          f"0.3-0.6={cd.get('medium',0):.1%} "
-                          f"0.6-0.9={cd.get('high',0):.1%} "
-                          f"|v|>0.9={cd.get('very_high',0):.1%}")
-                    for bk, bv in cd.items():
-                        self.writer.add_scalar(f"conf/{bk}", bv, iteration)
-
-                # === Sub-iteration dynamics summary ===
-                sil = self._train_diag.get('sub_iter_log', [])
-                if len(sil) >= 3:
-                    # Print first, middle, last entries to show intra-iteration trend
-                    indices = [0, len(sil) // 2, len(sil) - 1]
-                    parts = []
-                    for idx in indices:
-                        e = sil[idx]
-                        parts.append(f"s{e['step']}: vl={e['vloss']:.4f} "
-                                     f"pl={e['ploss']:.4f} |v|={e['mean_conf']:.3f} "
-                                     f"v={e['mean_v']:+.3f}")
-                    print(f"  Diag[SUB]: {' -> '.join(parts)}")
-                    # Log first/last to tensorboard for trend detection
-                    self.writer.add_scalar("sub/vloss_first", sil[0]['vloss'], iteration)
-                    self.writer.add_scalar("sub/vloss_last", sil[-1]['vloss'], iteration)
-                    self.writer.add_scalar("sub/conf_first", sil[0]['mean_conf'], iteration)
-                    self.writer.add_scalar("sub/conf_last", sil[-1]['mean_conf'], iteration)
-                    self.writer.add_scalar("sub/mean_v_first", sil[0]['mean_v'], iteration)
-                    self.writer.add_scalar("sub/mean_v_last", sil[-1]['mean_v'], iteration)
-
-            # === Intra-iteration value trajectory on FixedEval positions ===
-            if hasattr(self, '_train_diag'):
-                _traj = self._train_diag.get('fixed_eval_trajectory', [])
-                if _traj and len(_traj) >= 2:
-                    # Print trajectory for each position: step0→step300→...→stepN
-                    _names = [k for k in _traj[0] if k != 'step']
-                    for _pn in _names:
-                        _vals = [f"s{e['step']}:{e[_pn]:+.3f}" for e in _traj]
-                        print(f"  Diag[TRAJ]: {_pn}: {' -> '.join(_vals)}")
-                        # TB: log first and last values for trend detection
-                        self.writer.add_scalar(f"traj/{_pn}_first", _traj[0][_pn], iteration)
-                        self.writer.add_scalar(f"traj/{_pn}_last", _traj[-1][_pn], iteration)
-
-            # === Fixed diagnostic position evaluation ===
-            self._eval_diagnostic_positions(iteration)
+            # === Log all metrics ===
+            self._log_iteration(iteration, num_iterations, {
+                'train_result': train_result,
+                'wins_p1': wins_p1, 'wins_p2': wins_p2, 'draws': draws,
+                'avg_length': avg_length, 'min_length': min_length,
+                'max_length': max_length, 'p1_win_pct': p1_win_pct,
+                'self_play_time': self_play_time, 'train_time': train_time,
+                'iter_time': iter_time,
+                'iter_3r': iter_3r, 'iter_3r_sign': iter_3r_sign,
+                'pre_seg': pre_seg, 'drift': drift_result,
+                'wdelta': wdelta_result, 'n_new_positions': n_new_positions,
+            })
 
             # Save every 5 iterations + always on the last one
             # Also save iteration 0 if no checkpoint exists (quick sanity check)
@@ -1520,6 +838,755 @@ class Trainer:
                 self.net.save(self.checkpoint_dir, iteration=iteration, num_iterations=num_iterations)
 
         self.writer.close()
+
+    def _log_iteration(self, iteration, num_iterations, stats):
+        """Log all metrics for one iteration to console and TensorBoard.
+
+        Args:
+            iteration: current iteration index
+            num_iterations: total iterations
+            stats: dict with keys from run() locals (train_result, wins_p1, etc.)
+        """
+        writer = self.writer
+        train_result = stats['train_result']
+        wins_p1, wins_p2, draws = stats['wins_p1'], stats['wins_p2'], stats['draws']
+        avg_length = stats['avg_length']
+        min_length, max_length = stats['min_length'], stats['max_length']
+        p1_win_pct = stats['p1_win_pct']
+        self_play_time = stats['self_play_time']
+        train_time = stats['train_time']
+        iter_time = stats['iter_time']
+
+        # --- 3-in-a-row fresh batch diagnostics ---
+        iter_3r = stats.get('iter_3r')
+        if iter_3r:
+            _mine = iter_3r['mine']
+            _opp = iter_3r['opp']
+            print(f"  Diag[3R-iter]: fresh batch ch0: n={_mine['count']} target={_mine['mean']:+.3f} | "
+                  f"ch1: n={_opp['count']} target={_opp['mean']:+.3f}")
+            writer.add_scalar("diag/iter_3r_ch0_target", _mine['mean'], iteration)
+            writer.add_scalar("diag/iter_3r_ch1_target", _opp['mean'], iteration)
+            iter_3r_sign = stats.get('iter_3r_sign')
+            if iter_3r_sign:
+                print(f"  Diag[SIGN-iter]: ch0_3row: +:{iter_3r_sign['pos']} -:{iter_3r_sign['neg']} "
+                      f"0:{iter_3r_sign['zero']} (n={iter_3r_sign['n']})")
+
+        # --- Self-play stats ---
+        writer.add_scalar("self_play/avg_game_length", avg_length, iteration)
+        writer.add_scalar("self_play/wins_p1", wins_p1, iteration)
+        writer.add_scalar("self_play/wins_p2", wins_p2, iteration)
+        writer.add_scalar("self_play/draws", draws, iteration)
+        writer.add_scalar("self_play/p1_win_pct", p1_win_pct, iteration)
+        writer.add_scalar("self_play/buffer_size",
+                          sum(1 for s in self.buffer.arr if s is not None), iteration)
+
+        # --- Pre-training segregation ---
+        pre_seg = stats.get('pre_seg')
+        if pre_seg:
+            print(f"  PreSeg: vp_corr={pre_seg['vp_corr']:.3f} overlap={pre_seg['overlap']}/20")
+            writer.add_scalar("pre_seg/vp_corr", pre_seg['vp_corr'], iteration)
+            writer.add_scalar("pre_seg/overlap_20", pre_seg['overlap'], iteration)
+
+        # --- Backbone drift ---
+        drift = stats.get('drift')
+        if drift:
+            _cos_detail = " ".join(
+                f"{nm}={drift['per_pos'][nm]:.4f}" for nm in drift['pos_names'])
+            print(f"  Diag[DRIFT]: backbone cosine_sim mean={drift['cos_mean']:.4f} "
+                  f"min={drift['cos_min']:.4f} | {_cos_detail}")
+            writer.add_scalar("drift/bb_cosine_mean", drift['cos_mean'], iteration)
+            writer.add_scalar("drift/bb_cosine_min", drift['cos_min'], iteration)
+            for nm, val in drift['per_pos'].items():
+                writer.add_scalar(f"drift/{nm}_cosine", val, iteration)
+
+        # --- Weight delta ---
+        wdelta = stats.get('wdelta')
+        if wdelta:
+            _wd_parts = [f"rb{bi}={rd:.4f}" for bi, rd in sorted(wdelta.items())]
+            print(f"  Diag[WDELTA]: {' '.join(_wd_parts)}")
+            for bi, rd in wdelta.items():
+                writer.add_scalar(f"wdelta/rb{bi}_rel", rd, iteration)
+
+        # --- Main iteration summary ---
+        if train_result is not None:
+            avg_loss, avg_value_loss, avg_policy_loss = train_result
+            writer.add_scalar("loss/total", avg_loss, iteration)
+            writer.add_scalar("loss/value", avg_value_loss, iteration)
+            writer.add_scalar("loss/policy", avg_policy_loss, iteration)
+            print(f"  Iter {iteration+1}/{num_iterations}: loss={avg_loss:.4f} "
+                  f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}) | "
+                  f"games: p1={wins_p1} p2={wins_p2} draw={draws} | "
+                  f"avg_len={avg_length:.1f} ({min_length}-{max_length}) | "
+                  f"self_play={self_play_time:.1f}s train={train_time:.1f}s "
+                  f"total={iter_time:.1f}s")
+
+        writer.add_scalar("perf/self_play_time", self_play_time, iteration)
+        writer.add_scalar("perf/train_time", train_time, iteration)
+
+        # --- MCTS / NN perf ---
+        if hasattr(self, '_batched') and hasattr(self._batched, 'perf'):
+            perf = self._batched.perf
+            avg_batch = perf["sample_count"] / max(perf["batch_count"], 1)
+            writer.add_scalar("perf/mcts_select_expand", perf["select_expand_time"], iteration)
+            writer.add_scalar("perf/mcts_backup", perf["backup_time"], iteration)
+            writer.add_scalar("perf/nn_time", perf["nn_time"], iteration)
+            writer.add_scalar("perf/nn_preprocess", perf["preprocess_time"], iteration)
+            writer.add_scalar("perf/nn_transfer", perf["transfer_time"], iteration)
+            writer.add_scalar("perf/nn_forward", perf["forward_time"], iteration)
+            writer.add_scalar("perf/nn_result", perf["result_time"], iteration)
+            writer.add_scalar("perf/nn_postprocess", perf["postprocess_time"], iteration)
+            writer.add_scalar("perf/batch_count", perf["batch_count"], iteration)
+            writer.add_scalar("perf/avg_batch_size", avg_batch, iteration)
+            writer.add_scalar("perf/terminal_hits", perf["terminal_hits"], iteration)
+            print(f"  MCTS: select={perf['select_expand_time']:.1f}s "
+                  f"backup={perf['backup_time']:.1f}s "
+                  f"terminal_hits={perf['terminal_hits']}")
+            print(f"  NN:   forward={perf['forward_time']:.1f}s "
+                  f"result={perf['result_time']:.1f}s "
+                  f"preprocess={perf['preprocess_time']:.1f}s "
+                  f"transfer={perf['transfer_time']:.1f}s | "
+                  f"batches={perf['batch_count']} "
+                  f"batch_sz={perf['min_batch']}/{avg_batch:.0f}/{perf['max_batch']}")
+            enc_errs = perf.get("encoding_errors", 0)
+            enc_total = perf.get("encoding_checks", 0)
+            enc_time = perf.get("encoding_time", 0)
+            enc_sampled = enc_total // 50 if enc_total else 0
+            if enc_errs > 0:
+                print(f"  [WARNING] Encoding errors: {enc_errs}/{enc_sampled} sampled "
+                      f"({enc_total} total) {enc_time:.2f}s")
+            else:
+                print(f"  Encoding: {enc_sampled}/{enc_total} sampled, all OK, {enc_time:.2f}s")
+            # Batch size histogram
+            hist = perf.get("batch_histogram", [0]*5)
+            print(f"  BatchHist: [1-4]={hist[0]} [5-16]={hist[1]} "
+                  f"[17-32]={hist[2]} [33-64]={hist[3]} [65+]={hist[4]}")
+            # Active games per move step
+            apm = perf.get("active_per_move", [])
+            if apm:
+                print(f"  ActiveGames: min={min(apm)} avg={np.mean(apm):.1f} "
+                      f"max={max(apm)} steps={len(apm)}")
+            # Accumulation rounds
+            accum = perf.get("accum_rounds", 0)
+            if accum > 0:
+                print(f"  Accumulation: {accum} move-steps used batch accumulation")
+            # Tree reuse stats
+            tr_count = perf.get("tree_reuse_count", 0)
+            tr_fresh = perf.get("tree_reuse_fresh_count", 0)
+            tr_total = tr_count + tr_fresh
+            if tr_total > 0:
+                tr_pct = tr_count / tr_total
+                tr_avg_v = perf.get("tree_reuse_avg_visits", 0)
+                print(f"  TreeReuse: {tr_count}/{tr_total} ({tr_pct:.0%}) "
+                      f"avg_reused_visits={tr_avg_v:.1f}")
+                writer.add_scalar("perf/tree_reuse_pct", tr_pct, iteration)
+                writer.add_scalar("perf/tree_reuse_avg_visits", tr_avg_v, iteration)
+            # Resign stats
+            resign_count = perf.get("resign_count", 0)
+            resign_checks = perf.get("resign_check_count", 0)
+            resign_fp = perf.get("resign_false_positives", 0)
+            if resign_count > 0 or resign_checks > 0:
+                resign_avg_move = perf.get("resign_avg_move", 0)
+                total_games = self.games_per_iteration
+                resign_pct = resign_count / max(total_games, 1)
+                fp_str = f"false_pos={resign_fp}/{resign_checks}" if resign_checks > 0 else "no_checks"
+                print(f"  Resign: {resign_count}/{total_games} ({resign_pct:.0%}) "
+                      f"avg_move={resign_avg_move:.1f} "
+                      f"{fp_str}")
+                writer.add_scalar("self_play/resign_count", resign_count, iteration)
+                writer.add_scalar("self_play/resign_pct", resign_pct, iteration)
+                writer.add_scalar("self_play/resign_avg_move", resign_avg_move, iteration)
+                if resign_checks > 0:
+                    fp_rate = resign_fp / resign_checks
+                    writer.add_scalar("self_play/resign_fp_rate", fp_rate, iteration)
+            # Immediate-win stats
+            imm_win_n = perf.get("imm_win_count", 0)
+            imm_win_frac = perf.get("imm_win_frac", 0)
+            imm_win_total = imm_win_n / max(imm_win_frac, 1e-9) if imm_win_frac > 0 else 0
+            print(f"  ImmWin: {imm_win_n}/{int(imm_win_total)} ({imm_win_frac:.1%}) positions have immediate winning move")
+            writer.add_scalar("self_play/imm_win_frac", imm_win_frac, iteration)
+            writer.add_scalar("self_play/imm_win_count", imm_win_n, iteration)
+
+        # --- Training perf ---
+        if hasattr(self, '_train_perf'):
+            tp = self._train_perf
+            writer.add_scalar("perf/train_data_prep", tp["data_prep_time"], iteration)
+            writer.add_scalar("perf/train_gradient", tp["gradient_time"], iteration)
+            writer.add_scalar("perf/train_num_samples", tp["num_samples"], iteration)
+            writer.add_scalar("perf/train_num_batches", tp["num_batches"], iteration)
+            print(f"  Train: data={tp['data_prep_time']:.1f}s "
+                  f"grad={tp['gradient_time']:.1f}s | "
+                  f"samples={tp['num_samples']} "
+                  f"batches={tp['num_batches']}")
+
+        # --- Training diagnostics ---
+        if hasattr(self, '_train_diag'):
+            d = self._train_diag
+            # Tensorboard
+            writer.add_scalar("diag/val_target_mean", d["val_target_mean"], iteration)
+            writer.add_scalar("diag/val_target_std", d["val_target_std"], iteration)
+            writer.add_scalar("diag/frac_xwins", d["frac_neg"], iteration)
+            writer.add_scalar("diag/frac_owins", d["frac_pos"], iteration)
+            writer.add_scalar("diag/frac_draws", d["frac_draw"], iteration)
+            writer.add_scalar("diag/effective_epochs", d["effective_epochs"], iteration)
+            writer.add_scalar("diag/early_vloss", d["early_vloss"], iteration)
+            writer.add_scalar("diag/late_vloss", d["late_vloss"], iteration)
+            writer.add_scalar("diag/early_ploss", d["early_ploss"], iteration)
+            writer.add_scalar("diag/late_ploss", d["late_ploss"], iteration)
+            writer.add_scalar("diag/buffer_fill", d["buffer_fill"], iteration)
+            writer.add_scalar("diag/pred_v_mean", d["pred_v_mean"], iteration)
+            writer.add_scalar("diag/pred_v_std", d["pred_v_std"], iteration)
+            writer.add_scalar("diag/pred_v_abs_mean", d["pred_v_abs_mean"], iteration)
+            writer.add_scalar("diag/policy_grad_frac", d["policy_grad_frac"], iteration)
+            writer.add_scalar("diag/val_loss_floor", d["val_loss_floor"], iteration)
+            writer.add_scalar("diag/value_grad_norm", d["avg_value_grad_norm"], iteration)
+            writer.add_scalar("diag/policy_grad_norm", d["avg_policy_grad_norm"], iteration)
+            # New metrics: policy quality, value confidence, per-block grads
+            writer.add_scalar("diag/policy_entropy", d["policy_entropy"], iteration)
+            writer.add_scalar("diag/policy_top1_acc", d["policy_top1_acc"], iteration)
+            writer.add_scalar("diag/policy_top3_acc", d["policy_top3_acc"], iteration)
+            writer.add_scalar("diag/value_confidence_acc", d["value_confidence_acc"], iteration)
+            writer.add_scalar("diag/value_confident_frac", d["value_confident_frac"], iteration)
+            for rb_i, rb_gn in d.get("rb_grad_norms", {}).items():
+                writer.add_scalar(f"diag/rb{rb_i}_grad_norm", rb_gn, iteration)
+            # (#2) Value loss delta
+            if d.get("vloss_delta") is not None:
+                writer.add_scalar("diag/vloss_delta", d["vloss_delta"], iteration)
+                writer.add_scalar("diag/pre_train_vloss", d["pre_train_vloss"], iteration)
+            # (#6) Game phase value loss
+            writer.add_scalar("diag/phase_vloss_early", d["phase_vloss_early"], iteration)
+            writer.add_scalar("diag/phase_vloss_mid", d["phase_vloss_mid"], iteration)
+            writer.add_scalar("diag/phase_vloss_late", d["phase_vloss_late"], iteration)
+            # (#8) Policy loss on decisive positions
+            writer.add_scalar("diag/policy_loss_decisive", d["policy_loss_decisive"], iteration)
+            writer.add_scalar("diag/policy_loss_ambiguous", d["policy_loss_ambiguous"], iteration)
+            writer.add_scalar("diag/decisive_frac", d["decisive_frac"], iteration)
+            # Console
+            print(f"  Diag: targets mean={d['val_target_mean']:+.3f} "
+                  f"std={d['val_target_std']:.3f} | "
+                  f"X={d['frac_neg']:.1%} O={d['frac_pos']:.1%} "
+                  f"draw={d['frac_draw']:.1%}")
+            overfit_gap = d['val_vloss'] - d['late_vloss']
+            writer.add_scalar("diag/overfit_gap_vloss", overfit_gap, iteration)
+            vloss_delta_str = f" delta={d['vloss_delta']:+.4f}" if d.get('vloss_delta') is not None else ""
+            print(f"  Diag: eff_epochs={d['effective_epochs']:.1f} "
+                  f"vlw={d.get('effective_vlw',1.0):.2f} "
+                  f"steps={d['num_steps']} | "
+                  f"vloss train={d['late_vloss']:.4f} "
+                  f"val={d['val_vloss']:.4f} "
+                  f"(gap={overfit_gap:+.4f}){vloss_delta_str} | "
+                  f"buf={d['buffer_fill']}/{d['buffer_capacity']}"
+                  f"{' FULL' if d['buffer_full'] else ''}")
+            writer.add_scalar("diag/val_vloss", d["val_vloss"], iteration)
+            writer.add_scalar("diag/effective_vlw", d.get("effective_vlw", 1.0), iteration)
+            writer.add_scalar("diag/val_ploss", d["val_ploss"], iteration)
+            print(f"  Diag: pred_v mean={d['pred_v_mean']:+.3f} "
+                  f"std={d['pred_v_std']:.3f} "
+                  f"|v|={d['pred_v_abs_mean']:.3f} | "
+                  f"policy_grad={d['policy_grad_frac']:.1%} | "
+                  f"vloss_floor={d['val_loss_floor']:.4f}")
+            print(f"  Diag: grad_norms value={d['avg_value_grad_norm']:.4f} "
+                  f"policy={d['avg_policy_grad_norm']:.4f} "
+                  f"ratio={d['avg_value_grad_norm']/max(d['avg_policy_grad_norm'],1e-8):.2f}")
+            print(f"  Diag: p1_win={p1_win_pct:.1%} "
+                  f"game_len={avg_length:.1f} ({min_length}-{max_length})")
+            # (P) Policy quality metrics
+            print(f"  Diag[P]: entropy={d['policy_entropy']:.3f} "
+                  f"top1_acc={d['policy_top1_acc']:.1%} "
+                  f"top3_acc={d['policy_top3_acc']:.1%}")
+            # (#8) Policy loss on decisive vs ambiguous
+            print(f"  Diag[P2]: ploss_decisive={d['policy_loss_decisive']:.4f} "
+                  f"ploss_ambiguous={d['policy_loss_ambiguous']:.4f} "
+                  f"decisive_frac={d['decisive_frac']:.1%}")
+            # (C) Value confidence calibration
+            print(f"  Diag[C]: confident_acc={d['value_confidence_acc']:.1%} "
+                  f"(frac_confident={d['value_confident_frac']:.1%})")
+            # (RB) Per-block gradient norms
+            rb_gn = d.get('rb_grad_norms', {})
+            if rb_gn:
+                rb_items = sorted((i, n) for i, n in rb_gn.items() if isinstance(i, int))
+                rb_str = " ".join(f"rb{i}={n:.4f}" for i, n in rb_items)
+                eff_lr_items = sorted((k, v) for k, v in rb_gn.items() if isinstance(k, str) and 'eff_lr' in k)
+                eff_lr_str = " ".join(f"rb{k.replace('_eff_lr','')}={v:.5f}" for k, v in eff_lr_items)
+                line = f"  Diag[RB]: grad_norms: {rb_str}"
+                if eff_lr_str:
+                    line += f" | c2_eff_lr: {eff_lr_str}"
+                print(line)
+            # Value target histogram
+            vh_bins = d.get('val_hist', [])
+            if vh_bins:
+                print(f"  Diag[TH]: targets [-1,-0.5)={vh_bins[0]:.1%} "
+                      f"[-0.5,0)={vh_bins[1]:.1%} [0]={vh_bins[2]:.1%} "
+                      f"(0,0.5]={vh_bins[3]:.1%} (0.5,1]={vh_bins[4]:.1%}")
+            # 3-in-a-row target bias
+            tr = d.get('three_r_diag', {})
+            if tr:
+                mine = tr.get('mine', {})
+                opp = tr.get('opp', {})
+                print(f"  Diag[3R]: ch0_3row: n={mine.get('count',0)} target={mine.get('mean_target',0):+.3f} "
+                      f"({mine.get('frac',0):.1%}) | "
+                      f"ch1_3row: n={opp.get('count',0)} target={opp.get('mean_target',0):+.3f} "
+                      f"({opp.get('frac',0):.1%})")
+                writer.add_scalar("diag/three_r_ch0_target", mine.get('mean_target', 0), iteration)
+                writer.add_scalar("diag/three_r_ch1_target", opp.get('mean_target', 0), iteration)
+                writer.add_scalar("diag/three_r_ch0_frac", mine.get('frac', 0), iteration)
+                writer.add_scalar("diag/three_r_ch1_frac", opp.get('frac', 0), iteration)
+            # (A) Per-player value breakdown
+            print(f"  Diag[A]: X_vloss={d['x_vloss']:.4f} O_vloss={d['o_vloss']:.4f} | "
+                  f"X_target={d['x_target_mean']:+.3f} O_target={d['o_target_mean']:+.3f} | "
+                  f"X_pred={d['x_pred_mean']:+.3f} O_pred={d['o_pred_mean']:+.3f}")
+            # BUFFER_BIAS: per-player target distribution in buffer
+            print(f"  Diag[BufBias]: X-to-move: n={d.get('buf_n_x',0)} "
+                  f"mean_tgt={d.get('buf_mean_tgt_x',0):+.3f} "
+                  f"frac_pos={d.get('buf_frac_pos_x',0):.1%} | "
+                  f"O-to-move: n={d.get('buf_n_o',0)} "
+                  f"mean_tgt={d.get('buf_mean_tgt_o',0):+.3f} "
+                  f"frac_pos={d.get('buf_frac_pos_o',0):.1%}")
+            writer.add_scalar("pbias/buf_mean_tgt_x", d.get('buf_mean_tgt_x', 0), iteration)
+            writer.add_scalar("pbias/buf_mean_tgt_o", d.get('buf_mean_tgt_o', 0), iteration)
+            writer.add_scalar("pbias/buf_frac_pos_x", d.get('buf_frac_pos_x', 0), iteration)
+            writer.add_scalar("pbias/buf_frac_pos_o", d.get('buf_frac_pos_o', 0), iteration)
+            # PRED_BY_PLAYER: pre/post training predictions split by current player
+            print(f"  Diag[PBias]: pre: X_pred={d.get('pbias_pre_x_pred',0):+.3f} "
+                  f"X_acc={d.get('pbias_pre_x_acc',0):.1%} | "
+                  f"O_pred={d.get('pbias_pre_o_pred',0):+.3f} "
+                  f"O_acc={d.get('pbias_pre_o_acc',0):.1%}")
+            print(f"  Diag[PBias]: post: X_pred={d.get('pbias_post_x_pred',0):+.3f} "
+                  f"X_acc={d.get('pbias_post_x_acc',0):.1%} | "
+                  f"O_pred={d.get('pbias_post_o_pred',0):+.3f} "
+                  f"O_acc={d.get('pbias_post_o_acc',0):.1%}")
+            writer.add_scalar("pbias/pre_x_pred", d.get('pbias_pre_x_pred', 0), iteration)
+            writer.add_scalar("pbias/pre_o_pred", d.get('pbias_pre_o_pred', 0), iteration)
+            writer.add_scalar("pbias/post_x_pred", d.get('pbias_post_x_pred', 0), iteration)
+            writer.add_scalar("pbias/post_o_pred", d.get('pbias_post_o_pred', 0), iteration)
+            writer.add_scalar("pbias/pre_x_acc", d.get('pbias_pre_x_acc', 0), iteration)
+            writer.add_scalar("pbias/pre_o_acc", d.get('pbias_pre_o_acc', 0), iteration)
+            writer.add_scalar("pbias/post_x_acc", d.get('pbias_post_x_acc', 0), iteration)
+            writer.add_scalar("pbias/post_o_acc", d.get('pbias_post_o_acc', 0), iteration)
+            # (#6) Value loss by game phase
+            pc = d.get('phase_counts', {})
+            print(f"  Diag[GP]: vloss early={d['phase_vloss_early']:.4f}({pc.get('early',0)}) "
+                  f"mid={d['phase_vloss_mid']:.4f}({pc.get('mid',0)}) "
+                  f"late={d['phase_vloss_late']:.4f}({pc.get('late',0)})")
+            # (F) Gradient direction
+            gs = d.get('grad_stats', {})
+            if gs:
+                err_trend = gs.get('error_mean_trend', [])
+                trend_str = ""
+                if len(err_trend) >= 2:
+                    trend_str = f" err_trend={err_trend[0]:+.3f}->{err_trend[-1]:+.3f}"
+                print(f"  Diag[F]: fc1_grad={gs.get('fc1_grad_norm_mean',0):.4f} "
+                      f"fc2_grad={gs.get('fc2_grad_norm_mean',0):.4f} | "
+                      f"fc1_mean={gs.get('fc1_grad_mean',0):+.6f} "
+                      f"fc2_mean={gs.get('fc2_grad_mean',0):+.6f}"
+                      f"{trend_str}")
+            # (V) Value head health
+            vh = d.get('vh_diag', {})
+            if vh:
+                print(f"  Diag[V]: dead={vh['dead_neurons']} "
+                      f"active={vh.get('active_neurons','?')}/{vh['total_neurons']} "
+                      f"| WDL: entropy={vh['wdl_entropy']:.3f} "
+                      f"conf={vh['wdl_confidence']:.3f} "
+                      f"acc={vh['wdl_accuracy']:.1%} "
+                      f"v={vh['wdl_scalar_mean']:+.3f}±{vh['wdl_scalar_std']:.3f}")
+                print(f"  Diag[V1]: WDL probs: W={vh['wdl_win_prob']:.3f} "
+                      f"D={vh['wdl_draw_prob']:.3f} L={vh['wdl_loss_prob']:.3f} | "
+                      f"logit_std={vh['wdl_logit_std']:.3f} "
+                      f"logit_range={vh['wdl_logit_range']:.3f}")
+                print(f"  Diag[V2]: fc2_w=[{vh['fc2_w_min']:+.3f},{vh['fc2_w_max']:+.3f}] "
+                      f"norm={vh['fc2_w_norm']:.3f} "
+                      f"bias=[W:{vh['fc2_bias_w']:+.3f} D:{vh['fc2_bias_d']:+.3f} L:{vh['fc2_bias_l']:+.3f}] | "
+                      f"fc1_w_norm={vh['fc1_w_norm']:.3f} | "
+                      f"backbone std={vh['backbone_std']:.3f} |x|={vh['backbone_abs_mean']:.3f}")
+                # Metric 2: activation percentiles
+                print(f"  Diag[V4]: fc1_act p10={vh['fc1_act_p10']:.4f} "
+                      f"p50={vh['fc1_act_p50']:.4f} "
+                      f"p90={vh['fc1_act_p90']:.4f}")
+                # Metric 3: value conv channels
+                ch_str = " ".join(f"ch{i}={vh['vconv_ch_abs_mean'][i]:.3f}"
+                                  for i in range(vh['vconv_n_channels']))
+                print(f"  Diag[V5]: vconv_channels: {ch_str} "
+                      f"dead_ch={vh['vconv_dead_channels']}/{vh['vconv_n_channels']}")
+                # Metric 4: neuron death tracking
+                dead_ids = vh.get('dead_neuron_ids', [])
+                weak = list(zip(vh['weakest_5_ids'], vh['weakest_5_vals']))
+                print(f"  Diag[V6]: dead_ids={dead_ids[:10]}"
+                      f"{'...' if len(dead_ids) > 10 else ''} | "
+                      f"weakest={weak}")
+                # Metric 5: weight growth rate
+                print(f"  Diag[V7]: fc2_w_d={vh['fc2_w_norm_delta']:+.4f} "
+                      f"fc1_w_d={vh['fc1_w_norm_delta']:+.4f}")
+                # Metric 1: gradient flow to dead vs alive
+                print(f"  Diag[V8]: grad_flow "
+                      f"dead={vh['grad_dead_mean']:.6f} "
+                      f"alive={vh['grad_alive_mean']:.6f} "
+                      f"ratio={vh['grad_dead_mean']/max(vh['grad_alive_mean'],1e-10):.3f}")
+                # Value conv decay chain
+                print(f"  Diag[VC]: backbone_raw |x|={vh['backbone_raw_abs']:.3f} "
+                      f"std={vh['backbone_raw_std']:.3f} | "
+                      f"vconv_w norm={vh['vc_w_norm']:.3f} |w|={vh['vc_w_abs_mean']:.4f}")
+                print(f"  Diag[VC2]: pre_bn |x|={vh['vconv_pre_bn_abs']:.3f} "
+                      f"std={vh['vconv_pre_bn_std']:.3f} | "
+                      f"post_bn |x|={vh['vbn_post_abs']:.3f} "
+                      f"std={vh['vbn_post_std']:.3f} | "
+                      f"bn_ratio={vh['bn_ratio']:.3f}")
+                gamma = vh['vbn_gamma']
+                beta = vh['vbn_beta']
+                rvar = vh['vbn_running_var']
+                gamma_str = " ".join(f"{g:.3f}" for g in gamma)
+                beta_str = " ".join(f"{b:+.3f}" for b in beta)
+                rvar_str = " ".join(f"{v:.3f}" for v in rvar)
+                print(f"  Diag[VC3]: bn_gamma=[{gamma_str}] "
+                      f"min={vh['vbn_gamma_min']:.3f}")
+                print(f"  Diag[VC4]: bn_beta=[{beta_str}]")
+                print(f"  Diag[VC5]: bn_run_var=[{rvar_str}]")
+                print(f"  Diag[VC6]: policy_conv |x|={vh['pconv_abs']:.3f} "
+                      f"std={vh['pconv_std']:.3f} | "
+                      f"vconv_grad={vh['vconv_grad_norm']:.4f}")
+                # Backbone per-channel stats
+                if 'bb_n_channels' in vh:
+                    print(f"  Diag[BB]: backbone {vh['bb_n_channels']}ch "
+                          f"dead={vh['bb_dead_channels']} | "
+                          f"|x| p10={vh['bb_ch_p10']:.4f} "
+                          f"p50={vh['bb_ch_p50']:.4f} "
+                          f"p90={vh['bb_ch_p90']:.4f} "
+                          f"max={vh['bb_ch_max']:.4f}")
+                    print(f"  Diag[BB1]: top5={vh['bb_top5']} "
+                          f"bot5={vh['bb_bot5']}")
+                # Backbone gradient decomposition
+                if 'bb_v_grad_norm' in vh:
+                    evlw = d.get('effective_vlw', 1.0)
+                    v_eff = vh['bb_v_grad_norm'] * evlw
+                    eff_ratio = v_eff / max(vh['bb_p_grad_norm'], 1e-10)
+                    print(f"  Diag[BB2]: bb_grad output: "
+                          f"v={vh['bb_v_grad_norm']:.4f} "
+                          f"p={vh['bb_p_grad_norm']:.4f} "
+                          f"ratio={vh['bb_grad_ratio']:.3f} "
+                          f"(eff_v={v_eff:.4f} eff_ratio={eff_ratio:.3f})")
+                    print(f"  Diag[BB3]: ch_dominance: "
+                          f"value={vh['bb_n_value_dom']}/{vh.get('bb_n_channels',256)} "
+                          f"policy={vh['bb_n_policy_dom']}/{vh.get('bb_n_channels',256)} | "
+                          f"top_v={vh['bb_top_v_channels'][:3]} "
+                          f"top_p={vh['bb_top_p_channels'][:3]}")
+                if 'bb_param_v_grad' in vh:
+                    evlw = d.get('effective_vlw', 1.0)
+                    pv_eff = vh['bb_param_v_grad'] * evlw
+                    pv_eff_ratio = pv_eff / max(vh['bb_param_p_grad'], 1e-10)
+                    rb = vh.get('bb_res_block_grads', {})
+                    rb_str = " ".join(
+                        f"rb{k}: v={v[0]:.3f} p={v[1]:.3f} r={v[2]:.2f}"
+                        for k, v in sorted(rb.items()))
+                    print(f"  Diag[BB4]: bb_grad params: "
+                          f"v={vh['bb_param_v_grad']:.4f} "
+                          f"p={vh['bb_param_p_grad']:.4f} "
+                          f"ratio={vh['bb_param_grad_ratio']:.3f} "
+                          f"(eff_v={pv_eff:.4f} eff_ratio={pv_eff_ratio:.3f})")
+                    if rb_str:
+                        print(f"  Diag[BB5]: {rb_str}")
+                    # (#10) Value gradient survival
+                    vgs = vh.get('rb_v_grad_survival', {})
+                    if vgs:
+                        vgs_str = " ".join(f"rb{k}={v:.3f}" for k, v in sorted(vgs.items()))
+                        print(f"  Diag[BB7]: v_grad_survival: {vgs_str}")
+                # (#1) Backbone gradient conflict
+                if 'bb_grad_cosine_sim' in vh:
+                    print(f"  Diag[BB6]: grad_cosine={vh['bb_grad_cosine_sim']:+.3f} "
+                          f"conflict_ch={vh['bb_grad_conflict_channels']} "
+                          f"aligned_ch={vh['bb_grad_aligned_channels']}")
+                    writer.add_scalar("diag/bb_grad_cosine_sim", vh['bb_grad_cosine_sim'], iteration)
+                    writer.add_scalar("diag/bb_grad_conflict_channels", vh['bb_grad_conflict_channels'], iteration)
+                if 'vp_weight_corr' in vh:
+                    print(f"  Diag[VP]: weight_corr={vh['vp_weight_corr']:.3f} "
+                          f"overlap_top20={vh['vp_overlap_20']}/20 | "
+                          f"act: val_top20={vh['vp_val_top20_act']:.4f} "
+                          f"pol_top20={vh['vp_pol_top20_act']:.4f} "
+                          f"ratio={vh['vp_val_top20_act']/max(vh['vp_pol_top20_act'],1e-10):.2f}")
+                    print(f"  Diag[VP2]: health_corr: "
+                          f"val={vh['vp_val_health_corr']:.3f} "
+                          f"pol={vh['vp_pol_health_corr']:.3f}")
+                if 'svd_bb_rank90' in vh:
+                    print(f"  Diag[SVD]: backbone rb{len(self.net.res_blocks)-1}.conv2: "
+                          f"rank90={vh['svd_bb_rank90']}/{vh['svd_bb_total']} "
+                          f"rank99={vh['svd_bb_rank99']}/{vh['svd_bb_total']} "
+                          f"near_zero_sv={vh['svd_bb_near_zero']} "
+                          f"bn_dead={vh['bn_dead_deepest']}")
+                    pc_str = " ".join(f"ch{i}={n:.3f}" for i, n in enumerate(vh['pconv_ch_norms']))
+                    print(f"  Diag[PH]: policy_fc: "
+                          f"rank90={vh['svd_pfc_rank90']}/{vh['svd_pfc_max_rank']} "
+                          f"rank99={vh['svd_pfc_rank99']}/{vh['svd_pfc_max_rank']} | "
+                          f"pconv: {pc_str}")
+                # Per-block BN and activation diagnostics
+                all_rb_bn_data = vh.get('all_rb_bn', {})
+                rb_act_data = vh.get('rb_act_stats', {})
+                for bi in sorted(set(list(all_rb_bn_data.keys()) + list(rb_act_data.keys()))):
+                    parts = [f"  Diag[RB{bi}]:"]
+                    if bi in all_rb_bn_data:
+                        rbd = all_rb_bn_data[bi]
+                        parts.append(f"bn2: dead={rbd.get('dead',0)} "
+                                     f"neg_gamma={rbd.get('neg_gamma',0)} "
+                                     f"eff_gain={rbd.get('eff_gain_mean',0):.2f}/"
+                                     f"{rbd.get('eff_gain_max',0):.2f} "
+                                     f"gamma={rbd.get('gamma_mean',0):.3f}(+/-{rbd.get('gamma_std',0):.3f}) "
+                                     f"sqrt_var={rbd.get('sqrt_var_mean',0):.3f}(+/-{rbd.get('sqrt_var_std',0):.3f})")
+                        parts.append(f"svd_rank90={rbd.get('svd_rank90',0)}/"
+                                     f"{rbd.get('svd_total',0)}")
+                    if bi in rb_act_data:
+                        rad = rb_act_data[bi]
+                        parts.append(f"|x|={rad['abs_mean']:.3f} "
+                                     f"std={rad['std']:.3f} "
+                                     f"dead={rad['dead_channels']}")
+                    print(" | ".join(parts))
+                    # Second line: conv weight norms, conv2 raw output (residual branch), bn2 stats, res rank, ch dominance
+                    parts2 = []
+                    rcn = vh.get('rb_conv_norms', {}).get(bi)
+                    if rcn:
+                        parts2.append(f"w: c1={rcn['conv1']:.3f} c2={rcn['conv2']:.3f} c2_d={rcn.get('c2_delta',0):+.3f}")
+                    rbs = vh.get('rb_bn2_stats', {}).get(bi)
+                    if rbs:
+                        s = ""
+                        if 'bn2_out_abs' in rbs:
+                            s += f"bn2_out: |x|={rbs['bn2_out_abs']:.3f} std={rbs['bn2_out_std']:.3f}"
+                        if 'conv2_raw_var' in rbs:
+                            if s: s += " | "
+                            s += f"conv2_raw: var={rbs['conv2_raw_var']:.4f} |x|={rbs['conv2_raw_abs']:.3f}"
+                        if 'bn2_batch_vs_run_var_mean' in rbs:
+                            if s: s += " | "
+                            s += (f"bv/rv={rbs['bn2_batch_vs_run_var_mean']:.3f}"
+                                  f"(+/-{rbs['bn2_batch_vs_run_var_std']:.3f})"
+                                  f" bv={rbs['bn2_batch_var_mean']:.4f}"
+                                  f" rv={rbs['bn2_run_var_mean']:.4f}")
+                        if s:
+                            parts2.append(s)
+                    rrk = vh.get('rb_res_rank', {}).get(bi)
+                    if rrk:
+                        parts2.append(f"res_rank90={rrk['rank90']}/{rrk['total']}")
+                    rcd = vh.get('rb_ch_dominance', {})
+                    if bi in rcd:
+                        parts2.append(f"ch_vdom={rcd[bi]}/{vh.get('bb_n_channels', '?')}")
+                    if parts2:
+                        print(f"           {' | '.join(parts2)}")
+                # (#4) final_bn gamma tracking
+                if 'final_bn_eff_gain_mean' in vh:
+                    print(f"  Diag[FBN]: eff_gain "
+                          f"mean={vh['final_bn_eff_gain_mean']:.3f} "
+                          f"min={vh['final_bn_eff_gain_min']:.3f} "
+                          f"max={vh['final_bn_eff_gain_max']:.3f} "
+                          f"dead={vh['final_bn_dead']} "
+                          f"| gamma={vh.get('final_bn_gamma_mean',0):.3f}(+/-{vh.get('final_bn_gamma_std',0):.3f}) "
+                          f"sqrt_var={vh.get('final_bn_sqrt_var_mean',0):.3f}(+/-{vh.get('final_bn_sqrt_var_std',0):.3f})")
+                    writer.add_scalar("diag/final_bn_eff_gain_mean", vh['final_bn_eff_gain_mean'], iteration)
+                    writer.add_scalar("diag/final_bn_eff_gain_min", vh['final_bn_eff_gain_min'], iteration)
+                    writer.add_scalar("diag/final_bn_dead", vh['final_bn_dead'], iteration)
+                    writer.add_scalar("diag/final_bn_gamma_mean", vh.get('final_bn_gamma_mean', 0), iteration)
+                    writer.add_scalar("diag/final_bn_gamma_std", vh.get('final_bn_gamma_std', 0), iteration)
+                    writer.add_scalar("diag/final_bn_sqrt_var_mean", vh.get('final_bn_sqrt_var_mean', 0), iteration)
+                    writer.add_scalar("diag/final_bn_sqrt_var_std", vh.get('final_bn_sqrt_var_std', 0), iteration)
+                # (#5) Residual contribution ratio
+                rr = vh.get('rb_residual_ratios', {})
+                if rr:
+                    rr_str = " ".join(f"rb{k}={v:.3f}" for k, v in sorted(rr.items()))
+                    print(f"  Diag[RR]: residual_ratio: {rr_str}")
+                    for bi, ratio in rr.items():
+                        writer.add_scalar(f"rb{bi}/residual_ratio", ratio, iteration)
+                # (#3) Initial conv weight norm
+                if 'init_conv_w_norm' in vh:
+                    print(f"  Diag[IC]: conv_w norm={vh['init_conv_w_norm']:.4f} "
+                          f"|w|={vh['init_conv_w_abs_mean']:.5f} "
+                          f"delta={vh['init_conv_w_norm_delta']:+.4f}")
+                    writer.add_scalar("diag/init_conv_w_norm", vh['init_conv_w_norm'], iteration)
+                # Tensorboard
+                writer.add_scalar("vh/dead_neurons", vh["dead_neurons"], iteration)
+                writer.add_scalar("vh/active_neurons", vh.get("active_neurons", 0), iteration)
+                # WDL metrics (replaces pre_tanh/saturated)
+                writer.add_scalar("vh/wdl_entropy", vh["wdl_entropy"], iteration)
+                writer.add_scalar("vh/wdl_confidence", vh["wdl_confidence"], iteration)
+                writer.add_scalar("vh/wdl_accuracy", vh["wdl_accuracy"], iteration)
+                writer.add_scalar("vh/wdl_logit_std", vh["wdl_logit_std"], iteration)
+                writer.add_scalar("vh/wdl_logit_range", vh["wdl_logit_range"], iteration)
+                writer.add_scalar("vh/wdl_win_prob", vh["wdl_win_prob"], iteration)
+                writer.add_scalar("vh/wdl_draw_prob", vh["wdl_draw_prob"], iteration)
+                writer.add_scalar("vh/wdl_loss_prob", vh["wdl_loss_prob"], iteration)
+                writer.add_scalar("vh/wdl_scalar_mean", vh["wdl_scalar_mean"], iteration)
+                writer.add_scalar("vh/wdl_scalar_std", vh["wdl_scalar_std"], iteration)
+                writer.add_scalar("vh/fc2_w_max", vh["fc2_w_max"], iteration)
+                writer.add_scalar("vh/fc2_w_min", vh["fc2_w_min"], iteration)
+                writer.add_scalar("vh/fc2_w_norm", vh["fc2_w_norm"], iteration)
+                writer.add_scalar("vh/fc1_w_norm", vh["fc1_w_norm"], iteration)
+                writer.add_scalar("vh/backbone_std", vh["backbone_std"], iteration)
+                writer.add_scalar("vh/fc1_act_p10", vh["fc1_act_p10"], iteration)
+                writer.add_scalar("vh/fc1_act_p50", vh["fc1_act_p50"], iteration)
+                writer.add_scalar("vh/fc1_act_p90", vh["fc1_act_p90"], iteration)
+                writer.add_scalar("vh/vconv_dead_channels", vh["vconv_dead_channels"], iteration)
+                writer.add_scalar("vh/fc2_w_norm_delta", vh["fc2_w_norm_delta"], iteration)
+                writer.add_scalar("vh/fc1_w_norm_delta", vh["fc1_w_norm_delta"], iteration)
+                writer.add_scalar("vh/grad_dead_mean", vh["grad_dead_mean"], iteration)
+                writer.add_scalar("vh/grad_alive_mean", vh["grad_alive_mean"], iteration)
+                writer.add_scalar("vc/backbone_raw_abs", vh["backbone_raw_abs"], iteration)
+                writer.add_scalar("vc/vconv_pre_bn_abs", vh["vconv_pre_bn_abs"], iteration)
+                writer.add_scalar("vc/vbn_post_abs", vh["vbn_post_abs"], iteration)
+                writer.add_scalar("vc/bn_ratio", vh["bn_ratio"], iteration)
+                writer.add_scalar("vc/vc_w_norm", vh["vc_w_norm"], iteration)
+                writer.add_scalar("vc/vbn_gamma_min", vh["vbn_gamma_min"], iteration)
+                writer.add_scalar("vc/vbn_gamma_mean", vh["vbn_gamma_mean"], iteration)
+                writer.add_scalar("vc/pconv_abs", vh["pconv_abs"], iteration)
+                writer.add_scalar("vc/vconv_grad_norm", vh["vconv_grad_norm"], iteration)
+                # Backbone per-channel stats
+                if 'bb_n_channels' in vh:
+                    writer.add_scalar("bb/dead_channels", vh["bb_dead_channels"], iteration)
+                    writer.add_scalar("bb/ch_p10", vh["bb_ch_p10"], iteration)
+                    writer.add_scalar("bb/ch_p50", vh["bb_ch_p50"], iteration)
+                    writer.add_scalar("bb/ch_p90", vh["bb_ch_p90"], iteration)
+                # Backbone gradient decomposition
+                if 'bb_v_grad_norm' in vh:
+                    writer.add_scalar("bb/v_grad_norm", vh["bb_v_grad_norm"], iteration)
+                    writer.add_scalar("bb/p_grad_norm", vh["bb_p_grad_norm"], iteration)
+                    writer.add_scalar("bb/grad_ratio", vh["bb_grad_ratio"], iteration)
+                    writer.add_scalar("bb/n_value_dom", vh["bb_n_value_dom"], iteration)
+                    writer.add_scalar("bb/n_policy_dom", vh["bb_n_policy_dom"], iteration)
+                if 'bb_param_v_grad' in vh:
+                    writer.add_scalar("bb/param_v_grad", vh["bb_param_v_grad"], iteration)
+                    writer.add_scalar("bb/param_p_grad", vh["bb_param_p_grad"], iteration)
+                    writer.add_scalar("bb/param_grad_ratio", vh["bb_param_grad_ratio"], iteration)
+                if 'vp_weight_corr' in vh:
+                    writer.add_scalar("vp/weight_corr", vh["vp_weight_corr"], iteration)
+                    writer.add_scalar("vp/overlap_20", vh["vp_overlap_20"], iteration)
+                    writer.add_scalar("vp/val_top20_act", vh["vp_val_top20_act"], iteration)
+                    writer.add_scalar("vp/pol_top20_act", vh["vp_pol_top20_act"], iteration)
+                    writer.add_scalar("vp/val_health_corr", vh["vp_val_health_corr"], iteration)
+                    writer.add_scalar("vp/pol_health_corr", vh["vp_pol_health_corr"], iteration)
+                if 'svd_bb_rank90' in vh:
+                    writer.add_scalar("svd/bb_rank90", vh["svd_bb_rank90"], iteration)
+                    writer.add_scalar("svd/bb_rank99", vh["svd_bb_rank99"], iteration)
+                    writer.add_scalar("svd/bb_near_zero", vh["svd_bb_near_zero"], iteration)
+                    writer.add_scalar("svd/bn_dead_deepest", vh["bn_dead_deepest"], iteration)
+                    writer.add_scalar("svd/pfc_rank90", vh["svd_pfc_rank90"], iteration)
+                    writer.add_scalar("svd/pfc_rank99", vh["svd_pfc_rank99"], iteration)
+                    for i, n in enumerate(vh['pconv_ch_norms']):
+                        writer.add_scalar(f"ph/pconv_ch{i}_norm", n, iteration)
+                # Per-block BN and activation TensorBoard
+                for bi, rbd in vh.get('all_rb_bn', {}).items():
+                    writer.add_scalar(f"rb{bi}/bn2_dead", rbd.get("dead", 0), iteration)
+                    writer.add_scalar(f"rb{bi}/bn2_neg_gamma", rbd.get("neg_gamma", 0), iteration)
+                    writer.add_scalar(f"rb{bi}/bn2_eff_gain_mean", rbd.get("eff_gain_mean", 0), iteration)
+                    writer.add_scalar(f"rb{bi}/svd_rank90", rbd.get("svd_rank90", 0), iteration)
+                    writer.add_scalar(f"rb{bi}/bn2_gamma_mean", rbd.get("gamma_mean", 0), iteration)
+                    writer.add_scalar(f"rb{bi}/bn2_sqrt_var_mean", rbd.get("sqrt_var_mean", 0), iteration)
+                for bi, rad in vh.get('rb_act_stats', {}).items():
+                    writer.add_scalar(f"rb{bi}/act_abs_mean", rad["abs_mean"], iteration)
+                    writer.add_scalar(f"rb{bi}/act_std", rad["std"], iteration)
+                    writer.add_scalar(f"rb{bi}/act_dead_channels", rad["dead_channels"], iteration)
+                # (#6) Per-conv weight norms
+                for bi, rcn in vh.get('rb_conv_norms', {}).items():
+                    writer.add_scalar(f"rb{bi}/conv1_w_norm", rcn["conv1"], iteration)
+                    writer.add_scalar(f"rb{bi}/conv2_w_norm", rcn["conv2"], iteration)
+                    writer.add_scalar(f"rb{bi}/conv2_w_delta", rcn.get("c2_delta", 0), iteration)
+                # (#7-8) BN2 output scale + pre-BN2 variance
+                for bi, rbs in vh.get('rb_bn2_stats', {}).items():
+                    writer.add_scalar(f"rb{bi}/bn2_out_abs", rbs["bn2_out_abs"], iteration)
+                    writer.add_scalar(f"rb{bi}/bn2_out_std", rbs["bn2_out_std"], iteration)
+                    if 'conv2_raw_var' in rbs:
+                        writer.add_scalar(f"rb{bi}/conv2_raw_var", rbs["conv2_raw_var"], iteration)
+                        writer.add_scalar(f"rb{bi}/conv2_raw_abs", rbs["conv2_raw_abs"], iteration)
+                    if 'bn2_batch_vs_run_var_mean' in rbs:
+                        writer.add_scalar(f"rb{bi}/bn2_bv_rv_ratio", rbs["bn2_batch_vs_run_var_mean"], iteration)
+                        writer.add_scalar(f"rb{bi}/bn2_batch_var", rbs["bn2_batch_var_mean"], iteration)
+                        writer.add_scalar(f"rb{bi}/bn2_run_var", rbs["bn2_run_var_mean"], iteration)
+                # (#11) Residual path effective rank
+                for bi, rrk in vh.get('rb_res_rank', {}).items():
+                    writer.add_scalar(f"rb{bi}/res_rank90", rrk["rank90"], iteration)
+                    writer.add_scalar(f"rb{bi}/res_rank99", rrk["rank99"], iteration)
+                # (#9) Per-block channel dominance
+                for bi, nv in vh.get('rb_ch_dominance', {}).items():
+                    writer.add_scalar(f"rb{bi}/ch_value_dom", nv, iteration)
+                # (#10) Value gradient survival
+                for bn, sv in vh.get('rb_v_grad_survival', {}).items():
+                    writer.add_scalar(f"rb{bn}/v_grad_survival", sv, iteration)
+
+        # --- Self-play value prediction diagnostics ---
+        if hasattr(self, '_batched') and hasattr(self._batched, 'value_diag'):
+            vd = self._batched.value_diag
+            if vd:
+                writer.add_scalar("selfplay_diag/mean_nnet_value", vd["mean_nnet_value"], iteration)
+                writer.add_scalar("selfplay_diag/std_nnet_value", vd["std_nnet_value"], iteration)
+                writer.add_scalar("selfplay_diag/frac_saturated", vd["frac_saturated_any"], iteration)
+                writer.add_scalar("selfplay_diag/sign_accuracy", vd["sign_accuracy"], iteration)
+                writer.add_scalar("selfplay_diag/mae_vs_outcome", vd["mae_vs_outcome"], iteration)
+                writer.add_scalar("selfplay_diag/pred_outcome_corr", vd["pred_outcome_corr"], iteration)
+                writer.add_scalar("selfplay_diag/mean_when_x_moves", vd["mean_when_x_moves"], iteration)
+                writer.add_scalar("selfplay_diag/mean_when_o_moves", vd["mean_when_o_moves"], iteration)
+                print(f"  SelfPlay: nnet_v mean={vd['mean_nnet_value']:+.3f} "
+                      f"std={vd['std_nnet_value']:.3f} | "
+                      f"hi_conf={vd['frac_saturated_any']:.1%} | "
+                      f"sign_acc={vd['sign_accuracy']:.1%} | "
+                      f"MAE={vd['mae_vs_outcome']:.3f} | "
+                      f"corr={vd['pred_outcome_corr']:+.3f}")
+                print(f"  SelfPlay: v_when_X={vd['mean_when_x_moves']:+.3f} "
+                      f"v_when_O={vd['mean_when_o_moves']:+.3f} | "
+                      f"conf+={vd['frac_saturated_pos']:.1%} "
+                      f"conf-={vd['frac_saturated_neg']:.1%}")
+                if 'mcts_visit_entropy_mean' in vd:
+                    writer.add_scalar("selfplay_diag/mcts_visit_entropy",
+                                       vd["mcts_visit_entropy_mean"], iteration)
+                    print(f"  SelfPlay: mcts_visit_entropy="
+                          f"{vd['mcts_visit_entropy_mean']:.3f} "
+                          f"(std={vd['mcts_visit_entropy_std']:.3f})")
+                # (#7) MCTS Q vs nnet value agreement
+                if 'mcts_nnet_corr' in vd:
+                    writer.add_scalar("selfplay_diag/mcts_nnet_corr", vd["mcts_nnet_corr"], iteration)
+                    writer.add_scalar("selfplay_diag/mcts_nnet_mae", vd["mcts_nnet_mae"], iteration)
+                    writer.add_scalar("selfplay_diag/mcts_correction_mean", vd["mcts_correction_mean"], iteration)
+                    print(f"  SelfPlay: mcts_Q mean={vd['mcts_q_mean']:+.3f} "
+                          f"std={vd['mcts_q_std']:.3f} | "
+                          f"nnet_Q_corr={vd['mcts_nnet_corr']:+.3f} "
+                          f"MAE={vd['mcts_nnet_mae']:.3f} "
+                          f"correction={vd['mcts_correction_mean']:+.3f}")
+
+        # --- Value confidence distribution ---
+        if hasattr(self, '_train_diag'):
+            cd = self._train_diag.get('conf_dist', {})
+            if cd:
+                print(f"  Diag[CONF]: |v|<0.1={cd.get('very_low',0):.1%} "
+                      f"0.1-0.3={cd.get('low',0):.1%} "
+                      f"0.3-0.6={cd.get('medium',0):.1%} "
+                      f"0.6-0.9={cd.get('high',0):.1%} "
+                      f"|v|>0.9={cd.get('very_high',0):.1%}")
+                for bk, bv in cd.items():
+                    writer.add_scalar(f"conf/{bk}", bv, iteration)
+
+            # --- Sub-iteration dynamics summary ---
+            sil = self._train_diag.get('sub_iter_log', [])
+            if len(sil) >= 3:
+                # Print first, middle, last entries to show intra-iteration trend
+                indices = [0, len(sil) // 2, len(sil) - 1]
+                parts = []
+                for idx in indices:
+                    e = sil[idx]
+                    parts.append(f"s{e['step']}: vl={e['vloss']:.4f} "
+                                 f"pl={e['ploss']:.4f} |v|={e['mean_conf']:.3f} "
+                                 f"v={e['mean_v']:+.3f}")
+                print(f"  Diag[SUB]: {' -> '.join(parts)}")
+                # Log first/last to tensorboard for trend detection
+                writer.add_scalar("sub/vloss_first", sil[0]['vloss'], iteration)
+                writer.add_scalar("sub/vloss_last", sil[-1]['vloss'], iteration)
+                writer.add_scalar("sub/conf_first", sil[0]['mean_conf'], iteration)
+                writer.add_scalar("sub/conf_last", sil[-1]['mean_conf'], iteration)
+                writer.add_scalar("sub/mean_v_first", sil[0]['mean_v'], iteration)
+                writer.add_scalar("sub/mean_v_last", sil[-1]['mean_v'], iteration)
+
+        # --- Intra-iteration value trajectory on FixedEval positions ---
+        if hasattr(self, '_train_diag'):
+            _traj = self._train_diag.get('fixed_eval_trajectory', [])
+            if _traj and len(_traj) >= 2:
+                # Print trajectory for each position: step0->step300->...->stepN
+                _names = [k for k in _traj[0] if k != 'step']
+                for _pn in _names:
+                    _vals = [f"s{e['step']}:{e[_pn]:+.3f}" for e in _traj]
+                    print(f"  Diag[TRAJ]: {_pn}: {' -> '.join(_vals)}")
+                    # TB: log first and last values for trend detection
+                    writer.add_scalar(f"traj/{_pn}_first", _traj[0][_pn], iteration)
+                    writer.add_scalar(f"traj/{_pn}_last", _traj[-1][_pn], iteration)
+
+        # --- Fixed diagnostic position evaluation ---
+        self._eval_diagnostic_positions(iteration)
 
     def _eval_diagnostic_positions(self, iteration, prefix="", label="FixedEval"):
         """Evaluate the network on fixed diagnostic positions every iteration.
