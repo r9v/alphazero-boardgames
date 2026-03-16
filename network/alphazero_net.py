@@ -93,12 +93,16 @@ class AlphaZeroNet(nn.Module):
         self.policy_bn = nn.BatchNorm2d(policy_head_channels)
         self.policy_fc = nn.Linear(policy_head_channels * board_area, action_size)
 
-    def forward(self, x):
-        # Backbone
+    def backbone_forward(self, x):
+        """Run backbone only (conv + res_blocks + final_bn), no heads or dropout."""
         x = F.relu(self.bn(ws_conv2d(x, self.conv)))
         for block in self.res_blocks:
             x = block(x)
-        x = F.relu(self.final_bn(x))
+        return F.relu(self.final_bn(x))
+
+    def forward(self, x):
+        # Backbone
+        x = self.backbone_forward(x)
 
         # Channel dropout: prevent head channel segregation
         x = self.backbone_dropout(x)
