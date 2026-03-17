@@ -118,9 +118,30 @@ class Trainer:
 
             # Forward + backward
             t0 = time.time()
+            B = states.shape[0]
             with torch.autocast('cuda', enabled=self.use_amp):
-                pred_vs, pred_pi_logits = self.net(states)
-                value_loss = F.cross_entropy(pred_vs, target_vs)
+                # Color-swap augmentation: swap ch0↔ch1, negate ch2, flip value target.
+                # Train value loss on both original + swapped; policy loss on originals only.
+                # This ensures the value head sees balanced player perspectives regardless
+                # of self-play bias, breaking the feedback loop that causes player-asymmetric
+                # evaluation. (Same principle as KataGo's color-swap for Go.)
+                swapped = states.clone()
+                swapped[:, 0] = states[:, 1]
+                swapped[:, 1] = states[:, 0]
+                if states.shape[1] > 2:
+                    swapped[:, 2] = -states[:, 2]
+                swapped_target_vs = 2 - target_vs  # win(0)↔loss(2), draw(1) unchanged
+
+                combined = torch.cat([states, swapped], dim=0)
+                combined_targets = torch.cat([target_vs, swapped_target_vs], dim=0)
+                pred_all, pi_all = self.net(combined)
+
+                # Value loss: average over original + swapped
+                value_loss = F.cross_entropy(pred_all, combined_targets)
+                # Extract original-only predictions for policy + diagnostics
+                pred_vs = pred_all[:B]
+                pred_pi_logits = pi_all[:B]
+
                 log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
                 policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
                 loss = cfg['effective_vlw'] * value_loss + policy_loss
