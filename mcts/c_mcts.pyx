@@ -242,11 +242,17 @@ cdef class CMCTS:
         cdef int i, action
         cdef CNode child
 
+        cdef double pi_sum = 0.0
         for i in range(root._num_available):
             action = root._avail[i]
             child = <CNode>root.children[action]
             if child is not None:
-                pi_view[action] = <double>child.n / <double>root.n
+                pi_view[action] = <double>child.n
+                pi_sum += <double>child.n
+
+        if pi_sum > 0:
+            for i in range(action_size):
+                pi_view[i] /= pi_sum
 
         self.last_root = root
         return pi

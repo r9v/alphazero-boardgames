@@ -35,6 +35,7 @@ class Trainer:
         self.target_epochs = self.config.get("target_epochs", 4)
         self.train_ratio = self.config.get("train_ratio", 0)  # gradient steps per new position; 0 = use epoch-based
         self.global_step = 0  # global training step counter (persists across iterations)
+        self.global_total_steps = 1  # estimated total steps; updated by run()
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
 
         # Separate params: apply weight decay only to conv/linear weights,
@@ -195,7 +196,6 @@ class Trainer:
             'x_count': 0, 'o_count': 0,
             'x_target_sum': 0.0, 'o_target_sum': 0.0,
             'x_pred_sum': 0.0, 'o_pred_sum': 0.0,
-            'grad_correct_count': 0, 'grad_total_count': 0,
             'all_policy_entropy': [],
             'top1_correct_sum': 0, 'top3_correct_sum': 0, 'policy_acc_count': 0,
             'confident_correct_sum': 0, 'confident_total': 0,
@@ -270,11 +270,9 @@ class Trainer:
                         acc['phase_vloss_sums'][phase] += per_sample_vloss[mask].mean().item()
                         acc['phase_counts'][phase] += 1
 
-        # (F) Gradient direction check every 50 steps
+        # (F) Gradient stats every 50 steps
         if step % 50 == 0:
             with torch.no_grad():
-                acc['grad_correct_count'] += 1
-                acc['grad_total_count'] += 1
                 st = 1 - target_vs.float()
                 error_scalar = _scalar_v - st
                 fc1_grad = self.net.value_fc1.weight.grad
@@ -685,9 +683,9 @@ class Trainer:
                 print(f"  [DIAG-DBG] Pre-training snapshot failed: {e}")
 
             # (2) Store FixedEval inputs for intra-iteration trajectory
-            # Reuse _diag_inputs already built above (identical tensor)
-            self._fixed_eval_inputs = _diag_inputs if _diag_positions else None
-            self._fixed_eval_names = [p[0] for p in _diag_positions] if _diag_positions else None
+            _dp = locals().get('_diag_positions')
+            self._fixed_eval_inputs = locals().get('_diag_inputs') if _dp else None
+            self._fixed_eval_names = [p[0] for p in _dp] if _dp else None
 
             # Train
             t0 = time.time()
