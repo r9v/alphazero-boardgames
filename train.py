@@ -87,27 +87,12 @@ def main():
           f"sims={num_simulations}")
 
     config = {
+        **game_cfg,
         "num_simulations": num_simulations,
         "games_per_iteration": num_games,
         "checkpoint_dir": checkpoint_dir,
         "game_name": args.game,
         "device": device,
-        "max_train_steps": game_cfg.get("max_train_steps", 6400),
-        "target_epochs": game_cfg.get("target_epochs", 4),
-        "train_ratio": game_cfg.get("train_ratio", 0),
-        "buffer_size": game_cfg.get("buffer_size", 100000),
-        "lr": game_cfg.get("lr", 0.01),
-        "batch_size": game_cfg.get("batch_size", 64),
-        "selects_per_round": game_cfg.get("selects_per_round", 1),
-        "vl_value": game_cfg.get("vl_value", 0.0),
-        "value_loss_weight": game_cfg.get("value_loss_weight", 1.0),
-        "temp_threshold": game_cfg.get("temp_threshold", 15),
-        "c_puct": game_cfg.get("c_puct", 1.5),
-        "dirichlet_alpha": game_cfg.get("dirichlet_alpha", 1.0),
-        "tree_reuse": game_cfg.get("tree_reuse", True),
-        "resign_threshold": game_cfg.get("resign_threshold", -1.0),
-        "resign_min_moves": game_cfg.get("resign_min_moves", 99),
-        "resign_check_prob": game_cfg.get("resign_check_prob", 0.0),
     }
 
     trainer = Trainer(game, net, config)

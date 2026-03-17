@@ -53,43 +53,26 @@ class BatchedSelfPlay:
             - results: list of terminal_value per game
             - game_lengths: list of number of moves per game
         """
-        self._last_select_expand_time = 0.0
-        self._last_backup_time = 0.0
-        self._last_nn_time = 0.0
-        self._last_preprocess_time = 0.0
-        self._last_transfer_time = 0.0
-        self._last_forward_time = 0.0
-        self._last_result_time = 0.0
-        self._last_postprocess_time = 0.0
-        self._last_batch_count = 0
-        self._last_sample_count = 0
-        self._last_terminal_hits = 0
-        self._last_min_batch = float('inf')
-        self._last_max_batch = 0
-        self._encoding_checks = 0
-        self._encoding_errors = 0
-        self._last_encoding_time = 0.0
-        self._batch_histogram = [0, 0, 0, 0, 0]  # [1-4, 5-16, 17-32, 33-64, 65+]
-        self._active_per_move = []  # track len(active) each move step
-        self._accum_rounds = 0  # how many times accumulation path fired
+        # All perf/tracking counters in a single dict
+        self._p = {
+            'select_expand_time': 0.0, 'backup_time': 0.0, 'nn_time': 0.0,
+            'preprocess_time': 0.0, 'transfer_time': 0.0, 'forward_time': 0.0,
+            'result_time': 0.0, 'postprocess_time': 0.0,
+            'batch_count': 0, 'sample_count': 0, 'terminal_hits': 0,
+            'min_batch': float('inf'), 'max_batch': 0,
+            'encoding_checks': 0, 'encoding_errors': 0, 'encoding_time': 0.0,
+            'batch_histogram': [0, 0, 0, 0, 0],  # [1-4, 5-16, 17-32, 33-64, 65+]
+            'active_per_move': [],
+            'accum_rounds': 0,
+            'tree_reuse_count': 0, 'tree_reuse_fresh_count': 0,
+            'tree_reuse_visits_sum': 0,
+            'resign_count': 0, 'resign_move_sum': 0,
+            'resign_false_positives': 0, 'resign_check_count': 0,
+            'imm_win_count': 0, 'imm_win_total': 0,
+        }
 
         self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value, mcts_Q) per move
         self._mcts_visit_entropies = []  # entropy of MCTS visit distribution per move
-
-        # Tree reuse tracking
-        self._tree_reuse_count = 0
-        self._tree_reuse_fresh_count = 0
-        self._tree_reuse_visits_sum = 0
-
-        # Resign tracking
-        self._resign_count = 0
-        self._resign_move_sum = 0
-        self._resign_false_positive_count = 0
-        self._resign_check_count = 0  # verification games that wanted to resign
-
-        # Immediate-win tracking: how many positions have a legal winning move
-        self._imm_win_count = 0
-        self._imm_win_total = 0
 
         # Initialize all games
         states = [self.game.new_game() for _ in range(self.num_games)]
@@ -117,7 +100,7 @@ class BatchedSelfPlay:
             root.P = add_dirichlet_noise(root.P, self.dirichlet_alpha, self.dirichlet_epsilon, root.available_actions_mask)
 
         while active:
-            self._active_per_move.append(len(active))
+            self._p['active_per_move'].append(len(active))
             # Run MCTS simulations for all active games
             self._run_simulations(roots, active)
 
@@ -148,14 +131,14 @@ class BatchedSelfPlay:
                     if tv != 0 and len(examples[i]) > 0:
                         assert abs(examples[i][-1][2] - 1.0) < 1e-6, \
                             f"Resign target: last={examples[i][-1][2]:.4f}, expected +1"
-                    self._resign_count += 1
-                    self._resign_move_sum += move_counts[i]
+                    self._p['resign_count'] += 1
+                    self._p['resign_move_sum'] += move_counts[i]
                 elif should_resign and not resign_allowed[i]:
                     # Would resign but this game is a verification game
                     if resign_check_player[i] == 0:
                         # First time this game wants to resign — record which player
                         resign_check_player[i] = states[i].player
-                        self._resign_check_count += 1
+                        self._p['resign_check_count'] += 1
                     still_active.append(i)
                 else:
                     still_active.append(i)
@@ -194,12 +177,12 @@ class BatchedSelfPlay:
                 else:
                     action = np.argmax(pi)
                 # Check if current player has an immediate winning move
-                self._imm_win_total += 1
+                self._p['imm_win_total'] += 1
                 for a in range(len(states[i].available_actions)):
                     if states[i].available_actions[a]:
                         ns = self.game.step(states[i], a)
                         if ns.terminal and ns.terminal_value != 0:
-                            self._imm_win_count += 1
+                            self._p['imm_win_count'] += 1
                             break
 
                 # Training target is always the full visit distribution
@@ -217,7 +200,7 @@ class BatchedSelfPlay:
                         # False positive = resigning player didn't actually lose
                         resigner_outcome = tv * resign_check_player[i]
                         if resigner_outcome >= 0:  # drew or won
-                            self._resign_false_positive_count += 1
+                            self._p['resign_false_positives'] += 1
                     total_moves = len(examples[i])
                     # Assert: last example's player should be the winner
                     if tv != 0 and len(examples[i]) > 0:
@@ -240,16 +223,16 @@ class BatchedSelfPlay:
                         subtree = root.children[action]
                         if subtree is not None and subtree.P is not None:
                             # Reuse subtree: promote child to new root
-                            self._tree_reuse_visits_sum += subtree.n
+                            self._p['tree_reuse_visits_sum'] += subtree.n
                             subtree.parent = None  # sever for GC of old tree
                             roots[i] = subtree
                             next_active_reused.append(i)
-                            self._tree_reuse_count += 1
+                            self._p['tree_reuse_count'] += 1
                         else:
                             # Fallback: child missing or unevaluated
                             roots[i] = Node(None, states[i], self.game)
                             next_active_fresh.append(i)
-                            self._tree_reuse_fresh_count += 1
+                            self._p['tree_reuse_fresh_count'] += 1
                     else:
                         roots[i] = Node(None, states[i], self.game)
                         next_active_fresh.append(i)
@@ -283,36 +266,13 @@ class BatchedSelfPlay:
         assert n_x_wins + n_o_wins + n_draws == len(results), \
             f"Results contain unexpected values: {set(results)}"
 
-        self.perf = {
-            "select_expand_time": self._last_select_expand_time,
-            "backup_time": self._last_backup_time,
-            "nn_time": self._last_nn_time,
-            "preprocess_time": self._last_preprocess_time,
-            "transfer_time": self._last_transfer_time,
-            "forward_time": self._last_forward_time,
-            "result_time": self._last_result_time,
-            "postprocess_time": self._last_postprocess_time,
-            "batch_count": self._last_batch_count,
-            "sample_count": self._last_sample_count,
-            "terminal_hits": self._last_terminal_hits,
-            "min_batch": self._last_min_batch if self._last_min_batch != float('inf') else 0,
-            "max_batch": self._last_max_batch,
-            "encoding_checks": self._encoding_checks,
-            "encoding_errors": self._encoding_errors,
-            "encoding_time": self._last_encoding_time,
-            "batch_histogram": self._batch_histogram,
-            "active_per_move": self._active_per_move,
-            "accum_rounds": self._accum_rounds,
-            "tree_reuse_count": self._tree_reuse_count,
-            "tree_reuse_fresh_count": self._tree_reuse_fresh_count,
-            "tree_reuse_avg_visits": (self._tree_reuse_visits_sum / max(self._tree_reuse_count, 1)),
-            "resign_count": self._resign_count,
-            "resign_avg_move": (self._resign_move_sum / max(self._resign_count, 1)),
-            "resign_check_count": self._resign_check_count,
-            "resign_false_positives": self._resign_false_positive_count,
-            "imm_win_count": self._imm_win_count,
-            "imm_win_frac": self._imm_win_count / max(self._imm_win_total, 1),
-        }
+        # Build perf dict: copy counters + compute derived values
+        p = self._p
+        self.perf = dict(p)
+        self.perf['min_batch'] = p['min_batch'] if p['min_batch'] != float('inf') else 0
+        self.perf['tree_reuse_avg_visits'] = p['tree_reuse_visits_sum'] / max(p['tree_reuse_count'], 1)
+        self.perf['resign_avg_move'] = p['resign_move_sum'] / max(p['resign_count'], 1)
+        self.perf['imm_win_frac'] = p['imm_win_count'] / max(p['imm_win_total'], 1)
 
         # Compute self-play value prediction diagnostics
         self._compute_value_diagnostics(results)
@@ -394,7 +354,7 @@ class BatchedSelfPlay:
         if use_accum:
             accum_vl = 3.0  # temporary VL for diverse selection during accumulation
             rounds_per_flush = max(1, (MIN_BATCH_TARGET + n_active - 1) // n_active)
-            self._accum_rounds += 1
+            self._p['accum_rounds'] += 1
 
         sims_done = 0
         while sims_done < self.num_simulations:
@@ -489,10 +449,10 @@ class BatchedSelfPlay:
                             self.mcts.search_backup(node)
                     backup_time += time.time() - t0
 
-        self._last_select_expand_time += select_expand_time
-        self._last_backup_time += backup_time
-        self._last_nn_time = getattr(self, '_last_nn_time', 0) + nn_time
-        self._last_terminal_hits += terminal_hits
+        self._p['select_expand_time'] += select_expand_time
+        self._p['backup_time'] += backup_time
+        self._p['nn_time'] += nn_time
+        self._p['terminal_hits'] += terminal_hits
 
     def _batch_evaluate_nodes(self, nodes):
         """Batch neural network evaluation for a list of nodes."""
@@ -510,8 +470,8 @@ class BatchedSelfPlay:
         t_enc = time.time()
         if not hasattr(self.game, 'input_channels'):
             for node, inp in zip(nodes, state_inputs):
-                self._encoding_checks += 1
-                if self._encoding_checks % 50 != 0:
+                self._p['encoding_checks'] += 1
+                if self._p['encoding_checks'] % 50 != 0:
                     continue
                 player = node.state.player
                 num_hist = getattr(self.game, 'num_history_states', 2)
@@ -530,10 +490,10 @@ class BatchedSelfPlay:
                     errors.append(f"opp pieces: board={opp_pieces_board} enc={ch_c1}")
 
                 if errors:
-                    self._encoding_errors += 1
-                    if self._encoding_errors <= 5:
+                    self._p['encoding_errors'] += 1
+                    if self._p['encoding_errors'] <= 5:
                         print(f"  [ENCODING ERROR] {'; '.join(errors)}")
-        self._last_encoding_time += time.time() - t_enc
+        self._p['encoding_time'] += time.time() - t_enc
 
         values, policies, detail = self.net.batch_predict(state_inputs, detailed_timing=True)
 
@@ -542,24 +502,24 @@ class BatchedSelfPlay:
             node.resolve(value, policy)
         postprocess_time = time.time() - t0
 
-        self._last_preprocess_time += preprocess_time
-        self._last_transfer_time += detail["transfer_time"]
-        self._last_forward_time += detail["forward_time"]
-        self._last_result_time += detail["result_time"]
-        self._last_postprocess_time += postprocess_time
-        self._last_batch_count += 1
-        self._last_sample_count += len(nodes)
-        self._last_min_batch = min(self._last_min_batch, len(nodes))
-        self._last_max_batch = max(self._last_max_batch, len(nodes))
+        self._p['preprocess_time'] += preprocess_time
+        self._p['transfer_time'] += detail["transfer_time"]
+        self._p['forward_time'] += detail["forward_time"]
+        self._p['result_time'] += detail["result_time"]
+        self._p['postprocess_time'] += postprocess_time
+        self._p['batch_count'] += 1
+        self._p['sample_count'] += len(nodes)
+        self._p['min_batch'] = min(self._p['min_batch'], len(nodes))
+        self._p['max_batch'] = max(self._p['max_batch'], len(nodes))
         # Batch histogram: [1-4, 5-16, 17-32, 33-64, 65+]
         bs = len(nodes)
         if bs <= 4:
-            self._batch_histogram[0] += 1
+            self._p['batch_histogram'][0] += 1
         elif bs <= 16:
-            self._batch_histogram[1] += 1
+            self._p['batch_histogram'][1] += 1
         elif bs <= 32:
-            self._batch_histogram[2] += 1
+            self._p['batch_histogram'][2] += 1
         elif bs <= 64:
-            self._batch_histogram[3] += 1
+            self._p['batch_histogram'][3] += 1
         else:
-            self._batch_histogram[4] += 1
+            self._p['batch_histogram'][4] += 1

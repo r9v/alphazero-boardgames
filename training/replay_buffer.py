@@ -4,6 +4,9 @@ class ReplayBuffer:
         self.max_size = max_size
         self.to_insert_next = 0
 
+    def __len__(self):
+        return sum(1 for s in self.arr if s is not None)
+
     def insert(self, el):
         self.arr[self.to_insert_next] = el
         self.to_insert_next += 1
