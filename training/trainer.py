@@ -229,6 +229,7 @@ class Trainer:
             'ploss_decisive_sum': 0.0, 'ploss_ambiguous_sum': 0.0,
             'decisive_count': 0, 'ambiguous_count': 0,
             'swap_repr_trajectory': [],
+            'bn_gap_trajectory': [],
             'imm_win_vloss_sum': 0.0, 'imm_win_count': 0,
             'non_imm_win_vloss_sum': 0.0, 'non_imm_win_count': 0,
         }
@@ -377,6 +378,17 @@ class Trainer:
             for _fi, _fn in enumerate(_fe_names):
                 _fe_entry[_fn] = float(_fe_vals[_fi])
             acc['fixed_eval_trajectory'].append(_fe_entry)
+
+            # BN_GAP: train-mode vs eval-mode value predictions
+            # Forward in train mode uses batch stats (N=5 here, very small batch);
+            # the eval-mode values above use running stats. The gap reveals BN impact.
+            with torch.no_grad():
+                _fe_v_train, _ = self.net(_fe_inputs)
+                _fe_vals_train = wdl_to_scalar(_fe_v_train).cpu().numpy()
+            _bn_gap_entry = {'step': step}
+            for _fi, _fn in enumerate(_fe_names):
+                _bn_gap_entry[_fn] = float(_fe_vals_train[_fi] - _fe_vals[_fi])
+            acc['bn_gap_trajectory'].append(_bn_gap_entry)
 
             # Swap-representation cosine similarity
             _fe_swapped = getattr(self, '_fixed_eval_swapped', None)
@@ -567,6 +579,39 @@ class Trainer:
                     'total_drift': abs(traj[-1][name] - traj[0][name]),
                 }
 
+        # BN_DRIFT: running stats change rate between iterations
+        bn_drift = {}
+        try:
+            current_bn_stats = {}
+            for name, module in self.net.named_modules():
+                if isinstance(module, torch.nn.BatchNorm2d) and module.running_mean is not None:
+                    current_bn_stats[name] = {
+                        'mean': module.running_mean.detach().cpu().clone(),
+                        'var': module.running_var.detach().cpu().clone(),
+                    }
+            prev = getattr(self, '_prev_bn_stats', {})
+            if prev:
+                mean_drifts, var_drifts = [], []
+                for name, cur in current_bn_stats.items():
+                    if name in prev:
+                        m_delta = (cur['mean'] - prev[name]['mean']).norm().item()
+                        m_norm = cur['mean'].norm().item()
+                        v_delta = (cur['var'] - prev[name]['var']).norm().item()
+                        v_norm = cur['var'].norm().item()
+                        mean_drifts.append(m_delta / max(m_norm, 1e-10))
+                        var_drifts.append(v_delta / max(v_norm, 1e-10))
+                if mean_drifts:
+                    bn_drift = {
+                        'mean_rel': float(np.mean(mean_drifts)),
+                        'var_rel': float(np.mean(var_drifts)),
+                        'mean_max': float(np.max(mean_drifts)),
+                        'var_max': float(np.max(var_drifts)),
+                        'n_layers': len(mean_drifts),
+                    }
+            self._prev_bn_stats = current_bn_stats
+        except Exception as e:
+            print(f"  [DIAG-DBG] BN drift measurement failed: {e}")
+
         # ImmWin vloss aggregation
         imm_win_vloss = acc['imm_win_vloss_sum'] / max(acc['imm_win_count'], 1)
         non_imm_win_vloss = acc['non_imm_win_vloss_sum'] / max(acc['non_imm_win_count'], 1)
@@ -640,6 +685,8 @@ class Trainer:
             "pbias_post_x_pred": _post_x_pred, "pbias_post_o_pred": _post_o_pred,
             "pbias_post_x_acc": _post_x_acc, "pbias_post_o_acc": _post_o_acc,
             "swap_repr_trajectory": acc['swap_repr_trajectory'],
+            "bn_gap_trajectory": acc['bn_gap_trajectory'],
+            "bn_drift": bn_drift,
             "fe_sensitivity": fe_sensitivity,
             "grad_conflict": grad_conflict,
             "imm_win_vloss": imm_win_vloss,

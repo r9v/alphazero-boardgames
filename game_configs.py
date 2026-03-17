@@ -46,8 +46,8 @@ GAME_CONFIGS = {
 
         # --- Training ---
         "train_ratio": 4,
-        "value_loss_weight": 1.5,
-        "buffer_size": 25_000,
+        "value_loss_weight": 1.0,
+        "buffer_size": 100_000,
         "lr": 0.005,
         "batch_size": 256,
 

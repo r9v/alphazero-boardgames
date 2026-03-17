@@ -773,6 +773,34 @@ class TrainingLogger:
                     writer.add_scalar(f"fe_sens/{name}_total_drift", s['total_drift'], iteration)
                 print(f"  Diag[SENS]: {' | '.join(parts)}")
 
+            # BN train/eval gap on FixedEval positions
+            _bn_gap = t._train_diag.get('bn_gap_trajectory', [])
+            if _bn_gap:
+                _bg_names = [k for k in _bn_gap[0] if k != 'step']
+                _bg_last = _bn_gap[-1]
+                _bg_parts = []
+                for _pn in _bg_names:
+                    _bg_parts.append(f"{_pn}={_bg_last[_pn]:+.3f}")
+                    writer.add_scalar(f"bn_gap/{_pn}_last", _bg_last[_pn], iteration)
+                _bg_vals = [abs(_bg_last[k]) for k in _bg_names]
+                _bg_mean = np.mean(_bg_vals)
+                _bg_max = np.max(_bg_vals)
+                writer.add_scalar("bn_gap/mean_abs_last", _bg_mean, iteration)
+                writer.add_scalar("bn_gap/max_abs_last", _bg_max, iteration)
+                print(f"  Diag[BN_GAP]: {' '.join(_bg_parts)} | mean={_bg_mean:.3f} max={_bg_max:.3f}")
+
+            # BN running stats drift between iterations
+            _bn_drift = t._train_diag.get('bn_drift', {})
+            if _bn_drift:
+                writer.add_scalar("bn_drift/mean_rel", _bn_drift['mean_rel'], iteration)
+                writer.add_scalar("bn_drift/var_rel", _bn_drift['var_rel'], iteration)
+                writer.add_scalar("bn_drift/mean_max", _bn_drift['mean_max'], iteration)
+                writer.add_scalar("bn_drift/var_max", _bn_drift['var_max'], iteration)
+                print(f"  Diag[BN_DRIFT]: mean_drift={_bn_drift['mean_rel']:.4f} "
+                      f"var_drift={_bn_drift['var_rel']:.4f} "
+                      f"(max: m={_bn_drift['mean_max']:.4f} v={_bn_drift['var_max']:.4f}, "
+                      f"{_bn_drift['n_layers']} layers)")
+
     def eval_diagnostic_positions(self, iteration, prefix="", label="FixedEval"):
         """Evaluate the network on fixed diagnostic positions every iteration."""
         t = self._t
