@@ -428,6 +428,34 @@ class TrainingLogger:
         if vh:
             self._log_value_head_diagnostics(vh, d, iteration)
 
+        # Gradient conflict diagnostic
+        gc = d.get('grad_conflict', {})
+        if gc:
+            print(f"  Diag[GCONF]: x_vs_o grad cosine: "
+                  f"all={gc['cos_all']:+.3f} "
+                  f"backbone={gc['cos_backbone']:+.3f} "
+                  f"value_head={gc['cos_value_head']:+.3f} | "
+                  f"x_pred={gc['x_pred_scalar']:+.3f} "
+                  f"o_pred={gc['o_pred_scalar']:+.3f}")
+            writer.add_scalar("grad_conflict/cos_all", gc['cos_all'], iteration)
+            writer.add_scalar("grad_conflict/cos_backbone", gc['cos_backbone'], iteration)
+            writer.add_scalar("grad_conflict/cos_value_head", gc['cos_value_head'], iteration)
+            writer.add_scalar("grad_conflict/x_pred", gc['x_pred_scalar'], iteration)
+            writer.add_scalar("grad_conflict/o_pred", gc['o_pred_scalar'], iteration)
+
+        # ImmWin vloss split
+        imm_vloss = d.get('imm_win_vloss', 0)
+        non_imm_vloss = d.get('non_imm_win_vloss', 0)
+        imm_frac = d.get('imm_win_frac_train', 0)
+        if imm_vloss > 0 or non_imm_vloss > 0:
+            print(f"  Diag[IMM]: vloss imm_win={imm_vloss:.4f} "
+                  f"non_imm={non_imm_vloss:.4f} "
+                  f"ratio={imm_vloss / max(non_imm_vloss, 1e-8):.2f} "
+                  f"imm_frac={imm_frac:.1%}")
+            writer.add_scalar("diag/imm_win_vloss", imm_vloss, iteration)
+            writer.add_scalar("diag/non_imm_win_vloss", non_imm_vloss, iteration)
+            writer.add_scalar("diag/imm_win_frac_train", imm_frac, iteration)
+
     def _log_vh_tensorboard(self, vh, iteration):
         """Write all value head diagnostics to TensorBoard using data-driven tables."""
         writer = self.writer
@@ -719,6 +747,31 @@ class TrainingLogger:
                     print(f"  Diag[TRAJ]: {_pn}: {' -> '.join(_vals)}")
                     writer.add_scalar(f"traj/{_pn}_first", _traj[0][_pn], iteration)
                     writer.add_scalar(f"traj/{_pn}_last", _traj[-1][_pn], iteration)
+
+            # Swap-representation cosine similarity
+            _swap_repr = t._train_diag.get('swap_repr_trajectory', [])
+            if _swap_repr and len(_swap_repr) >= 1:
+                _sr_names = [k for k in _swap_repr[0] if k != 'step']
+                _sr_parts = []
+                for _pn in _sr_names:
+                    _sr_parts.append(f"{_pn}={_swap_repr[-1][_pn]:+.3f}")
+                    writer.add_scalar(f"swap_repr/{_pn}_cosine", _swap_repr[-1][_pn], iteration)
+                last = _swap_repr[-1]
+                mean_cos = np.mean([last[k] for k in _sr_names])
+                writer.add_scalar("swap_repr/mean_cosine", mean_cos, iteration)
+                print(f"  Diag[SWAP_REPR]: {' '.join(_sr_parts)} | mean={mean_cos:+.3f}")
+
+            # Value sensitivity
+            _fe_sens = t._train_diag.get('fe_sensitivity', {})
+            if _fe_sens:
+                parts = []
+                for name, s in _fe_sens.items():
+                    parts.append(f"{name}: d={s['mean_abs_delta']:.3f}/{s['max_abs_delta']:.3f} "
+                                 f"drift={s['total_drift']:.3f}")
+                    writer.add_scalar(f"fe_sens/{name}_avg_delta", s['mean_abs_delta'], iteration)
+                    writer.add_scalar(f"fe_sens/{name}_max_delta", s['max_abs_delta'], iteration)
+                    writer.add_scalar(f"fe_sens/{name}_total_drift", s['total_drift'], iteration)
+                print(f"  Diag[SENS]: {' | '.join(parts)}")
 
     def eval_diagnostic_positions(self, iteration, prefix="", label="FixedEval"):
         """Evaluate the network on fixed diagnostic positions every iteration."""

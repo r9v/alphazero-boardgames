@@ -764,3 +764,154 @@ def compute_svd_rank_diagnostics(net, vh_diag):
         net.train()
     except (RuntimeError, ValueError, torch.linalg.LinAlgError) as e:
         print(f"  [DIAG-DBG] SVD/rank diagnostic block failed: {e}")
+
+
+def compute_gradient_conflict_diagnostic(trainer):
+    """Measure gradient conflict between x_wins_next and o_wins_next FixedEval positions.
+
+    Two separate forward+backward passes, then cosine similarity of parameter gradients.
+    Does NOT update weights. Returns dict with cosine metrics, or empty dict on failure.
+    """
+    net = trainer.net
+    device = trainer.device
+    result = {}
+
+    fe_inputs = getattr(trainer, '_fixed_eval_inputs', None)
+    fe_names = getattr(trainer, '_fixed_eval_names', None)
+    if fe_inputs is None or fe_names is None:
+        return result
+
+    try:
+        idx_x = fe_names.index('x_wins_next')
+        idx_o = fe_names.index('o_wins_next')
+    except ValueError:
+        return result
+
+    try:
+        net.eval()
+        win_target = torch.LongTensor([0]).to(device)  # WDL class 0 = win
+
+        # Forward + backward for x_wins_next
+        trainer.optimizer.zero_grad()
+        x_pred, _ = net(fe_inputs[idx_x:idx_x + 1])
+        x_vloss = F.cross_entropy(x_pred, win_target)
+        x_vloss.backward()
+        x_grads = []
+        for p in net.parameters():
+            if p.grad is not None:
+                x_grads.append(p.grad.detach().clone().flatten())
+            else:
+                x_grads.append(torch.zeros(p.numel(), device=device))
+        x_grad_vec = torch.cat(x_grads)
+
+        # Forward + backward for o_wins_next
+        trainer.optimizer.zero_grad()
+        o_pred, _ = net(fe_inputs[idx_o:idx_o + 1])
+        o_vloss = F.cross_entropy(o_pred, win_target)
+        o_vloss.backward()
+        o_grads = []
+        for p in net.parameters():
+            if p.grad is not None:
+                o_grads.append(p.grad.detach().clone().flatten())
+            else:
+                o_grads.append(torch.zeros(p.numel(), device=device))
+        o_grad_vec = torch.cat(o_grads)
+
+        # Clean up
+        trainer.optimizer.zero_grad()
+        net.train()
+
+        # Full-parameter cosine similarity
+        cos_all = float(F.cosine_similarity(
+            x_grad_vec.unsqueeze(0), o_grad_vec.unsqueeze(0)).item())
+
+        # Per-component: backbone vs value head
+        backbone_x, backbone_o = [], []
+        value_x, value_o = [], []
+        gi = 0
+        for name, p in net.named_parameters():
+            n = p.numel()
+            xg = x_grad_vec[gi:gi + n]
+            og = o_grad_vec[gi:gi + n]
+            if name.startswith('value'):
+                value_x.append(xg)
+                value_o.append(og)
+            elif not name.startswith('policy'):
+                backbone_x.append(xg)
+                backbone_o.append(og)
+            gi += n
+
+        cos_backbone = 0.0
+        if backbone_x:
+            bx = torch.cat(backbone_x).unsqueeze(0)
+            bo = torch.cat(backbone_o).unsqueeze(0)
+            cos_backbone = float(F.cosine_similarity(bx, bo).item())
+
+        cos_value = 0.0
+        if value_x:
+            vx = torch.cat(value_x).unsqueeze(0)
+            vo = torch.cat(value_o).unsqueeze(0)
+            cos_value = float(F.cosine_similarity(vx, vo).item())
+
+        result = {
+            'cos_all': cos_all,
+            'cos_backbone': cos_backbone,
+            'cos_value_head': cos_value,
+            'x_pred_scalar': float(wdl_to_scalar(x_pred.detach()).item()),
+            'o_pred_scalar': float(wdl_to_scalar(o_pred.detach()).item()),
+        }
+    except (RuntimeError, ValueError, IndexError) as e:
+        print(f"  [DIAG-DBG] Gradient conflict diagnostic failed: {e}")
+        trainer.optimizer.zero_grad()
+        net.train()
+
+    return result
+
+
+def detect_immediate_wins(states):
+    """Detect which batch positions have an immediate winning move for current player.
+
+    Operates on the training batch tensor [B, C, H, W] (ch0=my pieces, ch1=opp pieces).
+    For each column, simulates placing a piece and checks for 4-in-a-row.
+
+    Returns:
+        torch.BoolTensor of shape [B], True if position has an immediate win.
+    """
+    B, C, H, W = states.shape
+    my_pieces = states[:, 0]       # [B, H, W]
+    opp_pieces = states[:, 1]      # [B, H, W]
+    occupied = my_pieces + opp_pieces
+
+    has_imm_win = torch.zeros(B, dtype=torch.bool, device=states.device)
+
+    for col in range(W):
+        col_occupied = occupied[:, :, col]          # [B, H]
+        n_occupied = col_occupied.sum(dim=1).long()  # [B]
+        valid = (n_occupied < H)
+        if not valid.any():
+            continue
+
+        # Simulate placing current player's piece at lowest free row
+        sim_my = my_pieces.clone()
+        rows = n_occupied.clamp(max=H - 1)
+        batch_idx = torch.arange(B, device=states.device)
+        sim_my[batch_idx[valid], rows[valid], col] = 1.0
+
+        # Check 4-in-a-row: horizontal, vertical, both diagonals
+        win = torch.zeros(B, dtype=torch.bool, device=states.device)
+        if W >= 4:  # horizontal
+            h = sim_my[:, :, :-3] * sim_my[:, :, 1:-2] * sim_my[:, :, 2:-1] * sim_my[:, :, 3:]
+            win = win | h.any(dim=2).any(dim=1)
+        if H >= 4:  # vertical
+            v = sim_my[:, :-3, :] * sim_my[:, 1:-2, :] * sim_my[:, 2:-1, :] * sim_my[:, 3:, :]
+            win = win | v.any(dim=2).any(dim=1)
+        if H >= 4 and W >= 4:  # diagonal ↘
+            d1 = sim_my[:, :-3, :-3] * sim_my[:, 1:-2, 1:-2] * sim_my[:, 2:-1, 2:-1] * sim_my[:, 3:, 3:]
+            win = win | d1.any(dim=2).any(dim=1)
+        if H >= 4 and W >= 4:  # diagonal ↗
+            d2 = sim_my[:, 3:, :-3] * sim_my[:, 2:-1, 1:-2] * sim_my[:, 1:-2, 2:-1] * sim_my[:, :-3, 3:]
+            win = win | d2.any(dim=2).any(dim=1)
+
+        has_imm_win = has_imm_win | (win & valid)
+
+    return has_imm_win

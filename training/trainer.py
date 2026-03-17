@@ -13,7 +13,8 @@ from training.diagnostics import (
     raw_value_to_wdl_class, compute_three_in_a_row, compute_buffer_diagnostics,
     compute_pre_training_diagnostics, compute_post_training_player_diagnostics,
     compute_value_head_diagnostics, compute_backbone_gradient_decomposition,
-    compute_svd_rank_diagnostics,
+    compute_svd_rank_diagnostics, compute_gradient_conflict_diagnostic,
+    detect_immediate_wins,
 )
 from training.training_logger import TrainingLogger
 from utils import wdl_to_scalar
@@ -229,6 +230,9 @@ class Trainer:
             'phase_counts': {'early': 0, 'mid': 0, 'late': 0},
             'ploss_decisive_sum': 0.0, 'ploss_ambiguous_sum': 0.0,
             'decisive_count': 0, 'ambiguous_count': 0,
+            'swap_repr_trajectory': [],
+            'imm_win_vloss_sum': 0.0, 'imm_win_count': 0,
+            'non_imm_win_vloss_sum': 0.0, 'non_imm_win_count': 0,
         }
 
         return {
@@ -282,6 +286,16 @@ class Trainer:
                     acc['o_target_sum'] += scalar_target[is_o].mean().item()
                     acc['o_pred_sum'] += _scalar_v[is_o].mean().item()
                     acc['o_count'] += 1
+
+                # ImmWin vloss split
+                imm_win_mask = detect_immediate_wins(states)
+                if imm_win_mask.any():
+                    acc['imm_win_vloss_sum'] += per_sample_vloss[imm_win_mask].mean().item()
+                    acc['imm_win_count'] += 1
+                non_imm = ~imm_win_mask
+                if non_imm.any():
+                    acc['non_imm_win_vloss_sum'] += per_sample_vloss[non_imm].mean().item()
+                    acc['non_imm_win_count'] += 1
 
                 # (#6) Value loss by game phase
                 total_pieces = my_counts + opp_counts
@@ -365,6 +379,19 @@ class Trainer:
             for _fi, _fn in enumerate(_fe_names):
                 _fe_entry[_fn] = float(_fe_vals[_fi])
             acc['fixed_eval_trajectory'].append(_fe_entry)
+
+            # Swap-representation cosine similarity
+            _fe_swapped = getattr(self, '_fixed_eval_swapped', None)
+            if _fe_swapped is not None:
+                with torch.no_grad():
+                    _bb_orig = self.net.backbone_forward(_fe_inputs).flatten(1)
+                    _bb_swap = self.net.backbone_forward(_fe_swapped).flatten(1)
+                    _swap_cos = F.cosine_similarity(_bb_orig, _bb_swap, dim=1)
+                self.net.train()
+                _swap_repr_entry = {'step': step}
+                for _fi, _fn in enumerate(_fe_names):
+                    _swap_repr_entry[_fn] = float(_swap_cos[_fi])
+                acc['swap_repr_trajectory'].append(_swap_repr_entry)
 
         # Track early vs late loss
         if step < early_cutoff:
@@ -526,6 +553,26 @@ class Trainer:
         compute_backbone_gradient_decomposition(self, samples, vh_diag)
         compute_svd_rank_diagnostics(self.net, vh_diag)
 
+        # Gradient conflict: x_wins_next vs o_wins_next
+        grad_conflict = compute_gradient_conflict_diagnostic(self)
+
+        # Value sensitivity from TRAJ data
+        fe_sensitivity = {}
+        traj = acc['fixed_eval_trajectory']
+        if len(traj) >= 2:
+            names = [k for k in traj[0] if k != 'step']
+            for name in names:
+                deltas = [abs(traj[i][name] - traj[i - 1][name]) for i in range(1, len(traj))]
+                fe_sensitivity[name] = {
+                    'mean_abs_delta': float(np.mean(deltas)),
+                    'max_abs_delta': float(np.max(deltas)),
+                    'total_drift': abs(traj[-1][name] - traj[0][name]),
+                }
+
+        # ImmWin vloss aggregation
+        imm_win_vloss = acc['imm_win_vloss_sum'] / max(acc['imm_win_count'], 1)
+        non_imm_win_vloss = acc['non_imm_win_vloss_sum'] / max(acc['non_imm_win_count'], 1)
+
         # Post-training per-player diagnostics
         pbias_data = setup['pbias_data']
         _post_x_pred, _post_o_pred, _post_x_acc, _post_o_acc = \
@@ -594,6 +641,12 @@ class Trainer:
             "pbias_pre_o_acc": pbias_data['pre_o_acc'] if pbias_data else 0.0,
             "pbias_post_x_pred": _post_x_pred, "pbias_post_o_pred": _post_o_pred,
             "pbias_post_x_acc": _post_x_acc, "pbias_post_o_acc": _post_o_acc,
+            "swap_repr_trajectory": acc['swap_repr_trajectory'],
+            "fe_sensitivity": fe_sensitivity,
+            "grad_conflict": grad_conflict,
+            "imm_win_vloss": imm_win_vloss,
+            "non_imm_win_vloss": non_imm_win_vloss,
+            "imm_win_frac_train": acc['imm_win_count'] / max(acc['imm_win_count'] + acc['non_imm_win_count'], 1),
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -707,6 +760,16 @@ class Trainer:
             _dp = locals().get('_diag_positions')
             self._fixed_eval_inputs = locals().get('_diag_inputs') if _dp else None
             self._fixed_eval_names = [p[0] for p in _dp] if _dp else None
+            # Build color-swapped FixedEval inputs for swap_repr cosine diagnostic
+            if self._fixed_eval_inputs is not None:
+                _fe_sw = self._fixed_eval_inputs.clone()
+                _fe_sw[:, 0] = self._fixed_eval_inputs[:, 1]
+                _fe_sw[:, 1] = self._fixed_eval_inputs[:, 0]
+                if self._fixed_eval_inputs.shape[1] > 2:
+                    _fe_sw[:, 2] = -self._fixed_eval_inputs[:, 2]
+                self._fixed_eval_swapped = _fe_sw
+            else:
+                self._fixed_eval_swapped = None
 
             # Train
             t0 = time.time()
