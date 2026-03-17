@@ -436,6 +436,28 @@ class TrainingLogger:
             writer.add_scalar("grad_conflict/x_pred", gc['x_pred_scalar'], iteration)
             writer.add_scalar("grad_conflict/o_pred", gc['o_pred_scalar'], iteration)
 
+        # Focal loss diagnostic
+        focal_gamma = d.get('focal_gamma', 0)
+        focal_weight = d.get('focal_weight')
+        if focal_gamma > 0 and focal_weight is not None:
+            unfocal_vloss = d.get('unfocal_vloss')
+            focal_vloss = d.get('avg_value_loss', 0)
+            reduction = (1 - focal_vloss / max(unfocal_vloss, 1e-8)) if unfocal_vloss else 0
+            fw_by = d.get('focal_w_by_outcome') or {}
+            fw_parts = " ".join(f"{k}={v:.3f}" for k, v in fw_by.items() if v > 0)
+            print(f"  Diag[FOCAL]: gamma={focal_gamma:.1f} "
+                  f"mean_weight={focal_weight:.4f} "
+                  f"CE={unfocal_vloss:.4f}->focal={focal_vloss:.4f} "
+                  f"(reduction={reduction:.1%})"
+                  + (f"  by_outcome: {fw_parts}" if fw_parts else ""))
+            writer.add_scalar("diag/focal_weight", focal_weight, iteration)
+            if unfocal_vloss:
+                writer.add_scalar("diag/unfocal_vloss", unfocal_vloss, iteration)
+                writer.add_scalar("diag/focal_reduction", reduction, iteration)
+            for k, v in fw_by.items():
+                if v > 0:
+                    writer.add_scalar(f"diag/focal_w_{k}", v, iteration)
+
         # ImmWin vloss split
         imm_vloss = d.get('imm_win_vloss', 0)
         non_imm_vloss = d.get('non_imm_win_vloss', 0)

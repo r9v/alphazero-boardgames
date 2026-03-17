@@ -47,6 +47,7 @@ GAME_CONFIGS = {
         # --- Training ---
         "train_ratio": 8,
         "value_loss_weight": 1.0,
+        "focal_gamma": 2.0,
         "buffer_size": 100_000,
         "lr": 0.005,
         "batch_size": 256,

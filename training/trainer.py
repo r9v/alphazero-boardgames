@@ -20,6 +20,22 @@ from training.training_logger import TrainingLogger
 from utils import wdl_to_scalar
 
 
+def focal_cross_entropy(logits, targets, gamma=2.0, reduction='mean'):
+    """Focal loss for multi-class classification (Lin et al., 2017).
+
+    Down-weights easy examples where the model is already confident and correct.
+    With gamma=0, equivalent to standard cross-entropy.
+    Returns (loss, mean_focal_weight) when reduction='mean'.
+    """
+    ce_loss = F.cross_entropy(logits, targets, reduction='none')
+    p_t = torch.exp(-ce_loss)  # probability of the true class
+    focal_weight = (1 - p_t) ** gamma
+    focal_loss = focal_weight * ce_loss
+    if reduction == 'mean':
+        return focal_loss.mean(), focal_weight.mean().item()
+    return focal_loss, focal_weight.mean().item()
+
+
 class Trainer:
     def __init__(self, game, net, config=None):
         self.game = game
@@ -58,6 +74,7 @@ class Trainer:
         ], lr=self.lr, momentum=0.9)
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
+        self.focal_gamma = self.config.get("focal_gamma", 0.0)  # 0 = standard CE
 
         # Precompute parameter groups for gradient norm diagnostics (step%100)
         self._value_params = [p for n, p in net.named_parameters() if "value" in n]
@@ -135,7 +152,15 @@ class Trainer:
                 pred_all, pi_all = self.net(combined)
 
                 # Value loss: average over original + swapped
-                value_loss = F.cross_entropy(pred_all, combined_targets)
+                if self.focal_gamma > 0:
+                    value_loss, focal_w = focal_cross_entropy(
+                        pred_all, combined_targets, gamma=self.focal_gamma)
+                    acc['focal_weight_sum'] += focal_w
+                    with torch.no_grad():
+                        acc['unfocal_vloss_sum'] += F.cross_entropy(
+                            pred_all, combined_targets).item()
+                else:
+                    value_loss = F.cross_entropy(pred_all, combined_targets)
                 # Extract original-only predictions for policy + diagnostics
                 pred_vs = pred_all[:B]
                 pred_pi_logits = pi_all[:B]
@@ -232,6 +257,10 @@ class Trainer:
             'gn_group_var_trajectory': [],
             'imm_win_vloss_sum': 0.0, 'imm_win_count': 0,
             'non_imm_win_vloss_sum': 0.0, 'non_imm_win_count': 0,
+            'focal_weight_sum': 0.0,
+            'unfocal_vloss_sum': 0.0,  # standard CE for comparison with focal
+            'focal_w_by_outcome': {'win': 0.0, 'draw': 0.0, 'loss': 0.0},
+            'focal_n_by_outcome': {'win': 0, 'draw': 0, 'loss': 0},
         }
 
         return {
@@ -295,6 +324,16 @@ class Trainer:
                 if non_imm.any():
                     acc['non_imm_win_vloss_sum'] += per_sample_vloss[non_imm].mean().item()
                     acc['non_imm_win_count'] += 1
+
+                # Per-outcome focal weight split (win/draw/loss)
+                if self.focal_gamma > 0:
+                    p_t = torch.exp(-per_sample_vloss)
+                    fw = (1 - p_t) ** self.focal_gamma
+                    for cls, name in [(0, 'win'), (1, 'draw'), (2, 'loss')]:
+                        mask = (target_vs == cls)
+                        if mask.any():
+                            acc['focal_w_by_outcome'][name] += fw[mask].mean().item()
+                            acc['focal_n_by_outcome'][name] += 1
 
                 # (#6) Value loss by game phase
                 total_pieces = my_counts + opp_counts
@@ -672,6 +711,7 @@ class Trainer:
             "num_batches": num_batches,
         }
         self._train_diag = {
+            "avg_value_loss": avg_value_loss,
             "val_target_mean": buf_diag['val_mean'],
             "val_target_std": buf_diag['val_std'],
             "frac_pos": buf_diag['frac_pos'],
@@ -732,6 +772,13 @@ class Trainer:
             "imm_win_vloss": imm_win_vloss,
             "non_imm_win_vloss": non_imm_win_vloss,
             "imm_win_frac_train": acc['imm_win_count'] / max(acc['imm_win_count'] + acc['non_imm_win_count'], 1),
+            "focal_gamma": self.focal_gamma,
+            "focal_weight": acc['focal_weight_sum'] / max(num_batches, 1) if self.focal_gamma > 0 else None,
+            "unfocal_vloss": acc['unfocal_vloss_sum'] / max(num_batches, 1) if self.focal_gamma > 0 else None,
+            "focal_w_by_outcome": {
+                k: acc['focal_w_by_outcome'][k] / max(acc['focal_n_by_outcome'][k], 1)
+                for k in ('win', 'draw', 'loss')
+            } if self.focal_gamma > 0 else None,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
