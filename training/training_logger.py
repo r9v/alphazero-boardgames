@@ -747,19 +747,32 @@ class TrainingLogger:
                       f"ch0(me)={'/'.join(ch0_rows)} "
                       f"ch1(opp)={'/'.join(ch1_rows)}")
 
+        # Build all 15 inputs (original + swapped + mirrored) for a single
+        # batched forward pass instead of 15 individual predict() calls.
+        originals = []
+        swapped = []
+        mirrored = []
+        for _, state_input, _ in positions:
+            originals.append(state_input)
+            sw = state_input.copy()
+            sw[0], sw[1] = state_input[1].copy(), state_input[0].copy()
+            swapped.append(sw)
+            mi = state_input.copy()
+            mi[0], mi[1] = state_input[1].copy(), state_input[0].copy()
+            mi[2] = -state_input[2]
+            mirrored.append(mi)
+
+        all_inputs = originals + swapped + mirrored
+        all_values, all_policies = t.net.batch_predict(all_inputs)
+
+        n = len(positions)
         print(f"  {label}:")
-        for name, state_input, expected_str in positions:
-            value, policy = t.net.predict(state_input)
+        for i, (name, state_input, expected_str) in enumerate(positions):
+            value = all_values[i]
+            policy = all_policies[i]
             top_action = np.argmax(policy)
-            swapped_input = state_input.copy()
-            swapped_input[0], swapped_input[1] = state_input[1].copy(), state_input[0].copy()
-            swap_value, _ = t.net.predict(swapped_input)
-            swap_delta = value - swap_value
-            mirror_input = state_input.copy()
-            mirror_input[0], mirror_input[1] = state_input[1].copy(), state_input[0].copy()
-            mirror_input[2] = -state_input[2]
-            mirror_value, _ = t.net.predict(mirror_input)
-            sym_err = value + mirror_value
+            swap_delta = value - all_values[n + i]
+            sym_err = value + all_values[2 * n + i]
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_value", value, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_top_action", top_action, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_swap_delta", swap_delta, iteration)

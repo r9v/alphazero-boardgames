@@ -457,12 +457,19 @@ class BatchedSelfPlay:
         # Only applies to games using the default history-based encoding
         # (2 channels per history step). Games with custom input_channels
         # (e.g. Santorini) use a different layout and skip this check.
+        # Uses arithmetic to find the check index within this batch,
+        # avoiding a Python loop over all nodes.
         t_enc = time.time()
         if not hasattr(self.game, 'input_channels'):
-            for node, inp in zip(nodes, state_inputs):
-                self._p['encoding_checks'] += 1
-                if self._p['encoding_checks'] % 50 != 0:
-                    continue
+            prev = self._p['encoding_checks']
+            batch_len = len(nodes)
+            self._p['encoding_checks'] += batch_len
+            # Find the first check index: next multiple of 50 after prev
+            next_check = ((prev // 50) + 1) * 50
+            while next_check < prev + batch_len:
+                idx = next_check - prev  # index within this batch
+                node = nodes[idx]
+                inp = state_inputs[idx]
                 player = node.state.player
                 num_hist = getattr(self.game, 'num_history_states', 2)
                 c = 2 * num_hist  # channel offset for current board
@@ -483,6 +490,7 @@ class BatchedSelfPlay:
                     self._p['encoding_errors'] += 1
                     if self._p['encoding_errors'] <= 5:
                         print(f"  [ENCODING ERROR] {'; '.join(errors)}")
+                next_check += 50
         self._p['encoding_time'] += time.time() - t_enc
 
         values, policies, detail = self.net.batch_predict(state_inputs, detailed_timing=True)

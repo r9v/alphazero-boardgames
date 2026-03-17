@@ -57,6 +57,10 @@ class Trainer:
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
 
+        # Precompute parameter groups for gradient norm diagnostics (step%100)
+        self._value_params = [p for n, p in net.named_parameters() if "value" in n]
+        self._policy_params = [p for n, p in net.named_parameters() if "policy" in n]
+
         # Mixed precision training: FP16 forward/loss, FP32 gradients
         self.use_amp = (self.device == "cuda")
         self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp)
@@ -227,6 +231,16 @@ class Trainer:
         early_cutoff = cfg['early_cutoff']
         late_start = cfg['late_start']
 
+        # Cache wdl_to_scalar: compute once per step, reuse across all blocks
+        _scalar_v = None
+        _scalar_v_np = None
+        needs_scalar = (step % 10 == 0) or (step % 50 == 0) or (step % 100 == 0) or (step >= late_start)
+        if needs_scalar:
+            with torch.no_grad():
+                _scalar_v = wdl_to_scalar(pred_vs.detach())
+            if step >= late_start:
+                _scalar_v_np = _scalar_v.cpu().numpy()
+
         # (A) Per-player loss breakdown every 10 steps
         if step % 10 == 0:
             with torch.no_grad():
@@ -236,17 +250,16 @@ class Trainer:
                 is_o = ~is_x
 
                 per_sample_vloss = F.cross_entropy(pred_vs, target_vs, reduction='none')
-                scalar_v = wdl_to_scalar(pred_vs)
                 scalar_target = (1 - target_vs.float())
                 if is_x.any():
                     acc['x_vloss_sum'] += per_sample_vloss[is_x].mean().item()
                     acc['x_target_sum'] += scalar_target[is_x].mean().item()
-                    acc['x_pred_sum'] += scalar_v[is_x].mean().item()
+                    acc['x_pred_sum'] += _scalar_v[is_x].mean().item()
                     acc['x_count'] += 1
                 if is_o.any():
                     acc['o_vloss_sum'] += per_sample_vloss[is_o].mean().item()
                     acc['o_target_sum'] += scalar_target[is_o].mean().item()
-                    acc['o_pred_sum'] += scalar_v[is_o].mean().item()
+                    acc['o_pred_sum'] += _scalar_v[is_o].mean().item()
                     acc['o_count'] += 1
 
                 # (#6) Value loss by game phase
@@ -262,9 +275,8 @@ class Trainer:
             with torch.no_grad():
                 acc['grad_correct_count'] += 1
                 acc['grad_total_count'] += 1
-                sv = wdl_to_scalar(pred_vs)
                 st = 1 - target_vs.float()
-                error_scalar = sv - st
+                error_scalar = _scalar_v - st
                 fc1_grad = self.net.value_fc1.weight.grad
                 fc2_grad = self.net.value_fc2.weight.grad
                 if fc1_grad is not None and fc2_grad is not None:
@@ -280,7 +292,7 @@ class Trainer:
                         'fc2_grad_mean': fc2_grad.mean().item(),
                         'fc2_grad_std': fc2_grad.std().item(),
                         'fc2_grad_norm': fc2_grad.norm().item(),
-                        'pred_mean': sv.mean().item(),
+                        'pred_mean': _scalar_v.mean().item(),
                         'target_mean': st.mean().item(),
                         'error_mean': error_scalar.mean().item(),
                         'fc1_per_neuron_gnorm': fc1_per_neuron_gnorm,
@@ -288,19 +300,14 @@ class Trainer:
                         'vbn_gamma_grad_norm': vbn_g.norm().item() if vbn_g is not None else 0.0,
                     })
 
-        # Sample gradient norms every 100 steps
+        # Sample gradient norms every 100 steps (uses precomputed param groups)
         if step % 100 == 0:
-            v_norm = 0.0
-            p_norm = 0.0
-            for name, param in self.net.named_parameters():
-                if param.grad is not None:
-                    g = param.grad.norm().item()
-                    if "value" in name:
-                        v_norm += g ** 2
-                    elif "policy" in name:
-                        p_norm += g ** 2
-            acc['value_grad_norms'].append(v_norm ** 0.5)
-            acc['policy_grad_norms'].append(p_norm ** 0.5)
+            v_norm = sum(p.grad.norm().item() ** 2
+                         for p in self._value_params if p.grad is not None) ** 0.5
+            p_norm = sum(p.grad.norm().item() ** 2
+                         for p in self._policy_params if p.grad is not None) ** 0.5
+            acc['value_grad_norms'].append(v_norm)
+            acc['policy_grad_norms'].append(p_norm)
 
             # (RB) Per-residual-block gradient norms
             for i, block in enumerate(self.net.res_blocks):
@@ -316,18 +323,14 @@ class Trainer:
                     acc['all_rb_grad_norms'].setdefault(f'{i}_eff_lr', []).append(c2_eff_lr)
 
             # Sub-iteration logging
-            with torch.no_grad():
-                _sv_sub = wdl_to_scalar(pred_vs.detach())
-                _mean_conf = _sv_sub.abs().mean().item()
-                _mean_v = _sv_sub.mean().item()
             acc['sub_iter_log'].append({
                 'step': step,
                 'vloss': value_loss.item(),
                 'ploss': policy_loss.item(),
                 'v_grad': acc['value_grad_norms'][-1] if acc['value_grad_norms'] else 0,
                 'p_grad': acc['policy_grad_norms'][-1] if acc['policy_grad_norms'] else 0,
-                'mean_conf': _mean_conf,
-                'mean_v': _mean_v,
+                'mean_conf': _scalar_v.abs().mean().item(),
+                'mean_v': _scalar_v.mean().item(),
             })
 
         # Intra-iteration value trajectory on FixedEval positions
@@ -354,12 +357,10 @@ class Trainer:
 
         # Sample predictions from last 10% of steps for distribution analysis
         if step >= late_start:
-            with torch.no_grad():
-                scalar_v_late = wdl_to_scalar(pred_vs.detach()).cpu().numpy()
-            acc['all_pred_vs'].append(scalar_v_late)
+            acc['all_pred_vs'].append(_scalar_v_np)
 
             # Value confidence distribution buckets
-            _abs_v = np.abs(scalar_v_late)
+            _abs_v = np.abs(_scalar_v_np)
             acc['conf_total'] += len(_abs_v)
             acc['conf_buckets']['very_low'] += int((_abs_v < 0.1).sum())
             acc['conf_buckets']['low'] += int(((_abs_v >= 0.1) & (_abs_v < 0.3)).sum())
@@ -384,13 +385,12 @@ class Trainer:
 
                 acc['policy_acc_count'] += pred_pis.shape[0]
 
-                # (C) Value confidence calibration
-                sv_conf = wdl_to_scalar(pred_vs.detach())
+                # (C) Value confidence calibration (reuse cached _scalar_v)
                 scalar_tgt = 1 - target_vs.float()
-                confident_mask = sv_conf.abs() > 0.5
+                confident_mask = _scalar_v.abs() > 0.5
                 if confident_mask.any():
                     confident_signs_correct = (
-                        sv_conf[confident_mask].sign() == scalar_tgt[confident_mask].sign()
+                        _scalar_v[confident_mask].sign() == scalar_tgt[confident_mask].sign()
                     ).float()
                     acc['confident_correct_sum'] += confident_signs_correct.sum().item()
                     acc['confident_total'] += confident_mask.sum().item()
@@ -685,16 +685,9 @@ class Trainer:
                 print(f"  [DIAG-DBG] Pre-training snapshot failed: {e}")
 
             # (2) Store FixedEval inputs for intra-iteration trajectory
-            self._fixed_eval_inputs = None
-            self._fixed_eval_names = None
-            try:
-                if _diag_positions:
-                    self._fixed_eval_inputs = torch.FloatTensor(
-                        np.array([p[1] for p in _diag_positions])
-                    ).to(self.device)
-                    self._fixed_eval_names = [p[0] for p in _diag_positions]
-            except (RuntimeError, ValueError, IndexError) as e:
-                print(f"  [DIAG-DBG] Fixed eval inputs setup failed: {e}")
+            # Reuse _diag_inputs already built above (identical tensor)
+            self._fixed_eval_inputs = _diag_inputs if _diag_positions else None
+            self._fixed_eval_names = [p[0] for p in _diag_positions] if _diag_positions else None
 
             # Train
             t0 = time.time()
