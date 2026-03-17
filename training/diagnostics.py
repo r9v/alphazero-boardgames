@@ -10,6 +10,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from utils import wdl_to_scalar
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,39 +103,17 @@ def compute_buffer_diagnostics(samples, all_values):
     except (IndexError, ValueError) as e:
         logger.debug("Per-player target bias failed: %s", e)
 
-    # 3-in-a-row target bias
+    # 3-in-a-row target bias (sign_split=True gives ch0 sign distribution)
     diag['three_r_diag'] = {}
     try:
         all_inputs = np.array([s[0] for s in samples])
-        diag['three_r_diag'] = compute_three_in_a_row(all_inputs, all_values)
-        # Sign distribution + board dump for ch0 3-in-a-row
-        ch0_data = all_inputs[:, 0]
-        h3 = ch0_data[:, :, :-2] * ch0_data[:, :, 1:-1] * ch0_data[:, :, 2:]
-        v3 = ch0_data[:, :-2, :] * ch0_data[:, 1:-1, :] * ch0_data[:, 2:, :]
-        ch0_mask = h3.any(axis=(1, 2)) | v3.any(axis=(1, 2))
-        if ch0_mask.any():
-            _tgts = all_values[ch0_mask]
-            _n_pos = int((_tgts > 0).sum())
-            _n_neg = int((_tgts < 0).sum())
-            _n_zero = int((_tgts == 0).sum())
-            print(f"  Diag[SIGN]: ch0_3row: +:{_n_pos} -:{_n_neg} 0:{_n_zero} "
-                  f"(n={len(_tgts)}, mean={_tgts.mean():+.4f})")
-            _idx = np.where(ch0_mask)[0]
-            _pos_i = _idx[_tgts > 0][:1] if _n_pos > 0 else np.array([], dtype=int)
-            _neg_i = _idx[_tgts < 0][:1] if _n_neg > 0 else np.array([], dtype=int)
-            _mid_i = _idx[len(_idx)//2:len(_idx)//2+1]
-            _dump = list(dict.fromkeys(
-                [int(x) for x in np.concatenate([_pos_i, _neg_i, _mid_i])]))[:3]
-            for _di in _dump:
-                _inp = all_inputs[_di]
-                _t = all_values[_di]
-                _rows = []
-                for _r in range(_inp.shape[1]):
-                    _row = ""
-                    for _c in range(_inp.shape[2]):
-                        _row += "M" if _inp[0, _r, _c] > 0 else ("O" if _inp[1, _r, _c] > 0 else ".")
-                    _rows.append(_row)
-                print(f"    [{_di}] t={_t:+.1f} {'/'.join(_rows)}")
+        three_r = compute_three_in_a_row(all_inputs, all_values, sign_split=True)
+        diag['three_r_diag'] = three_r
+        sign_split = three_r.get('sign_split')
+        if sign_split:
+            print(f"  Diag[SIGN]: ch0_3row: +:{sign_split['pos']} -:{sign_split['neg']} "
+                  f"0:{sign_split['zero']} (n={sign_split['n']}, "
+                  f"mean={three_r['mine']['mean_target']:+.4f})")
     except (IndexError, ValueError) as e:
         logger.debug("3-in-a-row diagnostic failed: %s", e)
 
@@ -143,23 +123,12 @@ def compute_buffer_diagnostics(samples, all_values):
 def compute_pre_training_diagnostics(net, samples, device):
     """Measure pre-training value loss and per-player predictions.
 
+    Single forward pass computes both value loss and per-player bias.
+
     Returns:
         (pre_train_vloss, pbias_data) tuple.
     """
     pre_train_vloss = None
-    try:
-        net.eval()
-        with torch.no_grad():
-            batch = random.choices(samples, k=min(512, len(samples)))
-            states = torch.FloatTensor(np.array([s[0] for s in batch])).to(device)
-            raw_v = np.array([s[2] for s in batch])
-            targets_v = torch.LongTensor(raw_value_to_wdl_class(raw_v)).to(device)
-            pred_v, _ = net(states)
-            pre_train_vloss = float(F.cross_entropy(pred_v, targets_v).item())
-        net.train()
-    except (RuntimeError, ValueError) as e:
-        logger.debug("Pre-training value loss failed: %s", e)
-
     pbias_data = None
     try:
         net.eval()
@@ -167,10 +136,16 @@ def compute_pre_training_diagnostics(net, samples, device):
             batch = random.choices(samples, k=min(512, len(samples)))
             states = torch.FloatTensor(np.array([s[0] for s in batch])).to(device)
             targets = np.array([s[2] for s in batch])
+            targets_v = torch.LongTensor(raw_value_to_wdl_class(targets)).to(device)
             players = np.array([s[0][2, 0, 0] for s in batch])
-            v, _ = net(states)
-            wdl = F.softmax(v, dim=1)
-            v_scalar = (wdl[:, 0] - wdl[:, 2]).cpu().numpy()
+
+            pred_v, _ = net(states)
+
+            # Value loss
+            pre_train_vloss = float(F.cross_entropy(pred_v, targets_v).item())
+
+            # Per-player bias
+            v_scalar = wdl_to_scalar(pred_v).cpu().numpy()
             is_x = players < 0
             is_o = players > 0
             pbias_data = {
@@ -183,7 +158,7 @@ def compute_pre_training_diagnostics(net, samples, device):
             }
         net.train()
     except (RuntimeError, ValueError) as e:
-        logger.debug("Pre-training player bias failed: %s", e)
+        logger.debug("Pre-training diagnostics failed: %s", e)
 
     return pre_train_vloss, pbias_data
 
@@ -204,8 +179,7 @@ def compute_post_training_player_diagnostics(net, pbias_data, device):
                     np.array([s[0] for s in pbias_data['batch']])
                 ).to(device)
                 v, _ = net(states)
-                wdl = F.softmax(v, dim=1)
-                v_scalar = (wdl[:, 0] - wdl[:, 2]).cpu().numpy()
+                v_scalar = wdl_to_scalar(v).cpu().numpy()
                 targets = pbias_data['targets']
                 is_x = pbias_data['is_x']
                 is_o = pbias_data['is_o']
@@ -298,7 +272,7 @@ def compute_value_head_diagnostics(trainer, samples, grad_stats_summary):
         fc2_in_np = captured['fc2_in'].cpu().numpy()
         wdl_logits_np = captured['wdl_logits'].cpu().numpy()
         wdl_probs_diag = F.softmax(captured['wdl_logits'], dim=1).cpu().numpy()
-        scalar_v_diag = wdl_probs_diag[:, 0] - wdl_probs_diag[:, 2]
+        scalar_v_diag = wdl_probs_diag[:, 0] - wdl_probs_diag[:, 2]  # numpy, already probs
         fc1_in_np = captured['fc1_in'].cpu().numpy()
 
         wdl_entropy_per_sample = -(wdl_probs_diag * np.log(wdl_probs_diag + 1e-8)).sum(axis=1)

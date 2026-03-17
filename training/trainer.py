@@ -16,6 +16,7 @@ from training.diagnostics import (
     compute_svd_rank_diagnostics,
 )
 from training.training_logger import TrainingLogger
+from utils import wdl_to_scalar
 
 
 class Trainer:
@@ -235,8 +236,7 @@ class Trainer:
                 is_o = ~is_x
 
                 per_sample_vloss = F.cross_entropy(pred_vs, target_vs, reduction='none')
-                wdl_probs = F.softmax(pred_vs, dim=1)
-                scalar_v = wdl_probs[:, 0] - wdl_probs[:, 2]
+                scalar_v = wdl_to_scalar(pred_vs)
                 scalar_target = (1 - target_vs.float())
                 if is_x.any():
                     acc['x_vloss_sum'] += per_sample_vloss[is_x].mean().item()
@@ -262,8 +262,7 @@ class Trainer:
             with torch.no_grad():
                 acc['grad_correct_count'] += 1
                 acc['grad_total_count'] += 1
-                wdl_p = F.softmax(pred_vs, dim=1)
-                sv = wdl_p[:, 0] - wdl_p[:, 2]
+                sv = wdl_to_scalar(pred_vs)
                 st = 1 - target_vs.float()
                 error_scalar = sv - st
                 fc1_grad = self.net.value_fc1.weight.grad
@@ -318,8 +317,7 @@ class Trainer:
 
             # Sub-iteration logging
             with torch.no_grad():
-                _wdl_sub = F.softmax(pred_vs.detach(), dim=1)
-                _sv_sub = (_wdl_sub[:, 0] - _wdl_sub[:, 2])
+                _sv_sub = wdl_to_scalar(pred_vs.detach())
                 _mean_conf = _sv_sub.abs().mean().item()
                 _mean_v = _sv_sub.mean().item()
             acc['sub_iter_log'].append({
@@ -339,8 +337,7 @@ class Trainer:
             self.net.eval()
             with torch.no_grad():
                 _fe_v, _fe_p = self.net(_fe_inputs)
-                _fe_probs = F.softmax(_fe_v, dim=1)
-                _fe_vals = (_fe_probs[:, 0] - _fe_probs[:, 2]).cpu().numpy()
+                _fe_vals = wdl_to_scalar(_fe_v).cpu().numpy()
             self.net.train()
             _fe_entry = {'step': step}
             for _fi, _fn in enumerate(_fe_names):
@@ -358,8 +355,7 @@ class Trainer:
         # Sample predictions from last 10% of steps for distribution analysis
         if step >= late_start:
             with torch.no_grad():
-                wdl_p_late = F.softmax(pred_vs.detach(), dim=1)
-                scalar_v_late = (wdl_p_late[:, 0] - wdl_p_late[:, 2]).cpu().numpy()
+                scalar_v_late = wdl_to_scalar(pred_vs.detach()).cpu().numpy()
             acc['all_pred_vs'].append(scalar_v_late)
 
             # Value confidence distribution buckets
@@ -389,7 +385,7 @@ class Trainer:
                 acc['policy_acc_count'] += pred_pis.shape[0]
 
                 # (C) Value confidence calibration
-                sv_conf = wdl_p_late[:, 0] - wdl_p_late[:, 2]
+                sv_conf = wdl_to_scalar(pred_vs.detach())
                 scalar_tgt = 1 - target_vs.float()
                 confident_mask = sv_conf.abs() > 0.5
                 if confident_mask.any():

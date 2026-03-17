@@ -1,9 +1,9 @@
 import argparse
 import numpy as np
 
-from network import AlphaZeroNet
 from game_configs import GAME_CONFIGS
 from mcts import MCTS
+from utils import load_game, make_net, log_backends
 
 
 def print_board(board, game_name):
@@ -48,8 +48,6 @@ def main():
     args = parser.parse_args()
 
     net_cfg = GAME_CONFIGS.get(args.game, {})
-    filters = net_cfg.get("num_filters", 256)
-    res_blocks = net_cfg.get("num_res_blocks", 2)
 
     # Resolve play-time config from game config
     play_sims = args.simulations or net_cfg.get("play_simulations", 100)
@@ -60,27 +58,15 @@ def main():
         from games.santorini.gui import GUI
         ai_player = 1 if args.human_first else -1
         GUI(ai_player=ai_player, simulations=play_sims,
-            filters=filters, res_blocks=res_blocks, c_puct=play_c_puct,
+            filters=net_cfg.get("num_filters", 256),
+            res_blocks=net_cfg.get("num_res_blocks", 2), c_puct=play_c_puct,
             value_head_channels=net_cfg.get("value_head_channels", 2),
             value_head_fc_size=net_cfg.get("value_head_fc_size", 64),
             policy_head_channels=net_cfg.get("policy_head_channels", 2))
         return
 
-    from train import load_game
     game = load_game(args.game)
-
-    input_channels = getattr(game, 'input_channels',
-                             2 * (game.num_history_states + 1))
-    net = AlphaZeroNet(
-        input_channels=input_channels,
-        board_shape=game.board_shape,
-        action_size=game.action_size,
-        num_res_blocks=res_blocks,
-        num_filters=filters,
-        value_head_channels=net_cfg.get("value_head_channels", 2),
-        value_head_fc_size=net_cfg.get("value_head_fc_size", 64),
-        policy_head_channels=net_cfg.get("policy_head_channels", 2),
-    )
+    net = make_net(game, args.game)
 
     checkpoint_dir = f"checkpoints/{args.game}"
     loaded_path = net.load_latest(checkpoint_dir)
@@ -89,13 +75,8 @@ def main():
     else:
         print("No checkpoint found, using untrained network.")
 
-    mcts_mod = MCTS.__module__
-    mcts_label = "C/Cython" if "c_mcts" in mcts_mod else "Python"
-    game_mod = type(game).__module__
-    game_label = "C/Cython" if "c_game" in game_mod else "Python"
     print(f"Config: sims={play_sims} c_puct={play_c_puct}")
-    print(f"  MCTS backend: {mcts_label} ({mcts_mod})")
-    print(f"  Game backend: {game_label} ({game_mod})")
+    log_backends(MCTS, game)
     mcts = MCTS(game, net, c_puct=play_c_puct)
     human_player = -1 if args.human_first else 1  # -1 goes first
 

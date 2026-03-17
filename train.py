@@ -2,25 +2,9 @@ import argparse
 
 import torch
 
-from network import AlphaZeroNet
 from game_configs import GAME_CONFIGS
 from training import Trainer
-
-
-GAMES = {
-    "tictactoe": "games.tictactoe:TTTGame",
-    "connect4": "games.connect4:Connect4Game",
-    "santorini": "games.santorini:SantoriniGame",
-}
-
-
-def load_game(name):
-    if name not in GAMES:
-        raise ValueError(f"Unknown game '{name}'. Choose from: {list(GAMES.keys())}")
-    module_path, class_name = GAMES[name].rsplit(":", 1)
-    import importlib
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)()
+from utils import GAMES, load_game, make_net
 
 
 def main():
@@ -47,28 +31,13 @@ def main():
     game = load_game(args.game)
 
     game_cfg = GAME_CONFIGS.get(args.game, {})
-    filters = game_cfg.get("num_filters", 256)
-    res_blocks = game_cfg.get("num_res_blocks", 2)
 
     # Use per-game defaults when CLI args not specified
     num_iterations = args.iterations or game_cfg.get("default_iterations", 10)
     num_games = args.games or game_cfg.get("default_games", 32)
     num_simulations = args.simulations or game_cfg.get("default_simulations", 50)
 
-    # Input channels: use game-specific value if available, else default formula
-    input_channels = getattr(game, 'input_channels',
-                             2 * (game.num_history_states + 1))
-
-    net = AlphaZeroNet(
-        input_channels=input_channels,
-        board_shape=game.board_shape,
-        action_size=game.action_size,
-        num_res_blocks=res_blocks,
-        num_filters=filters,
-        value_head_channels=game_cfg.get("value_head_channels", 2),
-        value_head_fc_size=game_cfg.get("value_head_fc_size", 64),
-        policy_head_channels=game_cfg.get("policy_head_channels", 2),
-    )
+    net = make_net(game, args.game)
 
     checkpoint_dir = f"checkpoints/{args.game}"
     net.to(device)

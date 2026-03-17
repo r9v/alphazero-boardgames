@@ -3,6 +3,28 @@ import random
 import numpy as np
 
 from mcts import MCTS, Node, add_dirichlet_noise
+from utils import log_backends
+
+
+def _finalize_game_targets(examples, tv, label=""):
+    """Convert per-move player tags to outcome targets and verify sign chain.
+
+    Args:
+        examples: list of [state_input, policy, player_tag] for one game
+        tv: terminal value (-1=X wins, +1=O wins, 0=draw)
+        label: context string for assertion messages
+    """
+    if tv != 0 and len(examples) > 0:
+        assert examples[-1][2] == tv, \
+            f"{label} sign-chain: last_player={examples[-1][2]}, tv={tv}"
+    for ex in examples:
+        ex[2] = tv * ex[2]
+    if tv != 0 and len(examples) > 0:
+        assert abs(examples[-1][2] - 1.0) < 1e-6, \
+            f"{label} target: last={examples[-1][2]:.4f}, expected +1"
+        if len(examples) >= 2:
+            assert abs(examples[-2][2] - (-1.0)) < 1e-6, \
+                f"{label} target: 2nd_last={examples[-2][2]:.4f}, expected -1"
 
 
 class BatchedSelfPlay:
@@ -36,12 +58,7 @@ class BatchedSelfPlay:
 
         # Log backends once
         if not getattr(BatchedSelfPlay, '_backend_logged', False):
-            mcts_mod = MCTS.__module__
-            mcts_label = "C/Cython" if "c_mcts" in mcts_mod else "Python"
-            game_mod = type(game).__module__
-            game_label = "C/Cython" if "c_game" in game_mod else "Python"
-            print(f"  MCTS backend: {mcts_label} ({mcts_mod})")
-            print(f"  Game backend: {game_label} ({game_mod})")
+            log_backends(MCTS, game)
             BatchedSelfPlay._backend_logged = True
 
     def play_games(self):
@@ -118,19 +135,7 @@ class BatchedSelfPlay:
                     # Resign: current player loses, opponent wins
                     tv = -states[i].player
                     terminal_values[i] = tv
-                    total_moves = len(examples[i])
-                    # Assert: last example's player should be the winner
-                    if tv != 0 and len(examples[i]) > 0:
-                        assert examples[i][-1][2] == tv, \
-                            f"Resign sign-chain: last_player={examples[i][-1][2]}, tv={tv}"
-                    for move_idx, ex in enumerate(examples[i]):
-                        player_at_pos = ex[2]
-                        raw_target = tv * player_at_pos
-                        ex[2] = raw_target
-                    # Assert: after target conversion, winner's last target must be +1
-                    if tv != 0 and len(examples[i]) > 0:
-                        assert abs(examples[i][-1][2] - 1.0) < 1e-6, \
-                            f"Resign target: last={examples[i][-1][2]:.4f}, expected +1"
+                    _finalize_game_targets(examples[i], tv, label="Resign")
                     self._p['resign_count'] += 1
                     self._p['resign_move_sum'] += move_counts[i]
                 elif should_resign and not resign_allowed[i]:
@@ -201,22 +206,7 @@ class BatchedSelfPlay:
                         resigner_outcome = tv * resign_check_player[i]
                         if resigner_outcome >= 0:  # drew or won
                             self._p['resign_false_positives'] += 1
-                    total_moves = len(examples[i])
-                    # Assert: last example's player should be the winner
-                    if tv != 0 and len(examples[i]) > 0:
-                        assert examples[i][-1][2] == tv, \
-                            f"Terminal sign-chain: last_player={examples[i][-1][2]}, tv={tv}"
-                    for move_idx, ex in enumerate(examples[i]):
-                        player_at_pos = ex[2]
-                        raw_target = tv * player_at_pos
-                        ex[2] = raw_target
-                    # Assert: after target conversion, winner's last target must be +1
-                    if tv != 0 and len(examples[i]) > 0:
-                        assert abs(examples[i][-1][2] - 1.0) < 1e-6, \
-                            f"Terminal target: last={examples[i][-1][2]:.4f}, expected +1"
-                        if len(examples[i]) >= 2:
-                            assert abs(examples[i][-2][2] - (-1.0)) < 1e-6, \
-                                f"Terminal target: 2nd_last={examples[i][-2][2]:.4f}, expected -1"
+                    _finalize_game_targets(examples[i], tv, label="Terminal")
                 else:
                     # --- Tree reuse or fresh root ---
                     if self.tree_reuse:

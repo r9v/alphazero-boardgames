@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from utils import wdl_to_scalar
+
 
 def ws_conv2d(x, conv):
     """Conv2d with Weight Standardization + Kaiming scaling.
@@ -145,9 +147,7 @@ class AlphaZeroNet(nn.Module):
         device = next(self.parameters()).device
         x = torch.FloatTensor(state_input).unsqueeze(0).to(device)
         v, p = self(x)
-        # WDL logits → scalar: v = P(win) - P(loss)
-        probs = F.softmax(v, dim=1)
-        value = (probs[0, 0] - probs[0, 2]).item()
+        value = wdl_to_scalar(v)[0].item()
         policy = F.softmax(p, dim=1).squeeze(0).cpu().numpy()
         return value, policy
 
@@ -191,9 +191,7 @@ class AlphaZeroNet(nn.Module):
         forward_time = time.time() - t0
 
         t0 = time.time()
-        # WDL logits → scalar: v = P(win) - P(loss)
-        probs = F.softmax(v.float(), dim=1)[:n]
-        values = (probs[:, 0] - probs[:, 2]).cpu().numpy().tolist()
+        values = wdl_to_scalar(v.float()[:n]).cpu().numpy().tolist()
         policies = F.softmax(p.float(), dim=1)[:n].cpu().numpy()
         result_time = time.time() - t0
 
