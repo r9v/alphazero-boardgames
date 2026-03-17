@@ -121,16 +121,13 @@ class Trainer:
             t0 = time.time()
             B = states.shape[0]
             with torch.autocast('cuda', enabled=self.use_amp):
-                # Color-swap augmentation: swap ch0↔ch1, negate ch2, flip value target.
-                # Train value loss on both original + swapped; policy loss on originals only.
-                # This ensures the value head sees balanced player perspectives regardless
-                # of self-play bias, breaking the feedback loop that causes player-asymmetric
-                # evaluation. (Same principle as KataGo's color-swap for Go.)
+                # Color-swap augmentation: swap ch0↔ch1, flip value target.
+                # With canonical encoding (no ch2), swapping ch0↔ch1 views the position
+                # from the opponent's perspective. This ensures the value head sees balanced
+                # player perspectives regardless of self-play bias.
                 swapped = states.clone()
                 swapped[:, 0] = states[:, 1]
                 swapped[:, 1] = states[:, 0]
-                if states.shape[1] > 2:
-                    swapped[:, 2] = -states[:, 2]
                 swapped_target_vs = 2 - target_vs  # win(0)↔loss(2), draw(1) unchanged
 
                 combined = torch.cat([states, swapped], dim=0)
@@ -180,8 +177,9 @@ class Trainer:
         train_samples = samples[val_size:]
 
         # Stratified sampling pools: split by player to ensure 50/50 X/O batches
-        x_pool = [s for s in train_samples if s[0][2, 0, 0] < 0]
-        o_pool = [s for s in train_samples if s[0][2, 0, 0] > 0]
+        # X moves when piece counts are equal (ch0==ch1), O when unequal
+        x_pool = [s for s in train_samples if s[0][0].sum() == s[0][1].sum()]
+        o_pool = [s for s in train_samples if s[0][0].sum() != s[0][1].sum()]
 
         # Dynamic training steps
         n_samples = len(train_samples)
@@ -765,8 +763,6 @@ class Trainer:
                 _fe_sw = self._fixed_eval_inputs.clone()
                 _fe_sw[:, 0] = self._fixed_eval_inputs[:, 1]
                 _fe_sw[:, 1] = self._fixed_eval_inputs[:, 0]
-                if self._fixed_eval_inputs.shape[1] > 2:
-                    _fe_sw[:, 2] = -self._fixed_eval_inputs[:, 2]
                 self._fixed_eval_swapped = _fe_sw
             else:
                 self._fixed_eval_swapped = None

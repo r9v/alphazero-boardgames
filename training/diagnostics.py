@@ -89,9 +89,9 @@ def compute_buffer_diagnostics(samples, all_values):
     diag['mean_tgt_x'] = diag['mean_tgt_o'] = 0.0
     diag['frac_pos_x'] = diag['frac_pos_o'] = 0.0
     try:
-        player_planes = np.array([s[0][2, 0, 0] for s in samples])
-        is_x_buf = player_planes < 0
-        is_o_buf = player_planes > 0
+        # X moves when piece counts are equal (ch0==ch1), O when unequal
+        is_x_buf = np.array([s[0][0].sum() == s[0][1].sum() for s in samples])
+        is_o_buf = ~is_x_buf
         diag['n_x_buf'] = int(is_x_buf.sum())
         diag['n_o_buf'] = int(is_o_buf.sum())
         if diag['n_x_buf'] > 0:
@@ -137,7 +137,9 @@ def compute_pre_training_diagnostics(net, samples, device):
             states = torch.FloatTensor(np.array([s[0] for s in batch])).to(device)
             targets = np.array([s[2] for s in batch])
             targets_v = torch.LongTensor(raw_value_to_wdl_class(targets)).to(device)
-            players = np.array([s[0][2, 0, 0] for s in batch])
+            # Infer player from piece counts: equal = X to move
+            is_x = np.array([s[0][0].sum() == s[0][1].sum() for s in batch])
+            is_o = ~is_x
 
             pred_v, _ = net(states)
 
@@ -146,8 +148,6 @@ def compute_pre_training_diagnostics(net, samples, device):
 
             # Per-player bias
             v_scalar = wdl_to_scalar(pred_v).cpu().numpy()
-            is_x = players < 0
-            is_o = players > 0
             pbias_data = {
                 'batch': batch, 'targets': targets,
                 'is_x': is_x, 'is_o': is_o,

@@ -86,13 +86,12 @@ class Connect4Game(Game):
         syms.append((flipped_input, flipped_policy))
         return syms
 
-    input_channels = 3
+    input_channels = 2
 
     def state_to_input(self, state):
         rows, cols = self.board_shape
-        inp = np.zeros((3, rows, cols), dtype="float32")
+        inp = np.zeros((2, rows, cols), dtype="float32")
         me = state.player
-        inp[0] = (state.board == me).astype("float32")
-        inp[1] = (state.board == -me).astype("float32")
-        inp[2] = me  # current player plane: +1 or -1
+        inp[0] = (state.board == me).astype("float32")   # my pieces
+        inp[1] = (state.board == -me).astype("float32")   # opponent pieces
         return inp

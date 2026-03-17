@@ -783,10 +783,12 @@ class TrainingLogger:
 
         if not getattr(self, '_encoding_checked', False):
             self._encoding_checked = True
-            print(f"  Diag[ENC]: Fixed position encoding check:")
+            print(f"  Diag[ENC]: Fixed position encoding check (canonical, {positions[0][1].shape[0]}ch):")
             for name, state_input, _ in positions:
-                player_val = state_input[2, 0, 0]
-                player_str = "X" if player_val < 0 else "O"
+                # Infer player from piece counts: equal = X to move
+                my_count = state_input[0].sum()
+                opp_count = state_input[1].sum()
+                player_str = "X" if my_count == opp_count else "O"
                 ch0_rows = []
                 ch1_rows = []
                 for r in range(state_input.shape[1]):
@@ -796,12 +798,14 @@ class TrainingLogger:
                     ch1_rows.append("".join(
                         "1" if state_input[1, r, c] > 0 else "."
                         for c in range(state_input.shape[2])))
-                print(f"    {name}: player={player_val:+.0f} ({player_str}) "
+                print(f"    {name}: player={player_str} "
                       f"ch0(me)={'/'.join(ch0_rows)} "
                       f"ch1(opp)={'/'.join(ch1_rows)}")
 
         # Build all 15 inputs (original + swapped + mirrored) for a single
         # batched forward pass instead of 15 individual predict() calls.
+        # With canonical encoding (no ch2), swapped and mirrored are identical
+        # (both just swap ch0↔ch1 to view from opponent's perspective).
         originals = []
         swapped = []
         mirrored = []
@@ -810,10 +814,7 @@ class TrainingLogger:
             sw = state_input.copy()
             sw[0], sw[1] = state_input[1].copy(), state_input[0].copy()
             swapped.append(sw)
-            mi = state_input.copy()
-            mi[0], mi[1] = state_input[1].copy(), state_input[0].copy()
-            mi[2] = -state_input[2]
-            mirrored.append(mi)
+            mirrored.append(sw.copy())  # same as swapped with canonical encoding
 
         all_inputs = originals + swapped + mirrored
         all_values, all_policies = t.net.batch_predict(all_inputs)
