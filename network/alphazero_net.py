@@ -30,17 +30,19 @@ def ws_conv2d(x, conv):
 class ResBlock(nn.Module):
     """Pre-activation ResBlock with Weight Standardization on both convs.
 
-    BN→ReLU→WS-Conv1→BN→ReLU→WS-Conv2 + skip.
+    GN→ReLU→WS-Conv1→GN→ReLU→WS-Conv2 + skip.
     Clean residual path. Weight Standardization on all convs prevents weight
     explosion by normalizing weights per filter before each forward pass.
     Residual branch scaled by 1/√L (Fixup-style) to prevent variance
     explosion through depth: Var grows as (1+1/L)^L ≈ e instead of 2^L.
+    GroupNorm used instead of BatchNorm: immune to non-stationary RL data
+    distribution (no running stats to drift).
     """
-    def __init__(self, num_filters, res_scale=0.5):
+    def __init__(self, num_filters, res_scale=0.5, num_groups=8):
         super().__init__()
-        self.bn1 = nn.BatchNorm2d(num_filters)
+        self.bn1 = nn.GroupNorm(num_groups, num_filters)
         self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(num_filters)
+        self.bn2 = nn.GroupNorm(num_groups, num_filters)
         self.conv2 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
         self.res_scale = res_scale
 
@@ -56,44 +58,58 @@ class AlphaZeroNet(nn.Module):
                  num_res_blocks=2, num_filters=256,
                  value_head_channels=2, value_head_fc_size=64,
                  policy_head_channels=2,
-                 backbone_dropout=0.15):
+                 backbone_dropout=0.15, num_groups=8):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
         board_area = board_shape[0] * board_shape[1]
 
-        # Initial conv block
+        # Initial conv block (GroupNorm: immune to non-stationary RL data)
         self.conv = nn.Conv2d(input_channels, num_filters, 3, padding=1)
-        self.bn = nn.BatchNorm2d(num_filters)
+        self.bn = nn.GroupNorm(num_groups, num_filters)
 
         # Residual blocks (pre-activation / pre-norm)
         # Scale residual branch by 1/√L to control variance growth through depth
         res_scale = num_res_blocks ** -0.5
         self.res_blocks = nn.ModuleList(
-            [ResBlock(num_filters, res_scale=res_scale)
+            [ResBlock(num_filters, res_scale=res_scale, num_groups=num_groups)
              for _ in range(num_res_blocks)]
         )
 
-        # Final BN→ReLU after all ResBlocks (standard pre-norm pattern)
+        # Final GN→ReLU after all ResBlocks (standard pre-norm pattern)
         # Ensures backbone output is normalized before heads
-        self.final_bn = nn.BatchNorm2d(num_filters)
+        self.final_bn = nn.GroupNorm(num_groups, num_filters)
 
         # Channel dropout on backbone output before heads split.
         # Prevents channel segregation between value and policy heads.
         # Drops entire channels (Dropout2d) so neither head can exclusively own channels.
         self.backbone_dropout = nn.Dropout2d(p=backbone_dropout)
 
-        # Value head
+        # Value head (1 group = LayerNorm-like for small channel count)
         self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
-        self.value_bn = nn.BatchNorm2d(value_head_channels)
+        self.value_bn = nn.GroupNorm(1, value_head_channels)
         self.value_fc1 = nn.Linear(value_head_channels * board_area, value_head_fc_size)
         self.value_dropout = nn.Dropout(p=0.2)
         self.value_fc2 = nn.Linear(value_head_fc_size, 3)  # WDL: Win/Draw/Loss logits
 
-        # Policy head
+        # Policy head (1 group = LayerNorm-like for small channel count)
         self.policy_conv = nn.Conv2d(num_filters, policy_head_channels, 1)
-        self.policy_bn = nn.BatchNorm2d(policy_head_channels)
+        self.policy_bn = nn.GroupNorm(1, policy_head_channels)
         self.policy_fc = nn.Linear(policy_head_channels * board_area, action_size)
+
+        # GN config validation: warn if any group normalizes over too few elements
+        H, W = board_shape
+        gn_configs = [
+            ("backbone", num_groups, num_filters, H * W),
+            ("value_head", 1, value_head_channels, H * W),
+            ("policy_head", 1, policy_head_channels, H * W),
+        ]
+        for label, G, C, spatial in gn_configs:
+            elems = (C // G) * spatial
+            status = "OK" if elems >= 64 else "WARN" if elems >= 16 else "LOW"
+            if status != "OK":
+                print(f"  [GN-{status}] {label}: {G} groups, {C//G} ch/group, "
+                      f"{elems} elems/group (recommend >=64)")
 
     def backbone_forward(self, x):
         """Run backbone only (conv + res_blocks + final_bn), no heads or dropout."""

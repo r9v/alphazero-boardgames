@@ -45,7 +45,7 @@ GAME_CONFIGS = {
         "policy_head_channels": 2,
 
         # --- Training ---
-        "train_ratio": 4,
+        "train_ratio": 8,
         "value_loss_weight": 1.0,
         "buffer_size": 100_000,
         "lr": 0.005,

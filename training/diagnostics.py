@@ -411,13 +411,7 @@ def compute_value_head_diagnostics(trainer, samples, grad_stats_summary):
             if bn2_in_key in captured:
                 bn2_in_t = captured[bn2_in_key]
                 batch_var = bn2_in_t.var(dim=(0, 2, 3))
-                run_var = net.res_blocks[idx].bn2.running_var
-                if run_var is not None:
-                    ratio = (batch_var / (run_var + 1e-5)).cpu().numpy()
-                    stats["bn2_batch_vs_run_var_mean"] = float(ratio.mean())
-                    stats["bn2_batch_vs_run_var_std"] = float(ratio.std())
-                    stats["bn2_batch_var_mean"] = float(batch_var.mean().item())
-                    stats["bn2_run_var_mean"] = float(run_var.mean().item())
+                stats["bn2_batch_var_mean"] = float(batch_var.mean().item())
             if stats:
                 rb_bn2_stats[idx] = stats
 
@@ -444,7 +438,6 @@ def compute_value_head_diagnostics(trainer, samples, grad_stats_summary):
         vc_w_abs_mean = float(np.abs(vc_w).mean())
         vbn_gamma = net.value_bn.weight.detach().cpu().numpy()
         vbn_beta = net.value_bn.bias.detach().cpu().numpy()
-        vbn_running_var = net.value_bn.running_var.detach().cpu().numpy()
         pconv_abs = float(np.abs(pconv_np).mean())
         pconv_std = float(pconv_np.std())
         vconv_grad_norm = grad_stats_summary.get('vconv_grad_norm', 0.0)
@@ -483,7 +476,6 @@ def compute_value_head_diagnostics(trainer, samples, grad_stats_summary):
             "vbn_gamma": vbn_gamma.tolist(), "vbn_beta": vbn_beta.tolist(),
             "vbn_gamma_mean": float(vbn_gamma.mean()),
             "vbn_gamma_min": float(vbn_gamma.min()),
-            "vbn_running_var": vbn_running_var.tolist(),
             "pconv_abs": pconv_abs, "pconv_std": pconv_std,
             "vconv_grad_norm": vconv_grad_norm,
             "bb_n_channels": bb_n_channels, "bb_dead_channels": bb_dead_channels,
@@ -668,13 +660,10 @@ def compute_svd_rank_diagnostics(net, vh_diag):
         bb_near_zero_sv = int((svs_bb < 1e-6).sum().item())
         bb_n = rb_w.shape[0]
 
-        bn_gamma = net.res_blocks[rb_idx].bn2.weight.data
-        bn_var = net.res_blocks[rb_idx].bn2.running_var
-        if bn_var is not None:
-            eff_gain = bn_gamma / (bn_var + 1e-5).sqrt()
-            bn_dead = int((eff_gain.abs() < 0.1).sum().item())
-        else:
-            bn_dead = -1
+        # With GroupNorm, gamma directly scales output (no running_var).
+        # Small |gamma| channels are effectively dead.
+        gn_gamma = net.res_blocks[rb_idx].bn2.weight.data
+        gn_dead = int((gn_gamma.abs() < 0.1).sum().item())
 
         pfc_w = net.policy_fc.weight.data
         svs_pfc = torch.linalg.svdvals(pfc_w)
@@ -691,55 +680,30 @@ def compute_svd_rank_diagnostics(net, vh_diag):
         all_rb_bn = {}
         for bi in range(len(net.res_blocks)):
             rb_bn_gamma = net.res_blocks[bi].bn2.weight.data
-            rb_bn_var = net.res_blocks[bi].bn2.running_var
-            if rb_bn_var is not None:
-                rb_eff_gain = rb_bn_gamma / (rb_bn_var + 1e-5).sqrt()
-                rb_bn_dead = int((rb_eff_gain.abs() < 0.1).sum().item())
-                rb_neg_gamma = int((rb_bn_gamma < -0.01).sum().item())
-                rb_eff_gain_np = rb_eff_gain.cpu().numpy()
-                rb_sqrt_var = (rb_bn_var + 1e-5).sqrt()
-                all_rb_bn[bi] = {
-                    "dead": rb_bn_dead, "neg_gamma": rb_neg_gamma,
-                    "eff_gain_mean": float(np.abs(rb_eff_gain_np).mean()),
-                    "eff_gain_max": float(np.abs(rb_eff_gain_np).max()),
-                    "gamma_mean": float(rb_bn_gamma.abs().mean().item()),
-                    "gamma_std": float(rb_bn_gamma.std().item()),
-                    "sqrt_var_mean": float(rb_sqrt_var.mean().item()),
-                    "sqrt_var_std": float(rb_sqrt_var.std().item()),
-                }
+            rb_neg_gamma = int((rb_bn_gamma < -0.01).sum().item())
+            rb_gn_dead = int((rb_bn_gamma.abs() < 0.1).sum().item())
+            all_rb_bn[bi] = {
+                "dead": rb_gn_dead, "neg_gamma": rb_neg_gamma,
+                "gamma_mean": float(rb_bn_gamma.abs().mean().item()),
+                "gamma_std": float(rb_bn_gamma.std().item()),
+            }
             rb_conv2_w = net.res_blocks[bi].conv2.weight.data.flatten(1)
             rb_svs = torch.linalg.svdvals(rb_conv2_w)
             rb_energy = (rb_svs**2).cumsum(0) / (rb_svs**2).sum()
             rb_rank90 = int((rb_energy <= 0.9).sum().item()) + 1
-            if bi not in all_rb_bn:
-                all_rb_bn[bi] = {}
             all_rb_bn[bi]["svd_rank90"] = rb_rank90
             all_rb_bn[bi]["svd_total"] = rb_conv2_w.shape[0]
 
-        # final_bn gamma tracking
-        fbn_eff_gain_mean = fbn_eff_gain_min = fbn_eff_gain_max = 0.0
+        # final_bn (GroupNorm) gamma tracking
         fbn_dead = -1
         fbn_gamma_mean = fbn_gamma_std = 0.0
-        fbn_sqrt_var_mean = fbn_sqrt_var_std = 0.0
         try:
             fbn = getattr(net, 'final_bn', None)
             if fbn is not None:
-                fbn_var = fbn.running_var
-                if fbn_var is not None:
-                    fbn_gamma = fbn.weight.data
-                    fbn_eff_gain = fbn_gamma / (fbn_var + 1e-5).sqrt()
-                    fbn_eff_gain_np = fbn_eff_gain.cpu().numpy()
-                    fbn_eff_gain_mean = float(np.abs(fbn_eff_gain_np).mean())
-                    fbn_eff_gain_min = float(np.abs(fbn_eff_gain_np).min())
-                    fbn_eff_gain_max = float(np.abs(fbn_eff_gain_np).max())
-                    fbn_dead = int((fbn_eff_gain.abs() < 0.1).sum().item())
-                    fbn_sqrt_var = (fbn_var + 1e-5).sqrt()
-                    fbn_gamma_mean = float(fbn_gamma.abs().mean().item())
-                    fbn_gamma_std = float(fbn_gamma.std().item())
-                    fbn_sqrt_var_mean = float(fbn_sqrt_var.mean().item())
-                    fbn_sqrt_var_std = float(fbn_sqrt_var.std().item())
-                else:
-                    print("  [FBN-DBG] final_bn.running_var is None")
+                fbn_gamma = fbn.weight.data
+                fbn_gamma_mean = float(fbn_gamma.abs().mean().item())
+                fbn_gamma_std = float(fbn_gamma.std().item())
+                fbn_dead = int((fbn_gamma.abs() < 0.1).sum().item())
             else:
                 print("  [FBN-DBG] final_bn not found on net")
         except Exception as e:
@@ -748,18 +712,13 @@ def compute_svd_rank_diagnostics(net, vh_diag):
         vh_diag.update({
             "svd_bb_rank90": bb_rank90, "svd_bb_rank99": bb_rank99,
             "svd_bb_total": bb_n, "svd_bb_near_zero": bb_near_zero_sv,
-            "bn_dead_deepest": bn_dead,
+            "gn_dead_deepest": gn_dead,
             "svd_pfc_rank90": pfc_rank90, "svd_pfc_rank99": pfc_rank99,
             "svd_pfc_max_rank": pfc_max_rank,
             "pconv_ch_norms": pc_ch_norms, "all_rb_bn": all_rb_bn,
-            "final_bn_eff_gain_mean": fbn_eff_gain_mean,
-            "final_bn_eff_gain_min": fbn_eff_gain_min,
-            "final_bn_eff_gain_max": fbn_eff_gain_max,
             "final_bn_dead": fbn_dead,
             "final_bn_gamma_mean": fbn_gamma_mean,
             "final_bn_gamma_std": fbn_gamma_std,
-            "final_bn_sqrt_var_mean": fbn_sqrt_var_mean,
-            "final_bn_sqrt_var_std": fbn_sqrt_var_std,
         })
         net.train()
     except (RuntimeError, ValueError, torch.linalg.LinAlgError) as e:

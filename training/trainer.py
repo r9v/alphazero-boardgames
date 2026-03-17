@@ -40,9 +40,9 @@ class Trainer:
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
 
         # Separate params: apply weight decay only to conv/linear weights,
-        # NOT to BatchNorm gamma/beta or bias terms.  Decaying BN gamma
+        # NOT to normalization gamma/beta or bias terms.  Decaying norm gamma
         # shrinks activations every step (compounding through layers) while
-        # BN just rescales — it doesn't regularize, it just causes magnitude decay.
+        # normalization just rescales — it doesn't regularize, it just causes magnitude decay.
         decay_params = []
         no_decay_params = []
         for name, param in net.named_parameters():
@@ -229,7 +229,7 @@ class Trainer:
             'ploss_decisive_sum': 0.0, 'ploss_ambiguous_sum': 0.0,
             'decisive_count': 0, 'ambiguous_count': 0,
             'swap_repr_trajectory': [],
-            'bn_gap_trajectory': [],
+            'gn_group_var_trajectory': [],
             'imm_win_vloss_sum': 0.0, 'imm_win_count': 0,
             'non_imm_win_vloss_sum': 0.0, 'non_imm_win_count': 0,
         }
@@ -379,17 +379,6 @@ class Trainer:
                 _fe_entry[_fn] = float(_fe_vals[_fi])
             acc['fixed_eval_trajectory'].append(_fe_entry)
 
-            # BN_GAP: train-mode vs eval-mode value predictions
-            # Forward in train mode uses batch stats (N=5 here, very small batch);
-            # the eval-mode values above use running stats. The gap reveals BN impact.
-            with torch.no_grad():
-                _fe_v_train, _ = self.net(_fe_inputs)
-                _fe_vals_train = wdl_to_scalar(_fe_v_train).cpu().numpy()
-            _bn_gap_entry = {'step': step}
-            for _fi, _fn in enumerate(_fe_names):
-                _bn_gap_entry[_fn] = float(_fe_vals_train[_fi] - _fe_vals[_fi])
-            acc['bn_gap_trajectory'].append(_bn_gap_entry)
-
             # Swap-representation cosine similarity
             _fe_swapped = getattr(self, '_fixed_eval_swapped', None)
             if _fe_swapped is not None:
@@ -402,6 +391,90 @@ class Trainer:
                 for _fi, _fn in enumerate(_fe_names):
                     _swap_repr_entry[_fn] = float(_swap_cos[_fi])
                 acc['swap_repr_trajectory'].append(_swap_repr_entry)
+
+            # GN SANITY: confirm train/eval gap is 0 (first TRAJ snapshot only)
+            if not getattr(self, '_gn_sanity_done', False):
+                self._gn_sanity_done = True
+                try:
+                    # Disable dropout to isolate normalization behavior
+                    _saved_dropout = []
+                    for _m in self.net.modules():
+                        if isinstance(_m, (torch.nn.Dropout, torch.nn.Dropout2d)):
+                            _saved_dropout.append((_m, _m.p))
+                            _m.p = 0.0
+                    self.net.eval()
+                    with torch.no_grad():
+                        _v_eval, _ = self.net(_fe_inputs)
+                    self.net.train()
+                    with torch.no_grad():
+                        _v_train, _ = self.net(_fe_inputs)
+                    for _m, _p in _saved_dropout:
+                        _m.p = _p
+                    _gap = (wdl_to_scalar(_v_eval) - wdl_to_scalar(_v_train)).abs().cpu().numpy()
+                    acc['gn_sanity'] = {
+                        'max_gap': float(_gap.max()),
+                        'mean_gap': float(_gap.mean()),
+                        'per_pos': {_fe_names[i]: float(_gap[i]) for i in range(len(_fe_names))},
+                    }
+                except Exception as e:
+                    print(f"  [DIAG-DBG] GN sanity check failed: {e}")
+                self.net.train()
+
+            # GN HEALTH: per-group variance, post-GN saturation, gamma magnitude
+            try:
+                _gn_pre_acts, _gn_post_acts = {}, {}
+                _hooks = []
+                for _gn_name, _gn_mod in self.net.named_modules():
+                    if isinstance(_gn_mod, torch.nn.GroupNorm):
+                        def _pre_hook(_module, _input, _name=_gn_name):
+                            _gn_pre_acts[_name] = _input[0].detach()
+                        def _post_hook(_module, _input, _output, _name=_gn_name):
+                            _gn_post_acts[_name] = _output.detach()
+                        _hooks.append(_gn_mod.register_forward_pre_hook(_pre_hook))
+                        _hooks.append(_gn_mod.register_forward_hook(_post_hook))
+                self.net.eval()
+                with torch.no_grad():
+                    self.net(_fe_inputs)
+                for _h in _hooks:
+                    _h.remove()
+                self.net.train()
+
+                # (1) Group collapse: pre-GN per-group variance
+                _min_vars, _mean_vars = [], []
+                for _gn_name, _act in _gn_pre_acts.items():
+                    _gn_mod = dict(self.net.named_modules())[_gn_name]
+                    _G = _gn_mod.num_groups
+                    _B, _C, _H, _W = _act.shape
+                    _act_g = _act.view(_B, _G, _C // _G, _H, _W)
+                    _gvar = _act_g.var(dim=(2, 3, 4))  # [B, G]
+                    _min_vars.append(_gvar.min().item())
+                    _mean_vars.append(_gvar.mean().item())
+
+                # (2) Saturation: post-GN activations near ±3 (pre-ReLU)
+                _sat_fracs = []
+                for _gn_name, _act in _gn_post_acts.items():
+                    _sat_fracs.append(float((_act.abs() > 3.0).float().mean().item()))
+
+                # (3) Gamma health: any GN gamma growing very large or very small
+                _gamma_max, _gamma_min = 0.0, float('inf')
+                for _gn_name, _gn_mod in self.net.named_modules():
+                    if isinstance(_gn_mod, torch.nn.GroupNorm) and _gn_mod.weight is not None:
+                        _g = _gn_mod.weight.data.abs()
+                        _gamma_max = max(_gamma_max, _g.max().item())
+                        _gamma_min = min(_gamma_min, _g.min().item())
+
+                acc['gn_group_var_trajectory'].append({
+                    'step': step,
+                    'min_var': min(_min_vars) if _min_vars else 0.0,
+                    'mean_var': float(np.mean(_mean_vars)) if _mean_vars else 0.0,
+                    'num_degenerate': sum(1 for v in _min_vars if v < 1e-6),
+                    'num_layers': len(_min_vars),
+                    'sat_frac': float(np.mean(_sat_fracs)) if _sat_fracs else 0.0,
+                    'gamma_max': _gamma_max,
+                    'gamma_min': _gamma_min,
+                })
+            except Exception as e:
+                print(f"  [DIAG-DBG] GN health diagnostic failed: {e}")
 
         # Track early vs late loss
         if step < early_cutoff:
@@ -579,39 +652,6 @@ class Trainer:
                     'total_drift': abs(traj[-1][name] - traj[0][name]),
                 }
 
-        # BN_DRIFT: running stats change rate between iterations
-        bn_drift = {}
-        try:
-            current_bn_stats = {}
-            for name, module in self.net.named_modules():
-                if isinstance(module, torch.nn.BatchNorm2d) and module.running_mean is not None:
-                    current_bn_stats[name] = {
-                        'mean': module.running_mean.detach().cpu().clone(),
-                        'var': module.running_var.detach().cpu().clone(),
-                    }
-            prev = getattr(self, '_prev_bn_stats', {})
-            if prev:
-                mean_drifts, var_drifts = [], []
-                for name, cur in current_bn_stats.items():
-                    if name in prev:
-                        m_delta = (cur['mean'] - prev[name]['mean']).norm().item()
-                        m_norm = cur['mean'].norm().item()
-                        v_delta = (cur['var'] - prev[name]['var']).norm().item()
-                        v_norm = cur['var'].norm().item()
-                        mean_drifts.append(m_delta / max(m_norm, 1e-10))
-                        var_drifts.append(v_delta / max(v_norm, 1e-10))
-                if mean_drifts:
-                    bn_drift = {
-                        'mean_rel': float(np.mean(mean_drifts)),
-                        'var_rel': float(np.mean(var_drifts)),
-                        'mean_max': float(np.max(mean_drifts)),
-                        'var_max': float(np.max(var_drifts)),
-                        'n_layers': len(mean_drifts),
-                    }
-            self._prev_bn_stats = current_bn_stats
-        except Exception as e:
-            print(f"  [DIAG-DBG] BN drift measurement failed: {e}")
-
         # ImmWin vloss aggregation
         imm_win_vloss = acc['imm_win_vloss_sum'] / max(acc['imm_win_count'], 1)
         non_imm_win_vloss = acc['non_imm_win_vloss_sum'] / max(acc['non_imm_win_count'], 1)
@@ -685,8 +725,8 @@ class Trainer:
             "pbias_post_x_pred": _post_x_pred, "pbias_post_o_pred": _post_o_pred,
             "pbias_post_x_acc": _post_x_acc, "pbias_post_o_acc": _post_o_acc,
             "swap_repr_trajectory": acc['swap_repr_trajectory'],
-            "bn_gap_trajectory": acc['bn_gap_trajectory'],
-            "bn_drift": bn_drift,
+            "gn_sanity": acc.get('gn_sanity', {}),
+            "gn_group_var_trajectory": acc['gn_group_var_trajectory'],
             "fe_sensitivity": fe_sensitivity,
             "grad_conflict": grad_conflict,
             "imm_win_vloss": imm_win_vloss,

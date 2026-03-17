@@ -236,15 +236,21 @@ def section_value_conv(sd):
         vc_w = vc_w.unsqueeze(0)  # [1, N] for single value channel
     v_bn_gamma = sd["value_bn.weight"]
     v_bn_beta = sd["value_bn.bias"]
-    v_bn_var = sd["value_bn.running_var"]
-    v_bn_mean = sd["value_bn.running_mean"]
+    v_bn_var = sd.get("value_bn.running_var")  # None for GroupNorm checkpoints
+    v_bn_mean = sd.get("value_bn.running_mean")
     num_ch = vc_w.shape[0]
 
-    print(f"\nValue BN parameters per channel:")
-    print(f"  {'ch':>3} | {'gamma':>7} | {'beta':>7} | {'var':>8} | {'mean':>8} | {'eff_gain':>8}")
-    for i in range(num_ch):
-        eff_gain = v_bn_gamma[i].item() / (v_bn_var[i].item() + 1e-5)**0.5
-        print(f"  {i:>3} | {v_bn_gamma[i].item():>7.4f} | {v_bn_beta[i].item():>7.4f} | {v_bn_var[i].item():>8.6f} | {v_bn_mean[i].item():>8.6f} | {eff_gain:>8.2f}")
+    norm_type = "BN" if v_bn_var is not None else "GN"
+    print(f"\nValue {norm_type} parameters per channel:")
+    if v_bn_var is not None:
+        print(f"  {'ch':>3} | {'gamma':>7} | {'beta':>7} | {'var':>8} | {'mean':>8} | {'eff_gain':>8}")
+        for i in range(num_ch):
+            eff_gain = v_bn_gamma[i].item() / (v_bn_var[i].item() + 1e-5)**0.5
+            print(f"  {i:>3} | {v_bn_gamma[i].item():>7.4f} | {v_bn_beta[i].item():>7.4f} | {v_bn_var[i].item():>8.6f} | {v_bn_mean[i].item():>8.6f} | {eff_gain:>8.2f}")
+    else:
+        print(f"  {'ch':>3} | {'gamma':>7} | {'beta':>7}")
+        for i in range(num_ch):
+            print(f"  {i:>3} | {v_bn_gamma[i].item():>7.4f} | {v_bn_beta[i].item():>7.4f}")
 
     print(f"\nValue conv attention spread (per output channel):")
     for i in range(num_ch):
@@ -252,8 +258,11 @@ def section_value_conv(sd):
         ch_sorted = ch_w.argsort(descending=True)
         top5_pct = ch_w[ch_sorted[:5]].sum().item() / ch_w.sum().item() * 100
         top20_pct = ch_w[ch_sorted[:20]].sum().item() / ch_w.sum().item() * 100
-        eff_gain = v_bn_gamma[i].item() / (v_bn_var[i].item() + 1e-5)**0.5
-        print(f"  ch{i}: top5={top5_pct:.1f}%  top20={top20_pct:.1f}%  total_w={ch_w.sum().item():.3f}  eff_gain={eff_gain:.1f}  top3_bb={ch_sorted[:3].tolist()}")
+        eff_str = ""
+        if v_bn_var is not None:
+            eff_gain = v_bn_gamma[i].item() / (v_bn_var[i].item() + 1e-5)**0.5
+            eff_str = f"  eff_gain={eff_gain:.1f}"
+        print(f"  ch{i}: top5={top5_pct:.1f}%  top20={top20_pct:.1f}%  total_w={ch_w.sum().item():.3f}{eff_str}  top3_bb={ch_sorted[:3].tolist()}")
 
 def section_svd_rank(sd, arch):
     """Section 5: SVD effective rank analysis."""
@@ -290,28 +299,40 @@ def section_bn_analysis(sd, arch):
     for i in range(R):
         layers.extend([f"res_blocks.{i}.bn1", f"res_blocks.{i}.bn2"])
 
-    print(f"\nBN effective gain (gamma / sqrt(var + eps)) per layer:")
-    for layer_name in layers:
-        gamma = sd[f"{layer_name}.weight"]
-        var = sd[f"{layer_name}.running_var"]
-        eff_gain = gamma / (var + 1e-5).sqrt()
-        near_zero = (eff_gain.abs() < 0.1).sum().item()
-        neg = (gamma < -0.01).sum().item()
-        print(f"  {layer_name:>22}: |gain| mean={eff_gain.abs().mean():.2f}  near_zero(<0.1)={near_zero}/{N}  neg_gamma={neg}  range=[{eff_gain.min():.2f}, {eff_gain.max():.2f}]")
+    has_running_var = f"bn.running_var" in sd
+    if has_running_var:
+        print(f"\nBN effective gain (gamma / sqrt(var + eps)) per layer:")
+        for layer_name in layers:
+            gamma = sd[f"{layer_name}.weight"]
+            var = sd[f"{layer_name}.running_var"]
+            eff_gain = gamma / (var + 1e-5).sqrt()
+            near_zero = (eff_gain.abs() < 0.1).sum().item()
+            neg = (gamma < -0.01).sum().item()
+            print(f"  {layer_name:>22}: |gain| mean={eff_gain.abs().mean():.2f}  near_zero(<0.1)={near_zero}/{N}  neg_gamma={neg}  range=[{eff_gain.min():.2f}, {eff_gain.max():.2f}]")
+    else:
+        print(f"\nGroupNorm gamma per layer (no running stats):")
+        for layer_name in layers:
+            gamma = sd[f"{layer_name}.weight"]
+            near_zero = (gamma.abs() < 0.1).sum().item()
+            neg = (gamma < -0.01).sum().item()
+            print(f"  {layer_name:>22}: |gamma| mean={gamma.abs().mean():.2f}  near_zero(<0.1)={near_zero}/{N}  neg_gamma={neg}  range=[{gamma.min():.2f}, {gamma.max():.2f}]")
 
-    # Overlap of dead channels across res block outputs (bn2)
+    # Overlap of dead channels across res block outputs (bn2/gn2)
     dead_sets = []
     for i in range(R):
         layer_name = f"res_blocks.{i}.bn2"
         gamma = sd[f"{layer_name}.weight"]
-        var = sd[f"{layer_name}.running_var"]
-        eff_gain = gamma / (var + 1e-5).sqrt()
-        dead_idx = (eff_gain.abs() < 0.1).nonzero().squeeze(-1).tolist()
+        if has_running_var:
+            var = sd[f"{layer_name}.running_var"]
+            eff_gain = gamma / (var + 1e-5).sqrt()
+            dead_idx = (eff_gain.abs() < 0.1).nonzero().squeeze(-1).tolist()
+        else:
+            dead_idx = (gamma.abs() < 0.1).nonzero().squeeze(-1).tolist()
         if isinstance(dead_idx, int):
             dead_idx = [dead_idx]
         dead_sets.append(set(dead_idx))
 
-    print(f"\nBN dead channel overlap (|gain| < 0.1) across res block outputs:")
+    print(f"\nNorm dead channel overlap ({'|gain|' if has_running_var else '|gamma|'} < 0.1) across res block outputs:")
     for i, s in enumerate(dead_sets):
         print(f"  rb{i}.bn2: {len(s)} dead")
     if R >= 2:
@@ -375,22 +396,30 @@ def section_policy_head(sd, arch):
     else:
         print(f"\n  Single policy channel: L1={ch_norms[0].item():.4f}")
 
-    # --- 7b: Policy BN analysis ---
+    # --- 7b: Policy norm analysis ---
     p_bn_gamma = sd["policy_bn.weight"]
     p_bn_beta = sd["policy_bn.bias"]
-    p_bn_var = sd["policy_bn.running_var"]
-    p_bn_mean = sd["policy_bn.running_mean"]
+    p_bn_var = sd.get("policy_bn.running_var")
+    p_bn_mean = sd.get("policy_bn.running_mean")
 
-    print(f"\n  Policy BN per channel:")
-    print(f"  {'ch':>3} | {'gamma':>7} | {'beta':>7} | {'var':>8} | {'mean':>8} | {'eff_gain':>8}")
-    for i in range(p_bn_gamma.shape[0]):
-        eff_gain = p_bn_gamma[i].item() / (p_bn_var[i].item() + 1e-5)**0.5
-        print(f"  {i:>3} | {p_bn_gamma[i].item():>7.4f} | {p_bn_beta[i].item():>7.4f} | {p_bn_var[i].item():>8.6f} | {p_bn_mean[i].item():>8.6f} | {eff_gain:>8.2f}")
-
-    eff_gains = p_bn_gamma / (p_bn_var + 1e-5).sqrt()
-    near_zero = (eff_gains.abs() < 0.1).sum().item()
-    if near_zero > 0:
-        print(f"  WARNING: {near_zero}/{p_bn_gamma.shape[0]} channels near-zero effective gain")
+    p_norm_type = "BN" if p_bn_var is not None else "GN"
+    print(f"\n  Policy {p_norm_type} per channel:")
+    if p_bn_var is not None:
+        print(f"  {'ch':>3} | {'gamma':>7} | {'beta':>7} | {'var':>8} | {'mean':>8} | {'eff_gain':>8}")
+        for i in range(p_bn_gamma.shape[0]):
+            eff_gain = p_bn_gamma[i].item() / (p_bn_var[i].item() + 1e-5)**0.5
+            print(f"  {i:>3} | {p_bn_gamma[i].item():>7.4f} | {p_bn_beta[i].item():>7.4f} | {p_bn_var[i].item():>8.6f} | {p_bn_mean[i].item():>8.6f} | {eff_gain:>8.2f}")
+        eff_gains = p_bn_gamma / (p_bn_var + 1e-5).sqrt()
+        near_zero = (eff_gains.abs() < 0.1).sum().item()
+        if near_zero > 0:
+            print(f"  WARNING: {near_zero}/{p_bn_gamma.shape[0]} channels near-zero effective gain")
+    else:
+        print(f"  {'ch':>3} | {'gamma':>7} | {'beta':>7}")
+        for i in range(p_bn_gamma.shape[0]):
+            print(f"  {i:>3} | {p_bn_gamma[i].item():>7.4f} | {p_bn_beta[i].item():>7.4f}")
+        near_zero = (p_bn_gamma.abs() < 0.1).sum().item()
+        if near_zero > 0:
+            print(f"  WARNING: {near_zero}/{p_bn_gamma.shape[0]} channels near-zero gamma")
 
     # --- 7c: Policy FC analysis ---
     pfc_w = sd["policy_fc.weight"]  # shape: [action_size, 2*board_area]

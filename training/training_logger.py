@@ -47,23 +47,18 @@ class TrainingLogger:
         ("vp/val_top20_act", "vp_val_top20_act"), ("vp/pol_top20_act", "vp_pol_top20_act"),
         ("vp/val_health_corr", "vp_val_health_corr"), ("vp/pol_health_corr", "vp_pol_health_corr"),
         ("svd/bb_rank90", "svd_bb_rank90"), ("svd/bb_rank99", "svd_bb_rank99"),
-        ("svd/bb_near_zero", "svd_bb_near_zero"), ("svd/bn_dead_deepest", "bn_dead_deepest"),
+        ("svd/bb_near_zero", "svd_bb_near_zero"), ("svd/gn_dead_deepest", "gn_dead_deepest"),
         ("svd/pfc_rank90", "svd_pfc_rank90"), ("svd/pfc_rank99", "svd_pfc_rank99"),
-        ("diag/final_bn_eff_gain_mean", "final_bn_eff_gain_mean"),
-        ("diag/final_bn_eff_gain_min", "final_bn_eff_gain_min"),
         ("diag/final_bn_dead", "final_bn_dead"),
         ("diag/final_bn_gamma_mean", "final_bn_gamma_mean"),
         ("diag/final_bn_gamma_std", "final_bn_gamma_std"),
-        ("diag/final_bn_sqrt_var_mean", "final_bn_sqrt_var_mean"),
-        ("diag/final_bn_sqrt_var_std", "final_bn_sqrt_var_std"),
         ("diag/init_conv_w_norm", "init_conv_w_norm"),
     ]
 
     _VH_PER_BLOCK = [
         ("all_rb_bn", [
             ("bn2_dead", "dead"), ("bn2_neg_gamma", "neg_gamma"),
-            ("bn2_eff_gain_mean", "eff_gain_mean"), ("svd_rank90", "svd_rank90"),
-            ("bn2_gamma_mean", "gamma_mean"), ("bn2_sqrt_var_mean", "sqrt_var_mean"),
+            ("svd_rank90", "svd_rank90"), ("bn2_gamma_mean", "gamma_mean"),
         ]),
         ("rb_act_stats", [
             ("act_abs_mean", "abs_mean"), ("act_std", "std"),
@@ -76,9 +71,7 @@ class TrainingLogger:
         ("rb_bn2_stats", [
             ("bn2_out_abs", "bn2_out_abs"), ("bn2_out_std", "bn2_out_std"),
             ("conv2_raw_var", "conv2_raw_var"), ("conv2_raw_abs", "conv2_raw_abs"),
-            ("bn2_bv_rv_ratio", "bn2_batch_vs_run_var_mean"),
             ("bn2_batch_var", "bn2_batch_var_mean"),
-            ("bn2_run_var", "bn2_run_var_mean"),
         ]),
         ("rb_res_rank", [("res_rank90", "rank90"), ("res_rank99", "rank99")]),
     ]
@@ -521,14 +514,11 @@ class TrainingLogger:
               f"bn_ratio={vh['bn_ratio']:.3f}")
         gamma = vh['vbn_gamma']
         beta = vh['vbn_beta']
-        rvar = vh['vbn_running_var']
         gamma_str = " ".join(f"{g:.3f}" for g in gamma)
         beta_str = " ".join(f"{b:+.3f}" for b in beta)
-        rvar_str = " ".join(f"{v:.3f}" for v in rvar)
-        print(f"  Diag[VC3]: bn_gamma=[{gamma_str}] "
+        print(f"  Diag[VC3]: gn_gamma=[{gamma_str}] "
               f"min={vh['vbn_gamma_min']:.3f}")
-        print(f"  Diag[VC4]: bn_beta=[{beta_str}]")
-        print(f"  Diag[VC5]: bn_run_var=[{rvar_str}]")
+        print(f"  Diag[VC4]: gn_beta=[{beta_str}]")
         print(f"  Diag[VC6]: policy_conv |x|={vh['pconv_abs']:.3f} "
               f"std={vh['pconv_std']:.3f} | "
               f"vconv_grad={vh['vconv_grad_norm']:.4f}")
@@ -592,7 +582,7 @@ class TrainingLogger:
                   f"rank90={vh['svd_bb_rank90']}/{vh['svd_bb_total']} "
                   f"rank99={vh['svd_bb_rank99']}/{vh['svd_bb_total']} "
                   f"near_zero_sv={vh['svd_bb_near_zero']} "
-                  f"bn_dead={vh['bn_dead_deepest']}")
+                  f"gn_dead={vh['gn_dead_deepest']}")
             pc_str = " ".join(f"ch{i}={n:.3f}" for i, n in enumerate(vh['pconv_ch_norms']))
             print(f"  Diag[PH]: policy_fc: "
                   f"rank90={vh['svd_pfc_rank90']}/{vh['svd_pfc_max_rank']} "
@@ -604,12 +594,9 @@ class TrainingLogger:
             parts = [f"  Diag[RB{bi}]:"]
             if bi in all_rb_bn_data:
                 rbd = all_rb_bn_data[bi]
-                parts.append(f"bn2: dead={rbd.get('dead',0)} "
+                parts.append(f"gn2: dead={rbd.get('dead',0)} "
                              f"neg_gamma={rbd.get('neg_gamma',0)} "
-                             f"eff_gain={rbd.get('eff_gain_mean',0):.2f}/"
-                             f"{rbd.get('eff_gain_max',0):.2f} "
-                             f"gamma={rbd.get('gamma_mean',0):.3f}(+/-{rbd.get('gamma_std',0):.3f}) "
-                             f"sqrt_var={rbd.get('sqrt_var_mean',0):.3f}(+/-{rbd.get('sqrt_var_std',0):.3f})")
+                             f"gamma={rbd.get('gamma_mean',0):.3f}(+/-{rbd.get('gamma_std',0):.3f})")
                 parts.append(f"svd_rank90={rbd.get('svd_rank90',0)}/"
                              f"{rbd.get('svd_total',0)}")
             if bi in rb_act_data:
@@ -630,12 +617,9 @@ class TrainingLogger:
                 if 'conv2_raw_var' in rbs:
                     if s: s += " | "
                     s += f"conv2_raw: var={rbs['conv2_raw_var']:.4f} |x|={rbs['conv2_raw_abs']:.3f}"
-                if 'bn2_batch_vs_run_var_mean' in rbs:
+                if 'bn2_batch_var_mean' in rbs:
                     if s: s += " | "
-                    s += (f"bv/rv={rbs['bn2_batch_vs_run_var_mean']:.3f}"
-                          f"(+/-{rbs['bn2_batch_vs_run_var_std']:.3f})"
-                          f" bv={rbs['bn2_batch_var_mean']:.4f}"
-                          f" rv={rbs['bn2_run_var_mean']:.4f}")
+                    s += f"batch_var={rbs['bn2_batch_var_mean']:.4f}"
                 if s:
                     parts2.append(s)
             rrk = vh.get('rb_res_rank', {}).get(bi)
@@ -646,14 +630,10 @@ class TrainingLogger:
                 parts2.append(f"ch_vdom={rcd[bi]}/{vh.get('bb_n_channels', '?')}")
             if parts2:
                 print(f"           {' | '.join(parts2)}")
-        if 'final_bn_eff_gain_mean' in vh:
-            print(f"  Diag[FBN]: eff_gain "
-                  f"mean={vh['final_bn_eff_gain_mean']:.3f} "
-                  f"min={vh['final_bn_eff_gain_min']:.3f} "
-                  f"max={vh['final_bn_eff_gain_max']:.3f} "
-                  f"dead={vh['final_bn_dead']} "
-                  f"| gamma={vh.get('final_bn_gamma_mean',0):.3f}(+/-{vh.get('final_bn_gamma_std',0):.3f}) "
-                  f"sqrt_var={vh.get('final_bn_sqrt_var_mean',0):.3f}(+/-{vh.get('final_bn_sqrt_var_std',0):.3f})")
+        if 'final_bn_gamma_mean' in vh:
+            print(f"  Diag[FGN]: final_gn "
+                  f"gamma={vh.get('final_bn_gamma_mean',0):.3f}(+/-{vh.get('final_bn_gamma_std',0):.3f}) "
+                  f"dead={vh['final_bn_dead']}")
         rr = vh.get('rb_residual_ratios', {})
         if rr:
             rr_str = " ".join(f"rb{k}={v:.3f}" for k, v in sorted(rr.items()))
@@ -773,33 +753,39 @@ class TrainingLogger:
                     writer.add_scalar(f"fe_sens/{name}_total_drift", s['total_drift'], iteration)
                 print(f"  Diag[SENS]: {' | '.join(parts)}")
 
-            # BN train/eval gap on FixedEval positions
-            _bn_gap = t._train_diag.get('bn_gap_trajectory', [])
-            if _bn_gap:
-                _bg_names = [k for k in _bn_gap[0] if k != 'step']
-                _bg_last = _bn_gap[-1]
-                _bg_parts = []
-                for _pn in _bg_names:
-                    _bg_parts.append(f"{_pn}={_bg_last[_pn]:+.3f}")
-                    writer.add_scalar(f"bn_gap/{_pn}_last", _bg_last[_pn], iteration)
-                _bg_vals = [abs(_bg_last[k]) for k in _bg_names]
-                _bg_mean = np.mean(_bg_vals)
-                _bg_max = np.max(_bg_vals)
-                writer.add_scalar("bn_gap/mean_abs_last", _bg_mean, iteration)
-                writer.add_scalar("bn_gap/max_abs_last", _bg_max, iteration)
-                print(f"  Diag[BN_GAP]: {' '.join(_bg_parts)} | mean={_bg_mean:.3f} max={_bg_max:.3f}")
+            # GN sanity: train/eval gap (first iter only)
+            _gn_sanity = t._train_diag.get('gn_sanity', {})
+            if _gn_sanity:
+                _gs_parts = [f"{k}={v:.6f}" for k, v in _gn_sanity['per_pos'].items()]
+                _status = "OK" if _gn_sanity['max_gap'] < 1e-6 else "FAIL"
+                print(f"  Diag[GN_SANITY]: {_status} max_gap={_gn_sanity['max_gap']:.2e} "
+                      f"| {' '.join(_gs_parts)}")
+                writer.add_scalar("gn_sanity/max_gap", _gn_sanity['max_gap'], iteration)
 
-            # BN running stats drift between iterations
-            _bn_drift = t._train_diag.get('bn_drift', {})
-            if _bn_drift:
-                writer.add_scalar("bn_drift/mean_rel", _bn_drift['mean_rel'], iteration)
-                writer.add_scalar("bn_drift/var_rel", _bn_drift['var_rel'], iteration)
-                writer.add_scalar("bn_drift/mean_max", _bn_drift['mean_max'], iteration)
-                writer.add_scalar("bn_drift/var_max", _bn_drift['var_max'], iteration)
-                print(f"  Diag[BN_DRIFT]: mean_drift={_bn_drift['mean_rel']:.4f} "
-                      f"var_drift={_bn_drift['var_rel']:.4f} "
-                      f"(max: m={_bn_drift['mean_max']:.4f} v={_bn_drift['var_max']:.4f}, "
-                      f"{_bn_drift['n_layers']} layers)")
+            # GN health: group variance, saturation, gamma
+            _gn_gvar = t._train_diag.get('gn_group_var_trajectory', [])
+            if _gn_gvar:
+                _gv_last = _gn_gvar[-1]
+                _warnings = []
+                if _gv_last['num_degenerate'] > 0:
+                    _warnings.append(f"DEGENERATE:{_gv_last['num_degenerate']}/{_gv_last['num_layers']}")
+                if _gv_last.get('sat_frac', 0) > 0.05:
+                    _warnings.append(f"SAT:{_gv_last['sat_frac']:.1%}")
+                if _gv_last.get('gamma_max', 0) > 5.0:
+                    _warnings.append(f"GAMMA_HIGH:{_gv_last['gamma_max']:.1f}")
+                if _gv_last.get('gamma_min', 1) < 0.01:
+                    _warnings.append(f"GAMMA_LOW:{_gv_last['gamma_min']:.3f}")
+                _warn_str = f" | {' '.join(_warnings)}" if _warnings else ""
+                print(f"  Diag[GN_HEALTH]: var={_gv_last['min_var']:.2e}/{_gv_last['mean_var']:.4f} "
+                      f"sat={_gv_last.get('sat_frac', 0):.3f} "
+                      f"gamma=[{_gv_last.get('gamma_min', 0):.3f},{_gv_last.get('gamma_max', 0):.3f}]"
+                      f"{_warn_str}")
+                writer.add_scalar("gn_health/min_var", _gv_last['min_var'], iteration)
+                writer.add_scalar("gn_health/mean_var", _gv_last['mean_var'], iteration)
+                writer.add_scalar("gn_health/num_degenerate", _gv_last['num_degenerate'], iteration)
+                writer.add_scalar("gn_health/sat_frac", _gv_last.get('sat_frac', 0), iteration)
+                writer.add_scalar("gn_health/gamma_max", _gv_last.get('gamma_max', 0), iteration)
+                writer.add_scalar("gn_health/gamma_min", _gv_last.get('gamma_min', 0), iteration)
 
     def eval_diagnostic_positions(self, iteration, prefix="", label="FixedEval"):
         """Evaluate the network on fixed diagnostic positions every iteration."""
