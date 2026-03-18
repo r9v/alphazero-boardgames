@@ -890,6 +890,9 @@ class TrainingLogger:
                 t.net.value_bn(t.net.value_conv(bb_out)), negative_slope=0.01
             )  # [N, 4, H, W]
             vconv_act = vconv_out.mean(dim=(2, 3)).cpu().numpy()  # [N, 4] per-channel mean
+            # Flattened vconv features and fc1 activations for cosine similarity
+            vconv_flat = vconv_out.view(vconv_out.size(0), -1)  # [N, 4*H*W]
+            fc1_out = F_torch.leaky_relu(t.net.value_fc1(vconv_flat), negative_slope=0.01)  # [N, 64]
 
         n = len(positions)
         print(f"  {label}:")
@@ -910,6 +913,25 @@ class TrainingLogger:
             print(f"    {name}: V={value:+.4f} top_act={top_action} swap_d={swap_delta:+.4f} "
                   f"sym={sym_err:+.4f} ({expected_str})")
             print(f"      WDL=[{w:.3f} {d:.3f} {l:.3f}] vconv=[{ch_str}]")
+
+        # Pairwise cosine similarity of flattened vconv features and fc1 activations
+        # between all "I'm winning" positions to see if the value head distinguishes them
+        win_positions = [(i, name) for i, (name, _, desc) in enumerate(positions)
+                         if '+0.5' in desc]
+        if len(win_positions) >= 2:
+            cos = F_torch.cosine_similarity
+            parts_vconv = []
+            parts_fc1 = []
+            for idx_a in range(len(win_positions)):
+                for idx_b in range(idx_a + 1, len(win_positions)):
+                    ia, na = win_positions[idx_a]
+                    ib, nb = win_positions[idx_b]
+                    cv = cos(vconv_flat[ia:ia+1], vconv_flat[ib:ib+1]).item()
+                    cf = cos(fc1_out[ia:ia+1], fc1_out[ib:ib+1]).item()
+                    parts_vconv.append(f"{na[:5]}~{nb[:5]}={cv:.2f}")
+                    parts_fc1.append(f"{na[:5]}~{nb[:5]}={cf:.2f}")
+            print(f"  Diag[FE_COS]: vconv_flat: {' '.join(parts_vconv)}")
+            print(f"  Diag[FE_COS]: fc1:        {' '.join(parts_fc1)}")
 
     def _get_diagnostic_positions(self):
         """Return a list of (name, state_input, expected_description) for fixed evaluation."""
