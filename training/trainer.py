@@ -92,10 +92,11 @@ class Trainer:
 
         # EMA weights for self-play stabilization
         self.ema_decay = self.config.get("ema_decay", 0.0)
+        self.ema_warmup_iters = self.config.get("ema_warmup_iters", 0)
         if self.ema_decay > 0:
             self._ema_state = {n: p.data.clone() for n, p in net.named_parameters()}
             self._train_state = None  # lazily allocated during swap
-            print(f"  EMA enabled: decay={self.ema_decay}")
+            print(f"  EMA enabled: decay={self.ema_decay}, warmup={self.ema_warmup_iters} iters")
         else:
             self._ema_state = None
 
@@ -851,8 +852,10 @@ class Trainer:
         for iteration in range(num_iterations):
             iter_t0 = time.time()
 
-            # EMA: use smoothed weights for self-play
-            if self._ema_state is not None:
+            # EMA: use smoothed weights for self-play (skip during warmup)
+            ema_active = (self._ema_state is not None
+                          and iteration >= self.ema_warmup_iters)
+            if ema_active:
                 self._swap_to_ema()
 
             # Self-play
@@ -861,7 +864,7 @@ class Trainer:
             self_play_time = time.time() - t0
 
             # EMA: restore training weights for training
-            if self._ema_state is not None:
+            if ema_active:
                 self._swap_to_train()
 
             # Augment with symmetries (e.g. left-right mirror for Connect4)
@@ -985,10 +988,16 @@ class Trainer:
             except Exception as e:
                 print(f"  [DIAG-DBG] Weight delta measurement failed: {e}")
 
-            # EMA: update weights (with optional gating)
+            # EMA: update weights (skip during warmup, reinit at boundary)
             ema_diag = None
             if self._ema_state is not None:
-                ema_diag = self._ema_update_step(iteration)
+                if iteration == self.ema_warmup_iters and self.ema_warmup_iters > 0:
+                    # Warmup just ended: reinit EMA from current training weights
+                    for n, p in self.net.named_parameters():
+                        self._ema_state[n].copy_(p.data)
+                    print(f"  EMA: warmup ended, reinitialized from training weights")
+                if iteration >= self.ema_warmup_iters:
+                    ema_diag = self._ema_update_step(iteration)
 
             iter_time = time.time() - iter_t0
 
