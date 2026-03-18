@@ -912,7 +912,9 @@ class Trainer:
                     buf_samples = [s for s in self.buffer.arr if s is not None]
                     probe_batch = random.sample(buf_samples, min(1024, len(buf_samples)))
                     probe_inputs = torch.FloatTensor(np.array([s[0] for s in probe_batch])).to(self.device)
-                    probe_targets = torch.LongTensor([raw_value_to_wdl_class(s[2]) for s in probe_batch]).to(self.device)
+                    probe_targets = torch.LongTensor(
+                        raw_value_to_wdl_class(np.array([s[2] for s in probe_batch]))
+                    ).to(self.device)
 
                     # Forward on buffer batch, backward to get gradients
                     self.net.train()

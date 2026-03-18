@@ -49,6 +49,7 @@ def make_net(game, game_name):
         backbone_dropout=cfg.get("backbone_dropout", 0.15),
         num_groups=cfg.get("num_groups", 8),
         resblock_dropout=cfg.get("resblock_dropout", 0.0),
+        se_ratio=cfg.get("se_ratio", 0),
     )
 
 

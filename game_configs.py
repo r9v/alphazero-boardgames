@@ -43,6 +43,7 @@ GAME_CONFIGS = {
         "value_head_channels": 8,
         "value_head_fc_size": 64,
         "policy_head_channels": 2,
+        "se_ratio": 4,
 
         # --- Training ---
         "train_ratio": 8,

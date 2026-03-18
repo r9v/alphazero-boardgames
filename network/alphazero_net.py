@@ -38,7 +38,7 @@ class ResBlock(nn.Module):
     GroupNorm used instead of BatchNorm: immune to non-stationary RL data
     distribution (no running stats to drift).
     """
-    def __init__(self, num_filters, res_scale=0.5, num_groups=8, dropout=0.0):
+    def __init__(self, num_filters, res_scale=0.5, num_groups=8, dropout=0.0, se_ratio=0):
         super().__init__()
         self.bn1 = nn.GroupNorm(num_groups, num_filters)
         self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
@@ -47,12 +47,26 @@ class ResBlock(nn.Module):
         self.res_scale = res_scale
         self.drop = nn.Dropout2d(p=dropout) if dropout > 0 else None
 
+        # Squeeze-and-Excitation: global context → channel attention
+        if se_ratio > 0:
+            se_channels = num_filters // se_ratio
+            self.se_fc1 = nn.Linear(num_filters, se_channels)
+            self.se_fc2 = nn.Linear(se_channels, num_filters)
+        else:
+            self.se_fc1 = None
+
     def forward(self, x):
         residual = x
         x = ws_conv2d(F.relu(self.bn1(x)), self.conv1)
         if self.drop is not None:
             x = self.drop(x)
         x = ws_conv2d(F.relu(self.bn2(x)), self.conv2)
+        if self.se_fc1 is not None:
+            b, c, h, w = x.shape
+            se = x.mean(dim=(2, 3))
+            se = F.relu(self.se_fc1(se))
+            se = torch.sigmoid(self.se_fc2(se))
+            x = x * se.view(b, c, 1, 1)
         return x * self.res_scale + residual
 
 
@@ -62,7 +76,7 @@ class AlphaZeroNet(nn.Module):
                  value_head_channels=2, value_head_fc_size=64,
                  policy_head_channels=2,
                  backbone_dropout=0.15, num_groups=8,
-                 resblock_dropout=0.0):
+                 resblock_dropout=0.0, se_ratio=0):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
@@ -77,7 +91,7 @@ class AlphaZeroNet(nn.Module):
         res_scale = num_res_blocks ** -0.5
         self.res_blocks = nn.ModuleList(
             [ResBlock(num_filters, res_scale=res_scale, num_groups=num_groups,
-                      dropout=resblock_dropout)
+                      dropout=resblock_dropout, se_ratio=se_ratio)
              for _ in range(num_res_blocks)]
         )
 
