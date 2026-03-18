@@ -875,6 +875,22 @@ class TrainingLogger:
         all_inputs = originals + swapped + mirrored
         all_values, all_policies = t.net.batch_predict(all_inputs)
 
+        # Get WDL probabilities and value conv activations for original positions
+        import torch
+        import torch.nn.functional as F_torch
+        t.net.eval()
+        with torch.no_grad():
+            inp_t = torch.FloatTensor(np.array(originals)).to(t.device)
+            # Full forward to get WDL logits
+            wdl_logits, _ = t.net(inp_t)
+            wdl_probs = F_torch.softmax(wdl_logits, dim=1).cpu().numpy()  # [N, 3]
+            # Value conv activations: backbone -> value_conv -> value_bn
+            bb_out = t.net.backbone_forward(inp_t)
+            vconv_out = F_torch.leaky_relu(
+                t.net.value_bn(t.net.value_conv(bb_out)), negative_slope=0.01
+            )  # [N, 4, H, W]
+            vconv_act = vconv_out.mean(dim=(2, 3)).cpu().numpy()  # [N, 4] per-channel mean
+
         n = len(positions)
         print(f"  {label}:")
         for i, (name, state_input, expected_str) in enumerate(positions):
@@ -887,8 +903,13 @@ class TrainingLogger:
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_top_action", top_action, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_swap_delta", swap_delta, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_sym_err", sym_err, iteration)
+            # WDL probabilities
+            w, d, l = wdl_probs[i]
+            # Value conv per-channel activations
+            ch_str = " ".join(f"{vconv_act[i][c]:+.3f}" for c in range(vconv_act.shape[1]))
             print(f"    {name}: V={value:+.4f} top_act={top_action} swap_d={swap_delta:+.4f} "
                   f"sym={sym_err:+.4f} ({expected_str})")
+            print(f"      WDL=[{w:.3f} {d:.3f} {l:.3f}] vconv=[{ch_str}]")
 
     def _get_diagnostic_positions(self):
         """Return a list of (name, state_input, expected_description) for fixed evaluation."""
@@ -934,6 +955,36 @@ class TrainingLogger:
         board[0][4] = 1
         s = C4State(None, board, player=-1)
         positions.append(("x_center", t.game.state_to_input(s), "expect > 0 (I'm slightly winning)"))
+
+        # Vertical near-win: X has 3 stacked in col 3 (center), plays col 3 to win
+        # Board: row0=[.O...OO] row1=[...X...] row2=[...X...] row3=[...X...]
+        # Wait - pieces fall, so col 3 fills from row 0 up.
+        # row0: .O...OO  row1: ...X...  row2: ...X...
+        # X at (0,3),(1,3),(2,3). O at (0,1),(0,5),(0,6). 3X 3O = X to move.
+        # X plays col 3 -> (3,3) -> vertical 4.
+        board = np.zeros((6, 7), dtype="int")
+        board[0][3] = -1
+        board[1][3] = -1
+        board[2][3] = -1
+        board[0][1] = 1
+        board[0][5] = 1
+        board[0][6] = 1
+        s = C4State(None, board, player=-1)
+        positions.append(("vert_wins", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
+
+        # Horizontal near-win (right side): X has 3-in-a-row at cols 4,5,6
+        # Board: row0=[OO..XXX] row1=[O......]
+        # X at (0,4),(0,5),(0,6). O at (0,0),(0,1),(1,0). 3X 3O = X to move.
+        # X plays col 3 -> (0,3) -> horizontal 4 at cols 3,4,5,6.
+        board = np.zeros((6, 7), dtype="int")
+        board[0][4] = -1
+        board[0][5] = -1
+        board[0][6] = -1
+        board[0][0] = 1
+        board[0][1] = 1
+        board[1][0] = 1
+        s = C4State(None, board, player=-1)
+        positions.append(("horiz_right", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
         return positions
 
