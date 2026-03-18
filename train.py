@@ -52,8 +52,11 @@ def main():
     if device == "cuda":
         net.compile_for_inference()
 
+    random_opening = game_cfg.get('random_opening_moves', 0)
     print(f"Config: {args.game} | iters={num_iterations} games={num_games} "
           f"sims={num_simulations}")
+    if random_opening > 0:
+        print(f"  Forced openings: 0-{random_opening} random moves per game")
 
     config = {
         **game_cfg,

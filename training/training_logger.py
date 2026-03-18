@@ -109,22 +109,32 @@ class TrainingLogger:
         writer.add_scalar("perf/self_play_time", stats['self_play_time'], iteration)
         writer.add_scalar("perf/train_time", stats['train_time'], iteration)
 
+        self._log_random_openings(iteration)
         self._log_mcts_perf(iteration)
         self._log_training_perf(iteration)
         self._log_training_diagnostics(iteration, stats)
         self._log_selfplay_value_diagnostics(iteration)
         self._log_intra_iteration_dynamics(iteration)
         self.eval_diagnostic_positions(iteration)
-        self._log_ema_diagnostics(iteration, stats.get('ema_diag'))
 
-    def _log_ema_diagnostics(self, iteration, ema_diag):
-        """Log EMA weight distance and gating decisions."""
-        if ema_diag is None:
+    def _log_random_openings(self, iteration):
+        """Log forced random opening statistics."""
+        t = self._t
+        if not (hasattr(t, '_batched') and hasattr(t._batched, 'perf')):
             return
+        perf = t._batched.perf
+        total = perf.get('random_opening_total', 0)
+        if total == 0:
+            return
+        terminated = perf.get('random_opening_terminated', 0)
+        surviving = perf.get('random_opening_surviving', t.games_per_iteration)
+        avg_random = total / max(t.games_per_iteration, 1)
+        print(f"  Diag: random_opening avg={avg_random:.1f} moves, "
+              f"{terminated} games terminated during opening, "
+              f"{surviving}/{t.games_per_iteration} survived")
         writer = self.writer
-        l2 = ema_diag['ema_l2_dist']
-        writer.add_scalar("ema/l2_dist", l2, iteration)
-        print(f"  EMA: L2_dist={l2:.4f}")
+        writer.add_scalar("self_play/random_opening_avg", avg_random, iteration)
+        writer.add_scalar("self_play/random_opening_terminated", terminated, iteration)
 
     def _log_self_play_stats(self, iteration, stats):
         """Log 3-in-a-row, self-play counts, pre-seg, drift, weight delta."""

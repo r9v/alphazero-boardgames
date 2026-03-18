@@ -40,7 +40,8 @@ class BatchedSelfPlay:
                  temp_threshold=15, c_puct=1.5,
                  dirichlet_alpha=1.0, dirichlet_epsilon=0.25,
                  tree_reuse=True, resign_threshold=-1.0,
-                 resign_min_moves=99, resign_check_prob=0.0):
+                 resign_min_moves=99, resign_check_prob=0.0,
+                 random_opening_moves=0):
         self.game = game
         self.net = net
         self.num_games = num_games
@@ -54,6 +55,7 @@ class BatchedSelfPlay:
         self.resign_threshold = resign_threshold
         self.resign_min_moves = resign_min_moves
         self.resign_check_prob = resign_check_prob
+        self.random_opening_moves = random_opening_moves
         self.mcts = MCTS(game, net, c_puct=c_puct)
 
         # Log backends once
@@ -86,6 +88,8 @@ class BatchedSelfPlay:
             'resign_count': 0, 'resign_move_sum': 0,
             'resign_false_positives': 0, 'resign_check_count': 0,
             'imm_win_count': 0, 'imm_win_total': 0,
+            'random_opening_total': 0, 'random_opening_terminated': 0,
+            'random_opening_surviving': self.num_games,
         }
 
         self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value, mcts_Q) per move
@@ -98,6 +102,43 @@ class BatchedSelfPlay:
         active = list(range(self.num_games))  # indices of games still in progress
         move_counts = [0] * self.num_games
 
+        # --- Forced random openings for position diversity ---
+        # Each game plays K random legal moves (K ~ Uniform(0, max)) before MCTS.
+        # No training data recorded during random moves.
+        random_opening_counts = [0] * self.num_games  # actual K per game
+        if self.random_opening_moves > 0:
+            total_random = 0
+            total_terminated = 0
+            for i in range(self.num_games):
+                k = random.randint(0, self.random_opening_moves)
+                for m in range(k):
+                    legal = states[i].available_actions
+                    legal_indices = [a for a in range(len(legal)) if legal[a]]
+                    if not legal_indices or states[i].terminal:
+                        break
+                    action = random.choice(legal_indices)
+                    states[i] = self.game.step(states[i], action)
+                    random_opening_counts[i] += 1
+                    if states[i].terminal:
+                        total_terminated += 1
+                        break
+                total_random += random_opening_counts[i]
+            # Filter out games that ended during random opening
+            surviving = [i for i in range(self.num_games)
+                         if not states[i].terminal]
+            self._p['random_opening_total'] = total_random
+            self._p['random_opening_terminated'] = total_terminated
+            self._p['random_opening_surviving'] = len(surviving)
+            # Mark terminated games with their terminal values
+            for i in range(self.num_games):
+                if states[i].terminal:
+                    terminal_values[i] = states[i].terminal_value
+            active = surviving
+        else:
+            self._p['random_opening_total'] = 0
+            self._p['random_opening_terminated'] = 0
+            self._p['random_opening_surviving'] = self.num_games
+
         # Per-game resign permission: with resign_check_prob chance, force play to
         # completion (verification game to detect false positive resigns)
         resign_allowed = [random.random() >= self.resign_check_prob
@@ -107,13 +148,15 @@ class BatchedSelfPlay:
         resign_check_player = [0] * self.num_games
 
         # Create initial roots (deferred — no net eval yet)
-        roots = [Node(None, s, self.game) for s in states]
+        roots = [Node(None, s, self.game) if i in active else None
+                 for i, s in enumerate(states)]
 
-        # Batch-evaluate all initial roots
-        self._batch_evaluate_nodes(roots)
+        # Batch-evaluate all initial roots (only surviving games)
+        active_roots = [roots[i] for i in active]
+        self._batch_evaluate_nodes(active_roots)
 
         # Add Dirichlet noise to root priors (legal actions only)
-        for root in roots:
+        for root in active_roots:
             root.P = add_dirichlet_noise(root.P, self.dirichlet_alpha, self.dirichlet_epsilon, root.available_actions_mask)
 
         while active:
