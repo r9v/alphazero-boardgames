@@ -823,6 +823,7 @@ class Trainer:
                 for sym_input, sym_policy in self.game.get_symmetries(ex[0], ex[1]):
                     augmented.append([sym_input, sym_policy, ex[2]])
             n_new_positions = len(augmented)
+            self.buffer._current_iter = iteration
             self.buffer.insert_batch(augmented)
 
             # === Per-iteration 3-in-a-row target bias (fresh batch only) ===
@@ -900,6 +901,64 @@ class Trainer:
                 self._fixed_eval_swapped = _fe_sw
             else:
                 self._fixed_eval_swapped = None
+
+            # === Gradient probe: what direction does the buffer push FixedEval? ===
+            try:
+                if self._fixed_eval_inputs is not None and len(self.buffer) >= self.batch_size:
+                    self.net.eval()
+                    fe_inputs = self._fixed_eval_inputs
+                    fe_names = self._fixed_eval_names
+                    # Sample a large batch from buffer and compute gradient direction
+                    buf_samples = [s for s in self.buffer.arr if s is not None]
+                    probe_batch = random.sample(buf_samples, min(1024, len(buf_samples)))
+                    probe_inputs = torch.FloatTensor(np.array([s[0] for s in probe_batch])).to(self.device)
+                    probe_targets = torch.LongTensor([raw_value_to_wdl_class(s[2]) for s in probe_batch]).to(self.device)
+
+                    # Forward on buffer batch, backward to get gradients
+                    self.net.train()
+                    self.optimizer.zero_grad()
+                    v_logits, _ = self.net(probe_inputs)
+                    probe_loss = F.cross_entropy(v_logits, probe_targets)
+                    probe_loss.backward()
+
+                    # Now measure: if we applied this gradient step, how would FixedEval change?
+                    # Use first-order approximation: delta_v ≈ -lr * grad · (dv/dparams)
+                    # Simpler: just apply a tiny step, measure, then undo
+                    # Even simpler: evaluate FixedEval AFTER the backward (model unchanged),
+                    # then do one optimizer step, evaluate again, then undo.
+                    # Cheapest: just log the loss the model would assign to each FixedEval position
+                    self.net.eval()
+                    with torch.no_grad():
+                        fe_v_logits, _ = self.net(fe_inputs)
+                        fe_probs = F.softmax(fe_v_logits, dim=1)
+                        # What the model currently predicts for each position
+                        fe_scalar = (fe_probs[:, 0] - fe_probs[:, 2]).cpu().numpy()
+                        # What loss would be if target=win (class 0) for each position
+                        win_target = torch.zeros(len(fe_names), dtype=torch.long, device=self.device)
+                        fe_loss_if_win = F.cross_entropy(fe_v_logits, win_target, reduction='none').cpu().numpy()
+
+                    self.optimizer.zero_grad()  # clean up probe gradients
+                    parts = []
+                    for i, name in enumerate(fe_names):
+                        parts.append(f"{name[:7]}={fe_scalar[i]:+.3f}(L={fe_loss_if_win[i]:.2f})")
+                    print(f"  Diag[PROBE]: pre-train FE: {' '.join(parts)}")
+
+                    # Buffer age distribution
+                    ages = [iteration - self.buffer._ages[i]
+                            for i in range(len(self.buffer))
+                            if self.buffer.arr[i] is not None]
+                    if ages:
+                        ages_arr = np.array(ages)
+                        fresh = (ages_arr <= 1).sum()
+                        recent = (ages_arr <= 4).sum()
+                        old = (ages_arr > 8).sum()
+                        print(f"  Diag[BUF_AGE]: fresh(0-1)={fresh} recent(0-4)={recent} "
+                              f"old(>8)={old} max_age={ages_arr.max()} "
+                              f"mean_age={ages_arr.mean():.1f}")
+
+                    self.net.train()
+            except Exception as e:
+                print(f"  [DIAG-DBG] Gradient probe failed: {e}")
 
             # Train
             t0 = time.time()

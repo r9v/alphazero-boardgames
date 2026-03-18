@@ -1008,5 +1008,17 @@ class TrainingLogger:
         s = C4State(None, board, player=-1)
         positions.append(("horiz_right", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
+        # Vertical near-win at edge: X has 3 stacked in col 0, plays col 0 to win
+        # X at (0,0),(1,0),(2,0). O at (0,3),(0,4),(0,5). 3X 3O = X to move.
+        board = np.zeros((6, 7), dtype="int")
+        board[0][0] = -1
+        board[1][0] = -1
+        board[2][0] = -1
+        board[0][3] = 1
+        board[0][4] = 1
+        board[0][5] = 1
+        s = C4State(None, board, player=-1)
+        positions.append(("vert_edge", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
+
         return positions
 
