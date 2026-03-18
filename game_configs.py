@@ -49,6 +49,7 @@ GAME_CONFIGS = {
         "value_loss_weight": 1.0,
         "focal_gamma": 1.0,
         "resblock_dropout": 0.1,
+        "ema_decay": 0.995,
         "buffer_size": 100_000,
         "lr": 0.005,
         "batch_size": 256,

@@ -90,6 +90,15 @@ class Trainer:
         self.writer = SummaryWriter(log_dir)
         self.logger = TrainingLogger(self)
 
+        # EMA weights for self-play stabilization
+        self.ema_decay = self.config.get("ema_decay", 0.0)
+        if self.ema_decay > 0:
+            self._ema_state = {n: p.data.clone() for n, p in net.named_parameters()}
+            self._train_state = None  # lazily allocated during swap
+            print(f"  EMA enabled: decay={self.ema_decay}")
+        else:
+            self._ema_state = None
+
     def train_network(self, n_new_positions=0):
         """Train the network on samples from the replay buffer."""
         samples = [s for s in self.buffer.arr if s is not None]
@@ -782,6 +791,36 @@ class Trainer:
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
+    # === EMA weight management ===
+
+    def _swap_to_ema(self):
+        """Load EMA weights into self.net, saving current training weights."""
+        self._train_state = {n: p.data.clone() for n, p in self.net.named_parameters()}
+        for n, p in self.net.named_parameters():
+            p.data.copy_(self._ema_state[n])
+
+    def _swap_to_train(self):
+        """Restore training weights into self.net."""
+        for n, p in self.net.named_parameters():
+            p.data.copy_(self._train_state[n])
+        self._train_state = None
+
+    def _update_ema(self):
+        """Update EMA: ema = decay * ema + (1 - decay) * current_weights."""
+        decay = self.ema_decay
+        for n, p in self.net.named_parameters():
+            self._ema_state[n].mul_(decay).add_(p.data, alpha=1 - decay)
+
+    def _ema_update_step(self, iteration):
+        """Update EMA weights unconditionally. Returns diagnostic dict."""
+        diag = {}
+        # L2 distance between training and EMA weights
+        l2_sq = sum((p.data - self._ema_state[n]).pow(2).sum().item()
+                    for n, p in self.net.named_parameters())
+        diag['ema_l2_dist'] = l2_sq ** 0.5
+        self._update_ema()
+        return diag
+
     _SELF_PLAY_KEYS = [
         'selects_per_round', 'vl_value', 'temp_threshold', 'c_puct',
         'dirichlet_alpha', 'tree_reuse', 'resign_threshold',
@@ -812,10 +851,18 @@ class Trainer:
         for iteration in range(num_iterations):
             iter_t0 = time.time()
 
+            # EMA: use smoothed weights for self-play
+            if self._ema_state is not None:
+                self._swap_to_ema()
+
             # Self-play
             t0 = time.time()
             all_examples, results, game_lengths = self._self_play(iteration)
             self_play_time = time.time() - t0
+
+            # EMA: restore training weights for training
+            if self._ema_state is not None:
+                self._swap_to_train()
 
             # Augment with symmetries (e.g. left-right mirror for Connect4)
             augmented = []
@@ -938,6 +985,11 @@ class Trainer:
             except Exception as e:
                 print(f"  [DIAG-DBG] Weight delta measurement failed: {e}")
 
+            # EMA: update weights (with optional gating)
+            ema_diag = None
+            if self._ema_state is not None:
+                ema_diag = self._ema_update_step(iteration)
+
             iter_time = time.time() - iter_t0
 
             # === Log all metrics ===
@@ -951,6 +1003,7 @@ class Trainer:
                 'iter_3r': iter_3r, 'iter_3r_sign': iter_3r_sign,
                 'pre_seg': pre_seg, 'drift': drift_result,
                 'wdelta': wdelta_result, 'n_new_positions': n_new_positions,
+                'ema_diag': ema_diag,
             })
 
             # Save every 5 iterations + always on the last one

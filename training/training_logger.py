@@ -115,6 +115,16 @@ class TrainingLogger:
         self._log_selfplay_value_diagnostics(iteration)
         self._log_intra_iteration_dynamics(iteration)
         self.eval_diagnostic_positions(iteration)
+        self._log_ema_diagnostics(iteration, stats.get('ema_diag'))
+
+    def _log_ema_diagnostics(self, iteration, ema_diag):
+        """Log EMA weight distance and gating decisions."""
+        if ema_diag is None:
+            return
+        writer = self.writer
+        l2 = ema_diag['ema_l2_dist']
+        writer.add_scalar("ema/l2_dist", l2, iteration)
+        print(f"  EMA: L2_dist={l2:.4f}")
 
     def _log_self_play_stats(self, iteration, stats):
         """Log 3-in-a-row, self-play counts, pre-seg, drift, weight delta."""
