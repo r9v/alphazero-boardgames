@@ -69,7 +69,7 @@ class Trainer:
             else:
                 decay_params.append(param)
         self.optimizer = torch.optim.AdamW([
-            {'params': decay_params, 'weight_decay': 1e-4},
+            {'params': decay_params, 'weight_decay': 0.01},
             {'params': no_decay_params, 'weight_decay': 0.0},
         ], lr=self.lr)
 
