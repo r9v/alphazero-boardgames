@@ -38,17 +38,20 @@ class ResBlock(nn.Module):
     GroupNorm used instead of BatchNorm: immune to non-stationary RL data
     distribution (no running stats to drift).
     """
-    def __init__(self, num_filters, res_scale=0.5, num_groups=8):
+    def __init__(self, num_filters, res_scale=0.5, num_groups=8, dropout=0.0):
         super().__init__()
         self.bn1 = nn.GroupNorm(num_groups, num_filters)
         self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
         self.bn2 = nn.GroupNorm(num_groups, num_filters)
         self.conv2 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
         self.res_scale = res_scale
+        self.drop = nn.Dropout2d(p=dropout) if dropout > 0 else None
 
     def forward(self, x):
         residual = x
         x = ws_conv2d(F.relu(self.bn1(x)), self.conv1)
+        if self.drop is not None:
+            x = self.drop(x)
         x = ws_conv2d(F.relu(self.bn2(x)), self.conv2)
         return x * self.res_scale + residual
 
@@ -58,7 +61,8 @@ class AlphaZeroNet(nn.Module):
                  num_res_blocks=2, num_filters=256,
                  value_head_channels=2, value_head_fc_size=64,
                  policy_head_channels=2,
-                 backbone_dropout=0.15, num_groups=8):
+                 backbone_dropout=0.15, num_groups=8,
+                 resblock_dropout=0.0):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
@@ -72,7 +76,8 @@ class AlphaZeroNet(nn.Module):
         # Scale residual branch by 1/√L to control variance growth through depth
         res_scale = num_res_blocks ** -0.5
         self.res_blocks = nn.ModuleList(
-            [ResBlock(num_filters, res_scale=res_scale, num_groups=num_groups)
+            [ResBlock(num_filters, res_scale=res_scale, num_groups=num_groups,
+                      dropout=resblock_dropout)
              for _ in range(num_res_blocks)]
         )
 

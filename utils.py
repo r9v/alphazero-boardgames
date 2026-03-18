@@ -48,6 +48,7 @@ def make_net(game, game_name):
         policy_head_channels=cfg.get("policy_head_channels", 2),
         backbone_dropout=cfg.get("backbone_dropout", 0.15),
         num_groups=cfg.get("num_groups", 8),
+        resblock_dropout=cfg.get("resblock_dropout", 0.0),
     )
 
 
