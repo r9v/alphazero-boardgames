@@ -90,6 +90,7 @@ class BatchedSelfPlay:
             'imm_win_count': 0, 'imm_win_total': 0,
             'random_opening_total': 0, 'random_opening_terminated': 0,
             'random_opening_surviving': self.num_games,
+            'col_selections': [0] * self.game.action_size,  # per-column move count
         }
 
         self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value, mcts_Q) per move
@@ -232,6 +233,9 @@ class BatchedSelfPlay:
                         if ns.terminal and ns.terminal_value != 0:
                             self._p['imm_win_count'] += 1
                             break
+
+                # Track column selection frequency
+                self._p['col_selections'][action] += 1
 
                 # Training target is always the full visit distribution
                 examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player])

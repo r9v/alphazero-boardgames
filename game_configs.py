@@ -41,7 +41,7 @@ GAME_CONFIGS = {
         "num_filters": 64,
         "num_res_blocks": 6,
         "value_head_channels": 8,
-        "value_head_fc_size": 64,
+        "value_head_fc_size": 128,
         "policy_head_channels": 2,
         "se_ratio": 4,
 

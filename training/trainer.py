@@ -958,6 +958,47 @@ class Trainer:
                               f"old(>8)={old} max_age={ages_arr.max()} "
                               f"mean_age={ages_arr.mean():.1f}")
 
+                    # Buffer column distribution: pieces per column across all positions
+                    try:
+                        col_counts = np.zeros(7)
+                        sample_count = 0
+                        for s in buf_samples[:2000]:  # sample for speed
+                            inp = s[0]  # [2, 6, 7]
+                            col_counts += inp[0].sum(axis=0) + inp[1].sum(axis=0)
+                            sample_count += 1
+                        if sample_count > 0:
+                            col_pcts = col_counts / col_counts.sum() * 100
+                            col_str = " ".join(f"c{i}={col_pcts[i]:.1f}%" for i in range(7))
+                            print(f"  Diag[BUF_COL]: {col_str}")
+                    except Exception:
+                        pass
+
+                    # Edge vs center value loss split
+                    try:
+                        edge_losses = []
+                        center_losses = []
+                        for s in buf_samples[:2000]:
+                            inp = s[0]  # [2, 6, 7]
+                            # Count pieces in edge cols (0,6) vs center cols (2,3,4)
+                            edge_pieces = inp[0][:, [0, 6]].sum() + inp[1][:, [0, 6]].sum()
+                            center_pieces = inp[0][:, [2, 3, 4]].sum() + inp[1][:, [2, 3, 4]].sum()
+                            target = raw_value_to_wdl_class(np.array([s[2]]))[0]
+                            if edge_pieces > center_pieces:
+                                edge_losses.append(target)
+                            else:
+                                center_losses.append(target)
+                        if edge_losses and center_losses:
+                            edge_arr = np.array(edge_losses)
+                            center_arr = np.array(center_losses)
+                            # Win fraction (target=0 means win)
+                            edge_win = (edge_arr == 0).mean()
+                            center_win = (center_arr == 0).mean()
+                            print(f"  Diag[EDGE_CTR]: edge_positions={len(edge_losses)} "
+                                  f"win_frac={edge_win:.3f} | center_positions={len(center_losses)} "
+                                  f"win_frac={center_win:.3f}")
+                    except Exception:
+                        pass
+
                     self.net.train()
             except Exception as e:
                 print(f"  [DIAG-DBG] Gradient probe failed: {e}")

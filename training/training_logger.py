@@ -136,6 +136,16 @@ class TrainingLogger:
         writer.add_scalar("self_play/random_opening_avg", avg_random, iteration)
         writer.add_scalar("self_play/random_opening_terminated", terminated, iteration)
 
+        # Column selection frequency
+        col_sel = perf.get('col_selections')
+        if col_sel and sum(col_sel) > 0:
+            total_moves = sum(col_sel)
+            pcts = [c / total_moves * 100 for c in col_sel]
+            col_str = " ".join(f"c{i}={pcts[i]:.1f}%" for i in range(len(col_sel)))
+            print(f"  Diag[COL]: {col_str}")
+            for i, pct in enumerate(pcts):
+                writer.add_scalar(f"self_play/col_{i}_pct", pct, iteration)
+
     def _log_self_play_stats(self, iteration, stats):
         """Log 3-in-a-row, self-play counts, pre-seg, drift, weight delta."""
         writer = self.writer
