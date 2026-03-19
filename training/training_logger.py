@@ -916,8 +916,11 @@ class TrainingLogger:
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_top_action", top_action, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_swap_delta", swap_delta, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_sym_err", sym_err, iteration)
-            # WDL probabilities
+            # WDL probabilities — log as separate scalars for TensorBoard
             w, d, l = wdl_probs[i]
+            self.writer.add_scalar(f"fixed_eval/{prefix}{name}_W", w, iteration)
+            self.writer.add_scalar(f"fixed_eval/{prefix}{name}_D", d, iteration)
+            self.writer.add_scalar(f"fixed_eval/{prefix}{name}_L", l, iteration)
             # Value conv per-channel activations
             ch_str = " ".join(f"{vconv_act[i][c]:+.3f}" for c in range(vconv_act.shape[1]))
             print(f"    {name}: V={value:+.4f} top_act={top_action} swap_d={swap_delta:+.4f} "
@@ -1029,6 +1032,22 @@ class TrainingLogger:
         board[0][5] = 1
         s = C4State(None, board, player=-1)
         positions.append(("vert_edge", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
+
+        # Diagonal near-win: X has rising diagonal (0,0)(1,1)(2,2), plays col 3 to win at (3,3)
+        # Board has 10 pieces (5X 5O) with support for the diagonal and col 3 filled to row 2
+        board = np.zeros((6, 7), dtype="int")
+        board[0][0] = -1  # X diagonal
+        board[0][1] = 1   # O support
+        board[1][1] = -1  # X diagonal
+        board[0][2] = 1   # O support
+        board[1][2] = -1  # X support
+        board[2][2] = -1  # X diagonal
+        board[0][3] = -1  # X filling col 3
+        board[1][3] = 1   # O filling col 3
+        board[2][3] = 1   # O filling col 3
+        board[0][4] = 1   # O extra (balances to 5X 5O)
+        s = C4State(None, board, player=-1)
+        positions.append(("diag_wins", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
         return positions
 

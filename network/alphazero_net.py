@@ -105,7 +105,7 @@ class AlphaZeroNet(nn.Module):
         self.backbone_dropout = nn.Dropout2d(p=backbone_dropout)
 
         # Value head (1 group = LayerNorm-like for small channel count)
-        self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
+        self.value_conv = nn.Conv2d(num_filters, value_head_channels, 3, padding=1)
         self.value_bn = nn.GroupNorm(1, value_head_channels)
         self.value_fc1 = nn.Linear(value_head_channels * board_area, value_head_fc_size)
         self.value_dropout = nn.Dropout(p=0.2)
