@@ -52,7 +52,7 @@ GAME_CONFIGS = {
         "resblock_dropout": 0.1,
         "random_opening_moves": 8,
         "buffer_size": 100_000,
-        "lr": 0.001,
+        "lr": 0.005,
         "batch_size": 256,
 
         # --- Self-play ---

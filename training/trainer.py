@@ -68,10 +68,10 @@ class Trainer:
                 no_decay_params.append(param)
             else:
                 decay_params.append(param)
-        self.optimizer = torch.optim.AdamW([
-            {'params': decay_params, 'weight_decay': 0.01},
+        self.optimizer = torch.optim.SGD([
+            {'params': decay_params, 'weight_decay': 5e-4},
             {'params': no_decay_params, 'weight_decay': 0.0},
-        ], lr=self.lr)
+        ], lr=self.lr, momentum=0.9)
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
         self.focal_gamma = self.config.get("focal_gamma", 0.0)  # 0 = standard CE
