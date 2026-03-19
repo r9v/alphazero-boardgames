@@ -786,6 +786,7 @@ class Trainer:
         'selects_per_round', 'vl_value', 'temp_threshold', 'c_puct',
         'dirichlet_alpha', 'tree_reuse', 'resign_threshold',
         'resign_min_moves', 'resign_check_prob', 'random_opening_moves',
+        'random_opening_fraction',
     ]
 
     def _self_play(self, iteration):

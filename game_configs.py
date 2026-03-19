@@ -50,7 +50,8 @@ GAME_CONFIGS = {
         "value_loss_weight": 1.0,
         "focal_gamma": 1.0,
         "resblock_dropout": 0.1,
-        "random_opening_moves": 8,
+        "random_opening_moves": 12,
+        "random_opening_fraction": 0.5,
         "buffer_size": 100_000,
         "lr": 0.005,
         "batch_size": 256,
@@ -61,9 +62,10 @@ GAME_CONFIGS = {
         "default_simulations": 200,
         "selects_per_round": 1,
         "vl_value": 0.0,
-        "temp_threshold": 15,
-        "c_puct": 1.5,
+        "temp_threshold": 25,
+        "c_puct": 2.5,
         "dirichlet_alpha": 1.4,        # ~10 / 7 legal moves
+        "dirichlet_epsilon": 0.4,      # 40% noise (was 0.25 default)
 
         # --- Tree reuse & Resign ---
         "tree_reuse": True,

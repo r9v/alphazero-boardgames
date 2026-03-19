@@ -41,7 +41,8 @@ class BatchedSelfPlay:
                  dirichlet_alpha=1.0, dirichlet_epsilon=0.25,
                  tree_reuse=True, resign_threshold=-1.0,
                  resign_min_moves=99, resign_check_prob=0.0,
-                 random_opening_moves=0):
+                 random_opening_moves=0,
+                 random_opening_fraction=1.0):
         self.game = game
         self.net = net
         self.num_games = num_games
@@ -56,6 +57,7 @@ class BatchedSelfPlay:
         self.resign_min_moves = resign_min_moves
         self.resign_check_prob = resign_check_prob
         self.random_opening_moves = random_opening_moves
+        self.random_opening_fraction = random_opening_fraction
         self.mcts = MCTS(game, net, c_puct=c_puct)
 
         # Log backends once
@@ -110,14 +112,24 @@ class BatchedSelfPlay:
         if self.random_opening_moves > 0:
             total_random = 0
             total_terminated = 0
+            frac = getattr(self, 'random_opening_fraction', 1.0)
             for i in range(self.num_games):
+                if random.random() >= frac:
+                    continue  # this game starts normally
                 k = random.randint(0, self.random_opening_moves)
                 for m in range(k):
                     legal = states[i].available_actions
                     legal_indices = [a for a in range(len(legal)) if legal[a]]
                     if not legal_indices or states[i].terminal:
                         break
-                    action = random.choice(legal_indices)
+                    # Pick a random non-winning move to avoid accidental termination
+                    random.shuffle(legal_indices)
+                    action = legal_indices[0]
+                    for a in legal_indices:
+                        ns = self.game.step(states[i], a)
+                        if not ns.terminal:
+                            action = a
+                            break
                     states[i] = self.game.step(states[i], action)
                     random_opening_counts[i] += 1
                     if states[i].terminal:
