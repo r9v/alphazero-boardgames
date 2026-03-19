@@ -105,9 +105,12 @@ class AlphaZeroNet(nn.Module):
         self.backbone_dropout = nn.Dropout2d(p=backbone_dropout)
 
         # Value head (1 group = LayerNorm-like for small channel count)
-        self.value_conv = nn.Conv2d(num_filters, value_head_channels, 3, padding=1)
+        # GAP+spatial: concatenate global avg pool [C] with flattened spatial [C*H*W]
+        # GAP branch gives position-invariant features (KataGo approach)
+        self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
         self.value_bn = nn.GroupNorm(1, value_head_channels)
-        self.value_fc1 = nn.Linear(value_head_channels * board_area, value_head_fc_size)
+        value_fc1_in = value_head_channels * board_area + value_head_channels  # spatial + GAP
+        self.value_fc1 = nn.Linear(value_fc1_in, value_head_fc_size)
         self.value_dropout = nn.Dropout(p=0.2)
         self.value_fc2 = nn.Linear(value_head_fc_size, 3)  # WDL: Win/Draw/Loss logits
 
@@ -144,9 +147,11 @@ class AlphaZeroNet(nn.Module):
         # Channel dropout: prevent head channel segregation
         x = self.backbone_dropout(x)
 
-        # Value head
+        # Value head (GAP+spatial concatenation)
         v = F.leaky_relu(self.value_bn(self.value_conv(x)), negative_slope=0.01)
-        v = v.view(v.size(0), -1)
+        v_gap = v.mean(dim=(2, 3))          # [B, C] global avg pool
+        v_flat = v.view(v.size(0), -1)      # [B, C*H*W] spatial
+        v = torch.cat([v_flat, v_gap], dim=1)  # [B, C*H*W + C]
         v = F.leaky_relu(self.value_fc1(v), negative_slope=0.01)
         v = self.value_dropout(v)
         v = self.value_fc2(v)  # [B, 3] raw WDL logits (no tanh)

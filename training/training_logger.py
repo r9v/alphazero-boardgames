@@ -901,8 +901,14 @@ class TrainingLogger:
             )  # [N, 4, H, W]
             vconv_act = vconv_out.mean(dim=(2, 3)).cpu().numpy()  # [N, 4] per-channel mean
             # Flattened vconv features and fc1 activations for cosine similarity
-            vconv_flat = vconv_out.view(vconv_out.size(0), -1)  # [N, 4*H*W]
-            fc1_out = F_torch.leaky_relu(t.net.value_fc1(vconv_flat), negative_slope=0.01)  # [N, 64]
+            vconv_flat = vconv_out.view(vconv_out.size(0), -1)  # [N, C*H*W]
+            # Match forward(): concat GAP if fc1 expects it
+            if t.net.value_fc1.in_features > vconv_flat.size(1):
+                vconv_gap = vconv_out.mean(dim=(2, 3))  # [N, C]
+                fc1_input = torch.cat([vconv_flat, vconv_gap], dim=1)
+            else:
+                fc1_input = vconv_flat
+            fc1_out = F_torch.leaky_relu(t.net.value_fc1(fc1_input), negative_slope=0.01)
 
         n = len(positions)
         print(f"  {label}:")
@@ -914,8 +920,10 @@ class TrainingLogger:
             sym_err = value + all_values[2 * n + i]
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_value", value, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_top_action", top_action, iteration)
+            swap_value = all_values[n + i]  # value from opponent's perspective
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_swap_delta", swap_delta, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_sym_err", sym_err, iteration)
+            self.writer.add_scalar(f"fixed_eval/{prefix}{name}_swap_value", swap_value, iteration)
             # WDL probabilities — log as separate scalars for TensorBoard
             w, d, l = wdl_probs[i]
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_W", w, iteration)
