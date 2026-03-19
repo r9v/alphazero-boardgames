@@ -901,13 +901,19 @@ class TrainingLogger:
             )  # [N, 4, H, W]
             vconv_act = vconv_out.mean(dim=(2, 3)).cpu().numpy()  # [N, 4] per-channel mean
             # Flattened vconv features and fc1 activations for cosine similarity
-            vconv_flat = vconv_out.view(vconv_out.size(0), -1)  # [N, C*H*W]
-            # Match forward(): concat GAP if fc1 expects it
-            if t.net.value_fc1.in_features > vconv_flat.size(1):
-                vconv_gap = vconv_out.mean(dim=(2, 3))  # [N, C]
-                fc1_input = torch.cat([vconv_flat, vconv_gap], dim=1)
-            else:
+            # Detect pure GAP (fc1 input == channels) vs spatial (fc1 input > channels)
+            vconv_channels = vconv_out.size(1)
+            if t.net.value_fc1.in_features == vconv_channels:
+                # Pure GAP: use pooled features
+                vconv_flat = vconv_out.mean(dim=(2, 3))  # [N, C]
                 fc1_input = vconv_flat
+            else:
+                vconv_flat = vconv_out.view(vconv_out.size(0), -1)  # [N, C*H*W]
+                if t.net.value_fc1.in_features > vconv_flat.size(1):
+                    vconv_gap = vconv_out.mean(dim=(2, 3))
+                    fc1_input = torch.cat([vconv_flat, vconv_gap], dim=1)
+                else:
+                    fc1_input = vconv_flat
             fc1_out = F_torch.leaky_relu(t.net.value_fc1(fc1_input), negative_slope=0.01)
 
         n = len(positions)

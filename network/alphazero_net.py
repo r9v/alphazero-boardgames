@@ -104,13 +104,12 @@ class AlphaZeroNet(nn.Module):
         # Drops entire channels (Dropout2d) so neither head can exclusively own channels.
         self.backbone_dropout = nn.Dropout2d(p=backbone_dropout)
 
-        # Value head (1 group = LayerNorm-like for small channel count)
-        # GAP+spatial: concatenate global avg pool [C] with flattened spatial [C*H*W]
-        # GAP branch gives position-invariant features (KataGo approach)
+        # Value head: pure global average pooling (KataGo approach)
+        # Eliminates position-specific FC weights that cause gradient interference
+        # between center and edge positions
         self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
         self.value_bn = nn.GroupNorm(1, value_head_channels)
-        value_fc1_in = value_head_channels * board_area + value_head_channels  # spatial + GAP
-        self.value_fc1 = nn.Linear(value_fc1_in, value_head_fc_size)
+        self.value_fc1 = nn.Linear(value_head_channels, value_head_fc_size)  # GAP only: [C] -> FC
         self.value_dropout = nn.Dropout(p=0.2)
         self.value_fc2 = nn.Linear(value_head_fc_size, 3)  # WDL: Win/Draw/Loss logits
 
@@ -147,11 +146,9 @@ class AlphaZeroNet(nn.Module):
         # Channel dropout: prevent head channel segregation
         x = self.backbone_dropout(x)
 
-        # Value head (GAP+spatial concatenation)
+        # Value head: pure GAP (position-invariant)
         v = F.leaky_relu(self.value_bn(self.value_conv(x)), negative_slope=0.01)
-        v_gap = v.mean(dim=(2, 3))          # [B, C] global avg pool
-        v_flat = v.view(v.size(0), -1)      # [B, C*H*W] spatial
-        v = torch.cat([v_flat, v_gap], dim=1)  # [B, C*H*W + C]
+        v = v.mean(dim=(2, 3))              # [B, C] global avg pool — no spatial info
         v = F.leaky_relu(self.value_fc1(v), negative_slope=0.01)
         v = self.value_dropout(v)
         v = self.value_fc2(v)  # [B, 3] raw WDL logits (no tanh)
