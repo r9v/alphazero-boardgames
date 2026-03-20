@@ -45,6 +45,7 @@ GAME_CONFIGS = {
         "policy_head_channels": 2,
         "se_ratio": 4,
         "ownership_channels": 8,
+        "threat_channels": 8,
 
         # --- Training ---
         "train_ratio": 8,
@@ -52,6 +53,7 @@ GAME_CONFIGS = {
         "focal_gamma": 1.0,
         "value_label_smoothing": 0.1,
         "ownership_loss_weight": 0.5,
+        "threat_loss_weight": 0.5,
         "resblock_dropout": 0.1,
         "random_opening_moves": 12,
         "random_opening_fraction": 0.5,

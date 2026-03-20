@@ -44,7 +44,7 @@ python -u train.py --game santorini --iterations 64 --games 64 --simulations 256
 python -u train.py --game santorini --iterations 128 2>&1 | tee training_log_santorini.txt
 python -u train.py --game tictactoe 2>&1 | tee training_log_ttt.txt
 python -u train.py --game connect4 2>&1 | tee training_log_c4.txt
-
+python -u diagnostics/edge_probe.py --filters 64 --lr 0.01 --schedule warmup_cosine --grad-clip 1.0 --color-swap --epochs 80 --threat-loss-weight 0.5  2>&1 | tee edge_probe_aux01.txt
 ```
 
 **Monitor training:**

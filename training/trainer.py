@@ -77,6 +77,7 @@ class Trainer:
         self.focal_gamma = self.config.get("focal_gamma", 0.0)  # 0 = standard CE
         self.value_label_smoothing = self.config.get("value_label_smoothing", 0.0)
         self.ownership_loss_weight = self.config.get("ownership_loss_weight", 0.0)
+        self.threat_loss_weight = self.config.get("threat_loss_weight", 0.0)
 
         # Precompute parameter groups for gradient norm diagnostics (step%100)
         self._value_params = [p for n, p in net.named_parameters() if "value" in n]
@@ -153,7 +154,7 @@ class Trainer:
                 combined_targets = torch.cat([target_vs, swapped_target_vs], dim=0)
                 net_out = self.net(combined)
                 pred_all, pi_all = net_out[0], net_out[1]
-                pred_own = net_out[2] if len(net_out) > 2 else None
+                pred_aux = net_out[2] if len(net_out) > 2 else {}
 
                 # Value loss: average over original + swapped
                 if self.focal_gamma > 0:
@@ -175,19 +176,35 @@ class Trainer:
                 policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
                 loss = cfg['effective_vlw'] * value_loss + policy_loss
 
-                # Ownership auxiliary loss: per-cell prediction of final board
-                if pred_own is not None and self.ownership_loss_weight > 0:
-                    has_own = [len(s) > 3 and s[3] is not None for s in batch]
-                    if any(has_own):
-                        own_mask = torch.BoolTensor(has_own).to(self.device)
-                        target_own = torch.FloatTensor(
-                            np.array([s[3] for s in batch if len(s) > 3 and s[3] is not None])
-                        ).to(self.device)
-                        # Use only original (not swapped) predictions for ownership
-                        pred_own_orig = pred_own[:B][own_mask]
-                        own_loss = F.mse_loss(pred_own_orig, target_own)
-                        loss = loss + self.ownership_loss_weight * own_loss
-                        acc['total_ownership_loss'] += own_loss.item()
+                # Auxiliary spatial losses (ownership + threat)
+                # Each batch sample s[3] is an aux_maps dict or None
+                def _aux_loss(pred_key, target_key, weight):
+                    """Compute MSE loss for an auxiliary spatial head."""
+                    if pred_key not in pred_aux or weight <= 0:
+                        return 0.0
+                    pred_map = pred_aux[pred_key][:B]  # original only (not swapped)
+                    has_target = [
+                        s[3] is not None and target_key in s[3] and s[3][target_key] is not None
+                        for s in batch
+                    ]
+                    if not any(has_target):
+                        return 0.0
+                    mask = torch.BoolTensor(has_target).to(self.device)
+                    targets = torch.FloatTensor(np.array([
+                        s[3][target_key] for s in batch
+                        if s[3] is not None and target_key in s[3] and s[3][target_key] is not None
+                    ])).to(self.device)
+                    aux_loss = F.mse_loss(pred_map[mask], targets)
+                    return aux_loss, aux_loss.item()
+
+                for key, weight, acc_key in [
+                    ('ownership', self.ownership_loss_weight, 'total_ownership_loss'),
+                    ('threat', self.threat_loss_weight, 'total_threat_loss'),
+                ]:
+                    result = _aux_loss(key, key, weight)
+                    if isinstance(result, tuple):
+                        loss = loss + weight * result[0]
+                        acc[acc_key] += result[1]
 
             self.optimizer.zero_grad()
             self.scaler.scale(loss).backward()
@@ -257,7 +274,8 @@ class Trainer:
 
         # All tracking accumulators
         acc = {
-            'total_loss': 0, 'total_value_loss': 0, 'total_policy_loss': 0, 'total_ownership_loss': 0,
+            'total_loss': 0, 'total_value_loss': 0, 'total_policy_loss': 0,
+            'total_ownership_loss': 0, 'total_threat_loss': 0,
             'num_batches': 0, 'data_prep_time': 0.0, 'gradient_time': 0.0,
             'early_vloss': 0.0, 'early_ploss': 0.0,
             'late_vloss': 0.0, 'late_ploss': 0.0,
@@ -609,6 +627,7 @@ class Trainer:
         avg_value_loss = acc['total_value_loss'] / max(num_batches, 1)
         avg_policy_loss = acc['total_policy_loss'] / max(num_batches, 1)
         avg_ownership_loss = acc['total_ownership_loss'] / max(num_batches, 1)
+        avg_threat_loss = acc['total_threat_loss'] / max(num_batches, 1)
         early_vloss = acc['early_vloss'] / max(early_cutoff, 1)
         early_ploss = acc['early_ploss'] / max(early_cutoff, 1)
         late_vloss = acc['late_vloss'] / max(early_cutoff, 1)
@@ -811,6 +830,7 @@ class Trainer:
                 for k in ('win', 'draw', 'loss')
             } if self.focal_gamma > 0 else None,
             "avg_ownership_loss": avg_ownership_loss,
+            "avg_threat_loss": avg_threat_loss,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -851,16 +871,22 @@ class Trainer:
             self_play_time = time.time() - t0
 
             # Augment with symmetries (e.g. left-right mirror for Connect4)
+            # Example format: [state_input, policy, value, threat_map_or_None, ownership_or_absent]
             augmented = []
             for ex in all_examples:
-                ownership = ex[3] if len(ex) > 3 else None
-                syms = self.game.get_symmetries(ex[0], ex[1], ownership)
+                # Build aux_maps dict from positional indices
+                aux_maps = {}
+                threat = ex[3] if len(ex) > 3 else None
+                ownership = ex[4] if len(ex) > 4 else None
+                if threat is not None:
+                    aux_maps['threat'] = threat
+                if ownership is not None:
+                    aux_maps['ownership'] = ownership
+                syms = self.game.get_symmetries(ex[0], ex[1], aux_maps or None)
                 for sym_tuple in syms:
                     sym_input, sym_policy = sym_tuple[0], sym_tuple[1]
-                    sym_own = sym_tuple[2] if len(sym_tuple) > 2 else None
-                    entry = [sym_input, sym_policy, ex[2]]
-                    if sym_own is not None:
-                        entry.append(sym_own)
+                    sym_aux = sym_tuple[2] if len(sym_tuple) > 2 else None
+                    entry = [sym_input, sym_policy, ex[2], sym_aux]
                     augmented.append(entry)
             n_new_positions = len(augmented)
             self.buffer._current_iter = iteration

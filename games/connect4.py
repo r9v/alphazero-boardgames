@@ -59,6 +59,53 @@ class GameState(BaseGameState):
         return False
 
 
+def compute_threat_map(board, player):
+    """Compute per-cell threat map from current player's perspective.
+
+    Returns a (6,7) float32 array where:
+      +1 = placing current player's piece here completes 4-in-a-row (my threat)
+      -1 = placing opponent's piece here completes 4-in-a-row (opp threat)
+       0 = no threat (or cell occupied)
+
+    If a cell is a threat for both players, +1 takes priority (canonical).
+    Computable from board state alone — works with random data and self-play.
+    """
+    threat = np.zeros((ROW_COUNT, COLUMN_COUNT), dtype=np.float32)
+    opp = -player
+
+    # Check all 4-in-a-row windows
+    # Directions: horizontal (0,1), vertical (1,0), diag-up (1,1), diag-down (-1,1)
+    directions = [(0, 1), (1, 0), (1, 1), (-1, 1)]
+
+    for dr, dc in directions:
+        # Compute valid starting positions for this direction
+        r_start = max(0, 0 - 3 * dr) if dr >= 0 else max(0, -3 * dr)
+        r_end = ROW_COUNT if dr <= 0 else ROW_COUNT - 3 * dr
+        c_start = 0
+        c_end = COLUMN_COUNT - 3 * dc  # dc is always positive
+
+        for r in range(r_start, r_end):
+            for c in range(c_start, c_end):
+                # Collect the 4 cells in this window
+                cells = []
+                for i in range(4):
+                    cells.append((r + i * dr, c + i * dc))
+
+                values = [board[cr][cc] for cr, cc in cells]
+
+                # Check if exactly 3 of one color + 1 empty
+                for p, sign in [(player, 1.0), (opp, -1.0)]:
+                    count_p = sum(1 for v in values if v == p)
+                    empty_cells = [(cr, cc) for (cr, cc), v in zip(cells, values) if v == 0]
+                    if count_p == 3 and len(empty_cells) == 1:
+                        er, ec = empty_cells[0]
+                        # +1 takes priority over -1
+                        if sign > 0 or threat[er][ec] == 0:
+                            threat[er][ec] = sign
+
+    return threat
+
+
 class Connect4Game(Game):
     board_shape = (ROW_COUNT, COLUMN_COUNT)
     action_size = COLUMN_COUNT
@@ -77,15 +124,23 @@ class Connect4Game(Game):
         next_board[row][action] = state.player
         return GameState(state, next_board, state.player * -1)
 
-    def get_symmetries(self, state_input, policy, ownership=None):
+    def get_symmetries(self, state_input, policy, aux_maps=None):
         """Connect4 has left-right mirror symmetry."""
-        syms = [(state_input, policy, ownership)]
+        syms = [(state_input, policy, aux_maps)]
         # Flip columns: board channels flip along axis 2, policy reverses
         flipped_input = state_input[:, :, ::-1].copy()
         flipped_policy = policy[::-1].copy()
-        flipped_own = ownership[:, ::-1].copy() if ownership is not None else None
-        syms.append((flipped_input, flipped_policy, flipped_own))
+        flipped_aux = None
+        if aux_maps is not None:
+            flipped_aux = {}
+            for k, v in aux_maps.items():
+                flipped_aux[k] = v[:, ::-1].copy() if v is not None else None
+        syms.append((flipped_input, flipped_policy, flipped_aux))
         return syms
+
+    def compute_threat_map(self, state):
+        """Compute per-cell threat map from current player's perspective."""
+        return compute_threat_map(state.board, state.player)
 
     input_channels = 2
 

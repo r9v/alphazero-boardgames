@@ -10,10 +10,13 @@ def _finalize_game_targets(examples, tv, label="", final_board=None):
     """Convert per-move player tags to outcome targets and verify sign chain.
 
     Args:
-        examples: list of [state_input, policy, player_tag] for one game
+        examples: list of [state_input, policy, player_tag, threat_map] for one game
         tv: terminal value (-1=X wins, +1=O wins, 0=draw)
         label: context string for assertion messages
         final_board: if provided, append ownership target (final_board * player) to each example
+
+    After finalization, each example is:
+        [state_input, policy, value, threat_map, ownership(optional)]
     """
     if tv != 0 and len(examples) > 0:
         assert examples[-1][2] == tv, \
@@ -256,7 +259,9 @@ class BatchedSelfPlay:
                 self._p['col_selections'][action] += 1
 
                 # Training target is always the full visit distribution
-                examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player])
+                # Threat map: computed per-position from current board state
+                threat_map = self.game.compute_threat_map(states[i])
+                examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player, threat_map])
                 move_counts[i] += 1
 
                 states[i] = self.game.step(states[i], action)

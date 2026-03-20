@@ -77,7 +77,8 @@ class AlphaZeroNet(nn.Module):
                  policy_head_channels=2,
                  backbone_dropout=0.15, num_groups=8,
                  resblock_dropout=0.0, se_ratio=0,
-                 ownership_channels=0):
+                 ownership_channels=0,
+                 threat_channels=0):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
@@ -127,6 +128,15 @@ class AlphaZeroNet(nn.Module):
             self.own_bn = nn.GroupNorm(1, ownership_channels)
             self.own_out = nn.Conv2d(ownership_channels, 1, 1)
 
+        # Threat head (auxiliary): per-cell prediction of immediate threats
+        # +1 = my threat (placing here wins), -1 = opponent threat, 0 = no threat
+        # Computable from board state alone — works with random AND self-play data
+        self.has_threat = threat_channels > 0
+        if self.has_threat:
+            self.threat_conv = nn.Conv2d(num_filters, threat_channels, 1)
+            self.threat_bn = nn.GroupNorm(1, threat_channels)
+            self.threat_out = nn.Conv2d(threat_channels, 1, 1)
+
         # GN config validation: warn if any group normalizes over too few elements
         H, W = board_shape
         gn_configs = [
@@ -167,12 +177,17 @@ class AlphaZeroNet(nn.Module):
         p = p.view(p.size(0), -1)
         p = self.policy_fc(p)
 
-        # Ownership head (auxiliary): predict per-cell final board ownership
+        # Auxiliary heads — collect into dict, return as 3rd element if any
+        aux = {}
         if self.has_ownership:
             o = F.relu(self.own_bn(self.own_conv(x)))
-            o = torch.tanh(self.own_out(o).squeeze(1))  # (B, H, W) in [-1, +1]
-            return v, p, o
+            aux['ownership'] = torch.tanh(self.own_out(o).squeeze(1))  # (B, H, W) in [-1, +1]
+        if self.has_threat:
+            t = F.relu(self.threat_bn(self.threat_conv(x)))
+            aux['threat'] = torch.tanh(self.threat_out(t).squeeze(1))  # (B, H, W) in [-1, +1]
 
+        if aux:
+            return v, p, aux
         return v, p
 
     def compile_for_inference(self):

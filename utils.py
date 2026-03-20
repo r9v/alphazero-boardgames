@@ -51,6 +51,7 @@ def make_net(game, game_name):
         resblock_dropout=cfg.get("resblock_dropout", 0.0),
         se_ratio=cfg.get("se_ratio", 0),
         ownership_channels=cfg.get("ownership_channels", 0),
+        threat_channels=cfg.get("threat_channels", 0),
     )
 
 
