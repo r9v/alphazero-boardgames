@@ -20,14 +20,14 @@ from training.training_logger import TrainingLogger
 from utils import wdl_to_scalar
 
 
-def focal_cross_entropy(logits, targets, gamma=2.0, reduction='mean'):
+def focal_cross_entropy(logits, targets, gamma=2.0, reduction='mean', label_smoothing=0.0):
     """Focal loss for multi-class classification (Lin et al., 2017).
 
     Down-weights easy examples where the model is already confident and correct.
     With gamma=0, equivalent to standard cross-entropy.
     Returns (loss, mean_focal_weight) when reduction='mean'.
     """
-    ce_loss = F.cross_entropy(logits, targets, reduction='none')
+    ce_loss = F.cross_entropy(logits, targets, reduction='none', label_smoothing=label_smoothing)
     p_t = torch.exp(-ce_loss)  # probability of the true class
     focal_weight = (1 - p_t) ** gamma
     focal_loss = focal_weight * ce_loss
@@ -75,6 +75,7 @@ class Trainer:
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
         self.focal_gamma = self.config.get("focal_gamma", 0.0)  # 0 = standard CE
+        self.value_label_smoothing = self.config.get("value_label_smoothing", 0.0)
 
         # Precompute parameter groups for gradient norm diagnostics (step%100)
         self._value_params = [p for n, p in net.named_parameters() if "value" in n]
@@ -154,13 +155,15 @@ class Trainer:
                 # Value loss: average over original + swapped
                 if self.focal_gamma > 0:
                     value_loss, focal_w = focal_cross_entropy(
-                        pred_all, combined_targets, gamma=self.focal_gamma)
+                        pred_all, combined_targets, gamma=self.focal_gamma,
+                        label_smoothing=self.value_label_smoothing)
                     acc['focal_weight_sum'] += focal_w
                     with torch.no_grad():
                         acc['unfocal_vloss_sum'] += F.cross_entropy(
                             pred_all, combined_targets).item()
                 else:
-                    value_loss = F.cross_entropy(pred_all, combined_targets)
+                    value_loss = F.cross_entropy(pred_all, combined_targets,
+                                                label_smoothing=self.value_label_smoothing)
                 # Extract original-only predictions for policy + diagnostics
                 pred_vs = pred_all[:B]
                 pred_pi_logits = pi_all[:B]

@@ -49,6 +49,7 @@ GAME_CONFIGS = {
         "train_ratio": 8,
         "value_loss_weight": 1.0,
         "focal_gamma": 1.0,
+        "value_label_smoothing": 0.1,
         "resblock_dropout": 0.1,
         "random_opening_moves": 12,
         "random_opening_fraction": 0.5,
