@@ -76,7 +76,8 @@ class AlphaZeroNet(nn.Module):
                  value_head_channels=2, value_head_fc_size=64,
                  policy_head_channels=2,
                  backbone_dropout=0.15, num_groups=8,
-                 resblock_dropout=0.0, se_ratio=0):
+                 resblock_dropout=0.0, se_ratio=0,
+                 ownership_channels=0):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
@@ -118,6 +119,14 @@ class AlphaZeroNet(nn.Module):
         self.policy_bn = nn.GroupNorm(1, policy_head_channels)
         self.policy_fc = nn.Linear(policy_head_channels * board_area, action_size)
 
+        # Ownership head (auxiliary): per-cell prediction of final board ownership
+        # Forces backbone to learn spatially-diverse features including edge columns
+        self.has_ownership = ownership_channels > 0
+        if self.has_ownership:
+            self.own_conv = nn.Conv2d(num_filters, ownership_channels, 1)
+            self.own_bn = nn.GroupNorm(1, ownership_channels)
+            self.own_out = nn.Conv2d(ownership_channels, 1, 1)
+
         # GN config validation: warn if any group normalizes over too few elements
         H, W = board_shape
         gn_configs = [
@@ -158,6 +167,12 @@ class AlphaZeroNet(nn.Module):
         p = p.view(p.size(0), -1)
         p = self.policy_fc(p)
 
+        # Ownership head (auxiliary): predict per-cell final board ownership
+        if self.has_ownership:
+            o = F.relu(self.own_bn(self.own_conv(x)))
+            o = torch.tanh(self.own_out(o).squeeze(1))  # (B, H, W) in [-1, +1]
+            return v, p, o
+
         return v, p
 
     def compile_for_inference(self):
@@ -183,7 +198,8 @@ class AlphaZeroNet(nn.Module):
         self.eval()
         device = next(self.parameters()).device
         x = torch.FloatTensor(state_input).unsqueeze(0).to(device)
-        v, p = self(x)
+        out = self(x)
+        v, p = out[0], out[1]
         value = wdl_to_scalar(v)[0].item()
         policy = F.softmax(p, dim=1).squeeze(0).cpu().numpy()
         return value, policy
@@ -222,7 +238,7 @@ class AlphaZeroNet(nn.Module):
 
         t0 = time.time()
         with torch.autocast('cuda', enabled=use_fp16):
-            v, p = fwd(x)
+            v, p = fwd(x)[:2]
         if use_fp16:
             torch.cuda.synchronize()
         forward_time = time.time() - t0

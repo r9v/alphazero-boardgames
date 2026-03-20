@@ -50,6 +50,7 @@ def make_net(game, game_name):
         num_groups=cfg.get("num_groups", 8),
         resblock_dropout=cfg.get("resblock_dropout", 0.0),
         se_ratio=cfg.get("se_ratio", 0),
+        ownership_channels=cfg.get("ownership_channels", 0),
     )
 
 

@@ -76,6 +76,7 @@ class Trainer:
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
         self.focal_gamma = self.config.get("focal_gamma", 0.0)  # 0 = standard CE
         self.value_label_smoothing = self.config.get("value_label_smoothing", 0.0)
+        self.ownership_loss_weight = self.config.get("ownership_loss_weight", 0.0)
 
         # Precompute parameter groups for gradient norm diagnostics (step%100)
         self._value_params = [p for n, p in net.named_parameters() if "value" in n]
@@ -150,7 +151,9 @@ class Trainer:
 
                 combined = torch.cat([states, swapped], dim=0)
                 combined_targets = torch.cat([target_vs, swapped_target_vs], dim=0)
-                pred_all, pi_all = self.net(combined)
+                net_out = self.net(combined)
+                pred_all, pi_all = net_out[0], net_out[1]
+                pred_own = net_out[2] if len(net_out) > 2 else None
 
                 # Value loss: average over original + swapped
                 if self.focal_gamma > 0:
@@ -171,6 +174,20 @@ class Trainer:
                 log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
                 policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
                 loss = cfg['effective_vlw'] * value_loss + policy_loss
+
+                # Ownership auxiliary loss: per-cell prediction of final board
+                if pred_own is not None and self.ownership_loss_weight > 0:
+                    has_own = [len(s) > 3 and s[3] is not None for s in batch]
+                    if any(has_own):
+                        own_mask = torch.BoolTensor(has_own).to(self.device)
+                        target_own = torch.FloatTensor(
+                            np.array([s[3] for s in batch if len(s) > 3 and s[3] is not None])
+                        ).to(self.device)
+                        # Use only original (not swapped) predictions for ownership
+                        pred_own_orig = pred_own[:B][own_mask]
+                        own_loss = F.mse_loss(pred_own_orig, target_own)
+                        loss = loss + self.ownership_loss_weight * own_loss
+                        acc['total_ownership_loss'] += own_loss.item()
 
             self.optimizer.zero_grad()
             self.scaler.scale(loss).backward()
@@ -240,7 +257,7 @@ class Trainer:
 
         # All tracking accumulators
         acc = {
-            'total_loss': 0, 'total_value_loss': 0, 'total_policy_loss': 0,
+            'total_loss': 0, 'total_value_loss': 0, 'total_policy_loss': 0, 'total_ownership_loss': 0,
             'num_batches': 0, 'data_prep_time': 0.0, 'gradient_time': 0.0,
             'early_vloss': 0.0, 'early_ploss': 0.0,
             'late_vloss': 0.0, 'late_ploss': 0.0,
@@ -419,7 +436,7 @@ class Trainer:
         if _fe_inputs is not None and _fe_names and (step % 300 == 0 or step == num_steps - 1):
             self.net.eval()
             with torch.no_grad():
-                _fe_v, _fe_p = self.net(_fe_inputs)
+                _fe_v, _fe_p = self.net(_fe_inputs)[:2]
                 _fe_vals = wdl_to_scalar(_fe_v).cpu().numpy()
             self.net.train()
             _fe_entry = {'step': step}
@@ -452,10 +469,10 @@ class Trainer:
                             _m.p = 0.0
                     self.net.eval()
                     with torch.no_grad():
-                        _v_eval, _ = self.net(_fe_inputs)
+                        _v_eval, _ = self.net(_fe_inputs)[:2]
                     self.net.train()
                     with torch.no_grad():
-                        _v_train, _ = self.net(_fe_inputs)
+                        _v_train, _ = self.net(_fe_inputs)[:2]
                     for _m, _p in _saved_dropout:
                         _m.p = _p
                     _gap = (wdl_to_scalar(_v_eval) - wdl_to_scalar(_v_train)).abs().cpu().numpy()
@@ -591,6 +608,7 @@ class Trainer:
         avg_loss = acc['total_loss'] / max(num_batches, 1)
         avg_value_loss = acc['total_value_loss'] / max(num_batches, 1)
         avg_policy_loss = acc['total_policy_loss'] / max(num_batches, 1)
+        avg_ownership_loss = acc['total_ownership_loss'] / max(num_batches, 1)
         early_vloss = acc['early_vloss'] / max(early_cutoff, 1)
         early_ploss = acc['early_ploss'] / max(early_cutoff, 1)
         late_vloss = acc['late_vloss'] / max(early_cutoff, 1)
@@ -631,7 +649,7 @@ class Trainer:
                 vt_pi = torch.FloatTensor(np.array([s[1] for s in vb])).to(self.device)
                 vt_raw = np.array([s[2] for s in vb])
                 vt_v = torch.LongTensor(raw_value_to_wdl_class(vt_raw)).to(self.device)
-                pv, pp_logits = self.net(vs)
+                pv, pp_logits = self.net(vs)[:2]
                 val_vloss += F.cross_entropy(pv, vt_v).item()
                 val_ploss += -torch.mean(torch.sum(vt_pi * F.log_softmax(pp_logits, dim=1), dim=1)).item()
                 val_batches += 1
@@ -792,6 +810,7 @@ class Trainer:
                 k: acc['focal_w_by_outcome'][k] / max(acc['focal_n_by_outcome'][k], 1)
                 for k in ('win', 'draw', 'loss')
             } if self.focal_gamma > 0 else None,
+            "avg_ownership_loss": avg_ownership_loss,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -834,8 +853,15 @@ class Trainer:
             # Augment with symmetries (e.g. left-right mirror for Connect4)
             augmented = []
             for ex in all_examples:
-                for sym_input, sym_policy in self.game.get_symmetries(ex[0], ex[1]):
-                    augmented.append([sym_input, sym_policy, ex[2]])
+                ownership = ex[3] if len(ex) > 3 else None
+                syms = self.game.get_symmetries(ex[0], ex[1], ownership)
+                for sym_tuple in syms:
+                    sym_input, sym_policy = sym_tuple[0], sym_tuple[1]
+                    sym_own = sym_tuple[2] if len(sym_tuple) > 2 else None
+                    entry = [sym_input, sym_policy, ex[2]]
+                    if sym_own is not None:
+                        entry.append(sym_own)
+                    augmented.append(entry)
             n_new_positions = len(augmented)
             self.buffer._current_iter = iteration
             self.buffer.insert_batch(augmented)
@@ -933,7 +959,7 @@ class Trainer:
                     # Forward on buffer batch, backward to get gradients
                     self.net.train()
                     self.optimizer.zero_grad()
-                    v_logits, _ = self.net(probe_inputs)
+                    v_logits, _ = self.net(probe_inputs)[:2]
                     probe_loss = F.cross_entropy(v_logits, probe_targets)
                     probe_loss.backward()
 
@@ -945,7 +971,7 @@ class Trainer:
                     # Cheapest: just log the loss the model would assign to each FixedEval position
                     self.net.eval()
                     with torch.no_grad():
-                        fe_v_logits, _ = self.net(fe_inputs)
+                        fe_v_logits, _ = self.net(fe_inputs)[:2]
                         fe_probs = F.softmax(fe_v_logits, dim=1)
                         # What the model currently predicts for each position
                         fe_scalar = (fe_probs[:, 0] - fe_probs[:, 2]).cpu().numpy()

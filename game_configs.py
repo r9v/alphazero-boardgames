@@ -44,12 +44,14 @@ GAME_CONFIGS = {
         "value_head_fc_size": 64,
         "policy_head_channels": 2,
         "se_ratio": 4,
+        "ownership_channels": 8,
 
         # --- Training ---
         "train_ratio": 8,
         "value_loss_weight": 1.0,
         "focal_gamma": 1.0,
         "value_label_smoothing": 0.1,
+        "ownership_loss_weight": 0.5,
         "resblock_dropout": 0.1,
         "random_opening_moves": 12,
         "random_opening_fraction": 0.5,

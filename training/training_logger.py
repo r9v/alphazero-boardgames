@@ -96,8 +96,14 @@ class TrainingLogger:
             writer.add_scalar("loss/total", avg_loss, iteration)
             writer.add_scalar("loss/value", avg_value_loss, iteration)
             writer.add_scalar("loss/policy", avg_policy_loss, iteration)
+            own_loss_str = ""
+            if hasattr(self._t, '_train_diag'):
+                own_l = self._t._train_diag.get("avg_ownership_loss", 0)
+                if own_l > 0:
+                    writer.add_scalar("loss/ownership", own_l, iteration)
+                    own_loss_str = f" o={own_l:.4f}"
             print(f"  Iter {iteration+1}/{num_iterations}: loss={avg_loss:.4f} "
-                  f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}) | "
+                  f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}{own_loss_str}) | "
                   f"games: p1={stats['wins_p1']} p2={stats['wins_p2']} "
                   f"draw={stats['draws']} | "
                   f"avg_len={stats['avg_length']:.1f} "

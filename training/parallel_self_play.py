@@ -6,19 +6,24 @@ from mcts import MCTS, Node, add_dirichlet_noise
 from utils import log_backends
 
 
-def _finalize_game_targets(examples, tv, label=""):
+def _finalize_game_targets(examples, tv, label="", final_board=None):
     """Convert per-move player tags to outcome targets and verify sign chain.
 
     Args:
         examples: list of [state_input, policy, player_tag] for one game
         tv: terminal value (-1=X wins, +1=O wins, 0=draw)
         label: context string for assertion messages
+        final_board: if provided, append ownership target (final_board * player) to each example
     """
     if tv != 0 and len(examples) > 0:
         assert examples[-1][2] == tv, \
             f"{label} sign-chain: last_player={examples[-1][2]}, tv={tv}"
     for ex in examples:
-        ex[2] = tv * ex[2]
+        player_at_pos = ex[2]
+        if final_board is not None:
+            # Ownership target: +1=my piece, -1=opponent piece, 0=empty at game end
+            ex.append((final_board * player_at_pos).astype(np.float32))
+        ex[2] = tv * player_at_pos
     if tv != 0 and len(examples) > 0:
         assert abs(examples[-1][2] - 1.0) < 1e-6, \
             f"{label} target: last={examples[-1][2]:.4f}, expected +1"
@@ -191,7 +196,8 @@ class BatchedSelfPlay:
                     # Resign: current player loses, opponent wins
                     tv = -states[i].player
                     terminal_values[i] = tv
-                    _finalize_game_targets(examples[i], tv, label="Resign")
+                    _finalize_game_targets(examples[i], tv, label="Resign",
+                                           final_board=states[i].board)
                     self._p['resign_count'] += 1
                     self._p['resign_move_sum'] += move_counts[i]
                 elif should_resign and not resign_allowed[i]:
@@ -265,7 +271,8 @@ class BatchedSelfPlay:
                         resigner_outcome = tv * resign_check_player[i]
                         if resigner_outcome >= 0:  # drew or won
                             self._p['resign_false_positives'] += 1
-                    _finalize_game_targets(examples[i], tv, label="Terminal")
+                    _finalize_game_targets(examples[i], tv, label="Terminal",
+                                           final_board=states[i].board)
                 else:
                     # --- Tree reuse or fresh root ---
                     if self.tree_reuse:
