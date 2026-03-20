@@ -14,7 +14,7 @@ from training.diagnostics import (
     compute_pre_training_diagnostics, compute_post_training_player_diagnostics,
     compute_value_head_diagnostics, compute_backbone_gradient_decomposition,
     compute_svd_rank_diagnostics, compute_gradient_conflict_diagnostic,
-    detect_immediate_wins,
+    compute_train_cos_diagnostic, detect_immediate_wins,
 )
 from training.training_logger import TrainingLogger
 from utils import wdl_to_scalar
@@ -179,6 +179,12 @@ class Trainer:
                 pred_vs, pred_pi_logits, value_loss, policy_loss, acc, cfg)
 
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=5.0)
+            # Save last batch gradient for TRAIN_COS diagnostic
+            acc['last_batch_grad'] = torch.cat([
+                p.grad.flatten() if p.grad is not None
+                else torch.zeros(p.numel(), device=self.device)
+                for p in self.net.parameters()
+            ]).clone()
             self.scaler.step(self.optimizer)
             self.scaler.update()
             acc['gradient_time'] += time.time() - t0
@@ -678,6 +684,9 @@ class Trainer:
         # Gradient conflict: x_wins_next vs o_wins_next
         grad_conflict = compute_gradient_conflict_diagnostic(self)
 
+        # TRAIN_COS: cosine between last training batch gradient and per-position "fix" gradients
+        train_cos = compute_train_cos_diagnostic(self, acc.get('last_batch_grad'))
+
         # Value sensitivity from TRAJ data
         fe_sensitivity = {}
         traj = acc['fixed_eval_trajectory']
@@ -769,6 +778,7 @@ class Trainer:
             "gn_group_var_trajectory": acc['gn_group_var_trajectory'],
             "fe_sensitivity": fe_sensitivity,
             "grad_conflict": grad_conflict,
+            "train_cos": train_cos,
             "imm_win_vloss": imm_win_vloss,
             "non_imm_win_vloss": non_imm_win_vloss,
             "imm_win_frac_train": acc['imm_win_count'] / max(acc['imm_win_count'] + acc['non_imm_win_count'], 1),

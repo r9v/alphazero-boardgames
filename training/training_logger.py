@@ -466,6 +466,28 @@ class TrainingLogger:
             writer.add_scalar("grad_conflict/x_pred", gc['x_pred_scalar'], iteration)
             writer.add_scalar("grad_conflict/o_pred", gc['o_pred_scalar'], iteration)
 
+        # TRAIN_COS + FE_GRAD_NORM: training batch gradient alignment and loss landscape sharpness
+        tc_diag = d.get('train_cos', {})
+        _sn = {'x_wins_next': 'xwn', 'o_wins_next': 'own', 'diag_threat': 'dthr',
+                'vert_wins': 'vwin', 'horiz_right': 'hriz', 'vert_edge': 'vedg',
+                'diag_wins': 'dwin', 'x_center': 'xctr', 'empty_board': 'empt'}
+        train_cos = tc_diag.get('train_cos', {})
+        fe_grad_norm = tc_diag.get('grad_norm', {})
+        if train_cos:
+            tc_parts = []
+            for name, cos_val in train_cos.items():
+                short = _sn.get(name, name[:4])
+                tc_parts.append(f"{short}={cos_val:+.3f}")
+                writer.add_scalar(f"train_cos/{name}", cos_val, iteration)
+            print(f"  Diag[TRAIN_COS]: {' '.join(tc_parts)}")
+        if fe_grad_norm:
+            gn_parts = []
+            for name, norm_val in fe_grad_norm.items():
+                short = _sn.get(name, name[:4])
+                gn_parts.append(f"{short}={norm_val:.1f}")
+                writer.add_scalar(f"fe_grad_norm/{name}", norm_val, iteration)
+            print(f"  Diag[FE_GRAD_NORM]: {' '.join(gn_parts)}")
+
         # Focal loss diagnostic
         focal_gamma = d.get('focal_gamma', 0)
         focal_weight = d.get('focal_weight')

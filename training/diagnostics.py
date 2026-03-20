@@ -827,6 +827,58 @@ def compute_gradient_conflict_diagnostic(trainer):
     return result
 
 
+def compute_train_cos_diagnostic(trainer, last_batch_grad):
+    """Cosine similarity between last training batch gradient and per-position 'fix' gradients.
+
+    For each FixedEval position, computes gradient of "push value toward win" loss,
+    then measures cosine with the actual training batch gradient. If negative for a
+    position, training actively hurts that position's evaluation.
+
+    Also returns per-position gradient norms (loss landscape sharpness indicator).
+
+    Returns dict with 'train_cos' and 'grad_norm' sub-dicts, or empty dict on failure.
+    """
+    net = trainer.net
+    device = trainer.device
+    result = {}
+
+    fe_inputs = getattr(trainer, '_fixed_eval_inputs', None)
+    fe_names = getattr(trainer, '_fixed_eval_names', None)
+    if fe_inputs is None or fe_names is None or last_batch_grad is None:
+        return result
+
+    train_cos = {}
+    grad_norm = {}
+    try:
+        net.eval()
+        win_target = torch.LongTensor([0]).to(device)  # WDL class 0 = win
+
+        for i, name in enumerate(fe_names):
+            trainer.optimizer.zero_grad()
+            v_logit, _ = net(fe_inputs[i:i + 1])
+            loss_fe = F.cross_entropy(v_logit, win_target)
+            loss_fe.backward()
+            g = torch.cat([
+                p.grad.flatten() if p.grad is not None
+                else torch.zeros(p.numel(), device=device)
+                for p in net.parameters()
+            ])
+            cos = float(F.cosine_similarity(
+                last_batch_grad.unsqueeze(0), g.unsqueeze(0)).item())
+            train_cos[name] = cos
+            grad_norm[name] = float(g.norm().item())
+
+        trainer.optimizer.zero_grad()
+        net.train()
+        result = {'train_cos': train_cos, 'grad_norm': grad_norm}
+    except (RuntimeError, ValueError, IndexError) as e:
+        print(f"  [DIAG-DBG] TRAIN_COS diagnostic failed: {e}")
+        trainer.optimizer.zero_grad()
+        net.train()
+
+    return result
+
+
 def detect_immediate_wins(states):
     """Detect which batch positions have an immediate winning move for current player.
 
