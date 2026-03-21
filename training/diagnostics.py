@@ -141,7 +141,7 @@ def compute_pre_training_diagnostics(net, samples, device):
             is_x = np.array([s[0][0].sum() == s[0][1].sum() for s in batch])
             is_o = ~is_x
 
-            pred_v, _ = net(states)
+            pred_v = net(states)[0]
 
             # Value loss
             pre_train_vloss = float(F.cross_entropy(pred_v, targets_v).item())
@@ -178,7 +178,7 @@ def compute_post_training_player_diagnostics(net, pbias_data, device):
                 states = torch.FloatTensor(
                     np.array([s[0] for s in pbias_data['batch']])
                 ).to(device)
-                v, _ = net(states)
+                v = net(states)[0]
                 v_scalar = wdl_to_scalar(v).cpu().numpy()
                 targets = pbias_data['targets']
                 is_x = pbias_data['is_x']
@@ -257,7 +257,7 @@ def compute_value_head_diagnostics(trainer, samples, grad_stats_summary):
             diag_inp = torch.FloatTensor(
                 np.array([s[0] for s in diag_batch])
             ).to(device)
-            v_out, _ = net(diag_inp)
+            v_out = net(diag_inp)[0]
         h0.remove(); h0b.remove(); h0p.remove(); h1.remove(); h2.remove()
         for h in rb_hooks:
             h.remove()
@@ -752,7 +752,7 @@ def compute_gradient_conflict_diagnostic(trainer):
 
         # Forward + backward for x_wins_next
         trainer.optimizer.zero_grad()
-        x_pred, _ = net(fe_inputs[idx_x:idx_x + 1])
+        x_pred = net(fe_inputs[idx_x:idx_x + 1])[0]
         x_vloss = F.cross_entropy(x_pred, win_target)
         x_vloss.backward()
         x_grads = []
@@ -765,7 +765,7 @@ def compute_gradient_conflict_diagnostic(trainer):
 
         # Forward + backward for o_wins_next
         trainer.optimizer.zero_grad()
-        o_pred, _ = net(fe_inputs[idx_o:idx_o + 1])
+        o_pred = net(fe_inputs[idx_o:idx_o + 1])[0]
         o_vloss = F.cross_entropy(o_pred, win_target)
         o_vloss.backward()
         o_grads = []
@@ -855,7 +855,7 @@ def compute_train_cos_diagnostic(trainer, last_batch_grad):
 
         for i, name in enumerate(fe_names):
             trainer.optimizer.zero_grad()
-            v_logit, _ = net(fe_inputs[i:i + 1])
+            v_logit = net(fe_inputs[i:i + 1])[0]
             loss_fe = F.cross_entropy(v_logit, win_target)
             loss_fe.backward()
             g = torch.cat([

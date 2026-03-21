@@ -9,7 +9,7 @@ Replaces Python MCTS with C-typed operations:
 """
 import numpy as np
 cimport numpy as cnp
-from libc.math cimport sqrt
+from libc.math cimport sqrt, log
 
 cnp.import_array()
 
@@ -169,6 +169,56 @@ cdef int _best_action(CNode node, double c_puct=1.5):
     return best_action
 
 
+cdef int _thompson_action(CNode node):
+    """Thompson sampling action selection for search-contempt opponent nodes.
+
+    Sample from visit distribution + prior blend. Nodes with more visits
+    are more likely to be selected, but with randomness from Thompson sampling.
+    This forces the opponent to occasionally play unexpected moves.
+    """
+    cdef int i, action, best_action
+    cdef double score, best_score
+    cdef CNode child
+    cdef int child_n
+
+    if node.P is None:
+        return node._avail[0]
+
+    cdef cnp.ndarray P_arr = <cnp.ndarray>node.P
+    cdef char* P_data = P_arr.data
+    cdef int P_itemsize = P_arr.itemsize
+    cdef bint P_is_float32 = (P_itemsize == 4)
+
+    best_score = -1e30
+    best_action = node._avail[0]
+
+    # Thompson: sample score = Beta(n_i + 1, N - n_i + 1) for each child
+    # Approximated as: score = (n_i + prior*alpha) / (N + alpha) + noise
+    cdef double total_n = <double>node.n + 1e-8
+    cdef double p_val
+
+    for i in range(node._num_available):
+        action = node._avail[i]
+        child = <CNode>node.children[action]
+        child_n = child.n if child is not None else 0
+
+        if P_is_float32:
+            p_val = <double>(<float*>(P_data + action * 4))[0]
+        else:
+            p_val = (<double*>(P_data + action * 8))[0]
+
+        # Blend visit fraction with prior, add Dirichlet-like noise
+        score = (<double>child_n + p_val * 2.0) / (total_n + 2.0)
+        # Add random noise from numpy (not ideal for Cython but simple)
+        score += np.random.exponential(0.1)
+
+        if score > best_score:
+            best_score = score
+            best_action = action
+
+    return best_action
+
+
 cdef void _backpropagate(double value, CNode node) noexcept:
     """Backpropagate value up the tree — typed traversal."""
     while node is not None:
@@ -215,12 +265,14 @@ cdef class CMCTS:
     cdef public object net
     cdef public object last_root
     cdef public double c_puct
+    cdef public int contempt_n
 
-    def __init__(self, game, net, double c_puct=1.5):
+    def __init__(self, game, net, double c_puct=1.5, int contempt_n=0):
         self.game = game
         self.net = net
         self.last_root = None
         self.c_puct = c_puct
+        self.contempt_n = contempt_n  # 0 = disabled, >0 = Thompson after N visits at opp nodes
 
     def get_policy(self, int num_simulations, state, bint add_dirichlet=False):
         """Run MCTS and return visit-count policy."""
@@ -265,14 +317,22 @@ cdef class CMCTS:
     cdef CNode _tree_policy(self, CNode node):
         cdef int best
         cdef CNode child
+        cdef int depth = 0
         while not node.is_terminal:
-            best = _best_action(node, self.c_puct)
+            # Search-contempt: at opponent nodes (odd depth) with enough visits,
+            # use Thompson sampling to force diverse positions
+            if (self.contempt_n > 0 and depth % 2 == 1
+                    and node.n >= self.contempt_n):
+                best = _thompson_action(node)
+            else:
+                best = _best_action(node, self.c_puct)
             if node.children[best] is None:
                 child = CNode(node, self.game.step(node.state, best),
                               self.game, self.net)
                 node.children[best] = child
                 return child
             node = <CNode>node.children[best]
+            depth += 1
         return node
 
     # --- Batched parallel self-play methods ---
@@ -293,14 +353,20 @@ cdef class CMCTS:
         """Select+expand without neural net eval."""
         cdef int best
         cdef CNode child
+        cdef int depth = 0
         while not node.is_terminal:
-            best = _best_action(node, self.c_puct)
+            if (self.contempt_n > 0 and depth % 2 == 1
+                    and node.n >= self.contempt_n):
+                best = _thompson_action(node)
+            else:
+                best = _best_action(node, self.c_puct)
             if node.children[best] is None:
                 child = CNode(node, self.game.step(node.state, best),
                               self.game)  # net=None → deferred
                 node.children[best] = child
                 return child
             node = <CNode>node.children[best]
+            depth += 1
         return node
 
     # --- Virtual loss methods for multi-select batching ---
@@ -311,6 +377,7 @@ cdef class CMCTS:
         cdef CNode child
         cdef int best
         cdef list path = []
+        cdef int depth = 0
 
         # Tree policy with VL
         while not node.is_terminal:
@@ -319,7 +386,11 @@ cdef class CMCTS:
                 # Node created in a previous select this round, not yet evaluated
                 _apply_virtual_loss(node, vl_value)
                 return node, path
-            best = _best_action(node, self.c_puct)
+            if (self.contempt_n > 0 and depth % 2 == 1
+                    and node.n >= self.contempt_n):
+                best = _thompson_action(node)
+            else:
+                best = _best_action(node, self.c_puct)
             if node.children[best] is None:
                 child = CNode(node, self.game.step(node.state, best),
                               self.game)  # net=None → deferred
@@ -328,6 +399,7 @@ cdef class CMCTS:
                 _apply_virtual_loss(child, vl_value)
                 return child, path
             node = <CNode>node.children[best]
+            depth += 1
         path.append(node)
 
         # Terminal or already evaluated — no VL needed, handle immediately

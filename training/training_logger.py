@@ -106,6 +106,15 @@ class TrainingLogger:
                 if thr_l > 0:
                     writer.add_scalar("loss/threat", thr_l, iteration)
                     aux_loss_str += f" t={thr_l:.4f}"
+                stv_l = self._t._train_diag.get("avg_stv_loss", 0)
+                if stv_l > 0:
+                    writer.add_scalar("loss/stv", stv_l, iteration)
+                    aux_loss_str += f" stv={stv_l:.4f}"
+                ps_mean = self._t._train_diag.get("mean_policy_surprise")
+                if ps_mean is not None:
+                    writer.add_scalar("diag/policy_surprise_mean", ps_mean, iteration)
+                    writer.add_scalar("diag/policy_surprise_max",
+                                      self._t._train_diag.get("max_policy_surprise", 0), iteration)
             print(f"  Iter {iteration+1}/{num_iterations}: loss={avg_loss:.4f} "
                   f"(v={avg_value_loss:.4f} p={avg_policy_loss:.4f}{aux_loss_str}) | "
                   f"games: p1={stats['wins_p1']} p2={stats['wins_p2']} "
@@ -924,7 +933,7 @@ class TrainingLogger:
         with torch.no_grad():
             inp_t = torch.FloatTensor(np.array(originals)).to(t.device)
             # Full forward to get WDL logits
-            wdl_logits, _ = t.net(inp_t)
+            wdl_logits = t.net(inp_t)[0]
             wdl_probs = F_torch.softmax(wdl_logits, dim=1).cpu().numpy()  # [N, 3]
             # Value conv activations: backbone -> value_conv -> value_bn
             bb_out = t.net.backbone_forward(inp_t)

@@ -10,22 +10,23 @@ def _finalize_game_targets(examples, tv, label="", final_board=None):
     """Convert per-move player tags to outcome targets and verify sign chain.
 
     Args:
-        examples: list of [state_input, policy, player_tag, threat_map] for one game
+        examples: list of [state_input, policy, player_tag, aux_maps] for one game
         tv: terminal value (-1=X wins, +1=O wins, 0=draw)
         label: context string for assertion messages
-        final_board: if provided, append ownership target (final_board * player) to each example
+        final_board: if provided, add ownership target to aux_maps dict
 
     After finalization, each example is:
-        [state_input, policy, value, threat_map, ownership(optional)]
+        [state_input, policy, value, aux_maps]
+    where aux_maps is a dict with keys: threat, policy_surprise, mcts_q, ownership(optional)
     """
     if tv != 0 and len(examples) > 0:
         assert examples[-1][2] == tv, \
             f"{label} sign-chain: last_player={examples[-1][2]}, tv={tv}"
     for ex in examples:
         player_at_pos = ex[2]
-        if final_board is not None:
+        if final_board is not None and ex[3] is not None:
             # Ownership target: +1=my piece, -1=opponent piece, 0=empty at game end
-            ex.append((final_board * player_at_pos).astype(np.float32))
+            ex[3]['ownership'] = (final_board * player_at_pos).astype(np.float32)
         ex[2] = tv * player_at_pos
     if tv != 0 and len(examples) > 0:
         assert abs(examples[-1][2] - 1.0) < 1e-6, \
@@ -50,7 +51,8 @@ class BatchedSelfPlay:
                  tree_reuse=True, resign_threshold=-1.0,
                  resign_min_moves=99, resign_check_prob=0.0,
                  random_opening_moves=0,
-                 random_opening_fraction=1.0):
+                 random_opening_fraction=1.0,
+                 contempt_n=0):
         self.game = game
         self.net = net
         self.num_games = num_games
@@ -66,7 +68,7 @@ class BatchedSelfPlay:
         self.resign_check_prob = resign_check_prob
         self.random_opening_moves = random_opening_moves
         self.random_opening_fraction = random_opening_fraction
-        self.mcts = MCTS(game, net, c_puct=c_puct)
+        self.mcts = MCTS(game, net, c_puct=c_puct, contempt_n=contempt_n)
 
         # Log backends once
         if not getattr(BatchedSelfPlay, '_backend_logged', False):
@@ -259,9 +261,30 @@ class BatchedSelfPlay:
                 self._p['col_selections'][action] += 1
 
                 # Training target is always the full visit distribution
-                # Threat map: computed per-position from current board state
+                # Aux maps dict: threat, policy_surprise, mcts_value
                 threat_map = self.game.compute_threat_map(states[i])
-                examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player, threat_map])
+
+                # Policy surprise: KL(MCTS_policy || prior_policy)
+                prior = root.P  # network's policy prior
+                kl_div = 0.0
+                if prior is not None:
+                    eps = 1e-8
+                    pi_safe = np.clip(pi, eps, 1.0)
+                    prior_safe = np.clip(prior, eps, 1.0)
+                    # Only over available actions where pi > 0
+                    mask = pi > eps
+                    if mask.any():
+                        kl_div = float(np.sum(pi_safe[mask] * np.log(pi_safe[mask] / prior_safe[mask])))
+
+                # MCTS root Q value from current player's perspective
+                mcts_q = float(-root.Q) if root.n > 0 else 0.0
+
+                aux_maps = {
+                    'threat': threat_map,
+                    'policy_surprise': kl_div,
+                    'mcts_q': mcts_q,
+                }
+                examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player, aux_maps])
                 move_counts[i] += 1
 
                 states[i] = self.game.step(states[i], action)

@@ -20,20 +20,7 @@ from training.training_logger import TrainingLogger
 from utils import wdl_to_scalar
 
 
-def focal_cross_entropy(logits, targets, gamma=2.0, reduction='mean', label_smoothing=0.0):
-    """Focal loss for multi-class classification (Lin et al., 2017).
 
-    Down-weights easy examples where the model is already confident and correct.
-    With gamma=0, equivalent to standard cross-entropy.
-    Returns (loss, mean_focal_weight) when reduction='mean'.
-    """
-    ce_loss = F.cross_entropy(logits, targets, reduction='none', label_smoothing=label_smoothing)
-    p_t = torch.exp(-ce_loss)  # probability of the true class
-    focal_weight = (1 - p_t) ** gamma
-    focal_loss = focal_weight * ce_loss
-    if reduction == 'mean':
-        return focal_loss.mean(), focal_weight.mean().item()
-    return focal_loss, focal_weight.mean().item()
 
 
 class Trainer:
@@ -74,10 +61,12 @@ class Trainer:
         ], lr=self.lr, momentum=0.9)
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
-        self.focal_gamma = self.config.get("focal_gamma", 0.0)  # 0 = standard CE
         self.value_label_smoothing = self.config.get("value_label_smoothing", 0.0)
         self.ownership_loss_weight = self.config.get("ownership_loss_weight", 0.0)
         self.threat_loss_weight = self.config.get("threat_loss_weight", 0.0)
+        self.surprise_weighting = self.config.get("surprise_weighting", True)
+        self.surprise_kl_frac = self.config.get("surprise_kl_frac", 0.5)  # KL-proportional fraction (rest is uniform)
+        self.stv_weight = self.config.get("stv_weight", 0.5)  # short-term value target weight
 
         # Precompute parameter groups for gradient norm diagnostics (step%100)
         self._value_params = [p for n, p in net.named_parameters() if "value" in n]
@@ -121,8 +110,14 @@ class Trainer:
                 param_group['lr'] = lr
             self.global_step += 1
 
-            # Sample batch (stratified or random)
-            if (setup['use_stratified'] and len(setup['x_pool']) >= setup['half_batch']
+            # Sample batch — surprise-weighted if available
+            # KataGo-style: half weight uniform, half proportional to policy surprise (KL)
+            if self.surprise_weighting and setup.get('surprise_weights') is not None:
+                sw = setup['surprise_weights']
+                indices = np.random.choice(len(samples), size=min(self.batch_size, len(samples)),
+                                           replace=False, p=sw)
+                batch = [samples[i] for i in indices]
+            elif (setup['use_stratified'] and len(setup['x_pool']) >= setup['half_batch']
                     and len(setup['o_pool']) >= setup['half_batch']):
                 batch = (random.sample(setup['x_pool'], k=setup['half_batch'])
                          + random.sample(setup['o_pool'], k=setup['half_batch']))
@@ -157,17 +152,8 @@ class Trainer:
                 pred_aux = net_out[2] if len(net_out) > 2 else {}
 
                 # Value loss: average over original + swapped
-                if self.focal_gamma > 0:
-                    value_loss, focal_w = focal_cross_entropy(
-                        pred_all, combined_targets, gamma=self.focal_gamma,
-                        label_smoothing=self.value_label_smoothing)
-                    acc['focal_weight_sum'] += focal_w
-                    with torch.no_grad():
-                        acc['unfocal_vloss_sum'] += F.cross_entropy(
-                            pred_all, combined_targets).item()
-                else:
-                    value_loss = F.cross_entropy(pred_all, combined_targets,
-                                                label_smoothing=self.value_label_smoothing)
+                value_loss = F.cross_entropy(pred_all, combined_targets,
+                                            label_smoothing=self.value_label_smoothing)
                 # Extract original-only predictions for policy + diagnostics
                 pred_vs = pred_all[:B]
                 pred_pi_logits = pi_all[:B]
@@ -175,6 +161,25 @@ class Trainer:
                 log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
                 policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
                 loss = cfg['effective_vlw'] * value_loss + policy_loss
+
+                # Short-term value target: MSE between predicted scalar and MCTS Q
+                if self.stv_weight > 0:
+                    mcts_qs = [
+                        s[3].get('mcts_q', None) if isinstance(s[3], dict) else None
+                        for s in batch
+                    ]
+                    has_q = [q is not None for q in mcts_qs]
+                    if any(has_q):
+                        q_mask = torch.BoolTensor(has_q).to(self.device)
+                        target_q = torch.FloatTensor(
+                            [q for q in mcts_qs if q is not None]
+                        ).to(self.device)
+                        # Predicted scalar value: P(win) - P(loss) from WDL
+                        pred_probs = F.softmax(pred_vs[q_mask], dim=1)
+                        pred_scalar = pred_probs[:, 0] - pred_probs[:, 2]
+                        stv_loss = F.mse_loss(pred_scalar, target_q)
+                        loss = loss + self.stv_weight * stv_loss
+                        acc['total_stv_loss'] += stv_loss.item()
 
                 # Auxiliary spatial losses (ownership + threat)
                 # Each batch sample s[3] is an aux_maps dict or None
@@ -275,7 +280,7 @@ class Trainer:
         # All tracking accumulators
         acc = {
             'total_loss': 0, 'total_value_loss': 0, 'total_policy_loss': 0,
-            'total_ownership_loss': 0, 'total_threat_loss': 0,
+            'total_ownership_loss': 0, 'total_threat_loss': 0, 'total_stv_loss': 0,
             'num_batches': 0, 'data_prep_time': 0.0, 'gradient_time': 0.0,
             'early_vloss': 0.0, 'early_ploss': 0.0,
             'late_vloss': 0.0, 'late_ploss': 0.0,
@@ -301,11 +306,25 @@ class Trainer:
             'gn_group_var_trajectory': [],
             'imm_win_vloss_sum': 0.0, 'imm_win_count': 0,
             'non_imm_win_vloss_sum': 0.0, 'non_imm_win_count': 0,
-            'focal_weight_sum': 0.0,
-            'unfocal_vloss_sum': 0.0,  # standard CE for comparison with focal
-            'focal_w_by_outcome': {'win': 0.0, 'draw': 0.0, 'loss': 0.0},
-            'focal_n_by_outcome': {'win': 0, 'draw': 0, 'loss': 0},
         }
+
+        # Policy surprise weights: half uniform, half proportional to KL divergence
+        surprise_weights = None
+        if self.surprise_weighting:
+            kls = np.array([
+                s[3].get('policy_surprise', 0.0) if isinstance(s[3], dict) else 0.0
+                for s in train_samples
+            ], dtype=np.float64)
+            mean_kl = kls.mean()
+            if mean_kl > 1e-8:
+                # Blend: (1-kl_frac)*uniform + kl_frac*KL-proportional
+                kl_frac = self.surprise_kl_frac
+                uniform = np.ones(len(kls)) / len(kls)
+                kl_weights = kls / kls.sum()
+                surprise_weights = (1.0 - kl_frac) * uniform + kl_frac * kl_weights
+                surprise_weights /= surprise_weights.sum()  # normalize
+                acc['mean_policy_surprise'] = float(mean_kl)
+                acc['max_policy_surprise'] = float(kls.max())
 
         return {
             'train_samples': train_samples, 'val_samples': val_samples,
@@ -317,6 +336,7 @@ class Trainer:
             'early_cutoff': early_cutoff, 'late_start': late_start,
             'lr_min': lr_min, 'n_samples': n_samples, 'fill_ratio': fill_ratio,
             'pre_train_vloss': pre_train_vloss, 'pbias_data': pbias_data,
+            'surprise_weights': surprise_weights,
             'acc': acc,
         }
 
@@ -368,16 +388,6 @@ class Trainer:
                 if non_imm.any():
                     acc['non_imm_win_vloss_sum'] += per_sample_vloss[non_imm].mean().item()
                     acc['non_imm_win_count'] += 1
-
-                # Per-outcome focal weight split (win/draw/loss)
-                if self.focal_gamma > 0:
-                    p_t = torch.exp(-per_sample_vloss)
-                    fw = (1 - p_t) ** self.focal_gamma
-                    for cls, name in [(0, 'win'), (1, 'draw'), (2, 'loss')]:
-                        mask = (target_vs == cls)
-                        if mask.any():
-                            acc['focal_w_by_outcome'][name] += fw[mask].mean().item()
-                            acc['focal_n_by_outcome'][name] += 1
 
                 # (#6) Value loss by game phase
                 total_pieces = my_counts + opp_counts
@@ -628,6 +638,7 @@ class Trainer:
         avg_policy_loss = acc['total_policy_loss'] / max(num_batches, 1)
         avg_ownership_loss = acc['total_ownership_loss'] / max(num_batches, 1)
         avg_threat_loss = acc['total_threat_loss'] / max(num_batches, 1)
+        avg_stv_loss = acc['total_stv_loss'] / max(num_batches, 1)
         early_vloss = acc['early_vloss'] / max(early_cutoff, 1)
         early_ploss = acc['early_ploss'] / max(early_cutoff, 1)
         late_vloss = acc['late_vloss'] / max(early_cutoff, 1)
@@ -822,15 +833,11 @@ class Trainer:
             "imm_win_vloss": imm_win_vloss,
             "non_imm_win_vloss": non_imm_win_vloss,
             "imm_win_frac_train": acc['imm_win_count'] / max(acc['imm_win_count'] + acc['non_imm_win_count'], 1),
-            "focal_gamma": self.focal_gamma,
-            "focal_weight": acc['focal_weight_sum'] / max(num_batches, 1) if self.focal_gamma > 0 else None,
-            "unfocal_vloss": acc['unfocal_vloss_sum'] / max(num_batches, 1) if self.focal_gamma > 0 else None,
-            "focal_w_by_outcome": {
-                k: acc['focal_w_by_outcome'][k] / max(acc['focal_n_by_outcome'][k], 1)
-                for k in ('win', 'draw', 'loss')
-            } if self.focal_gamma > 0 else None,
             "avg_ownership_loss": avg_ownership_loss,
             "avg_threat_loss": avg_threat_loss,
+            "avg_stv_loss": avg_stv_loss,
+            "mean_policy_surprise": acc.get('mean_policy_surprise'),
+            "max_policy_surprise": acc.get('max_policy_surprise'),
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -838,7 +845,7 @@ class Trainer:
         'selects_per_round', 'vl_value', 'temp_threshold', 'c_puct',
         'dirichlet_alpha', 'tree_reuse', 'resign_threshold',
         'resign_min_moves', 'resign_check_prob', 'random_opening_moves',
-        'random_opening_fraction',
+        'random_opening_fraction', 'contempt_n',
     ]
 
     def _self_play(self, iteration):
@@ -871,21 +878,29 @@ class Trainer:
             self_play_time = time.time() - t0
 
             # Augment with symmetries (e.g. left-right mirror for Connect4)
-            # Example format: [state_input, policy, value, threat_map_or_None, ownership_or_absent]
+            # Example format: [state_input, policy, value, aux_maps_dict]
             augmented = []
             for ex in all_examples:
-                # Build aux_maps dict from positional indices
-                aux_maps = {}
-                threat = ex[3] if len(ex) > 3 else None
-                ownership = ex[4] if len(ex) > 4 else None
-                if threat is not None:
-                    aux_maps['threat'] = threat
-                if ownership is not None:
-                    aux_maps['ownership'] = ownership
-                syms = self.game.get_symmetries(ex[0], ex[1], aux_maps or None)
+                aux_maps = ex[3] if len(ex) > 3 and isinstance(ex[3], dict) else {}
+                # For backward compat: if ex[3] is a raw array, treat as threat map
+                if len(ex) > 3 and not isinstance(ex[3], dict) and ex[3] is not None:
+                    aux_maps = {'threat': ex[3]}
+                    if len(ex) > 4 and ex[4] is not None:
+                        aux_maps['ownership'] = ex[4]
+                # Build spatial-only dict for symmetry augmentation (flip maps)
+                spatial = {}
+                if 'threat' in aux_maps and aux_maps['threat'] is not None:
+                    spatial['threat'] = aux_maps['threat']
+                if 'ownership' in aux_maps and aux_maps['ownership'] is not None:
+                    spatial['ownership'] = aux_maps['ownership']
+                syms = self.game.get_symmetries(ex[0], ex[1], spatial or None)
                 for sym_tuple in syms:
                     sym_input, sym_policy = sym_tuple[0], sym_tuple[1]
-                    sym_aux = sym_tuple[2] if len(sym_tuple) > 2 else None
+                    sym_spatial = sym_tuple[2] if len(sym_tuple) > 2 else None
+                    # Merge flipped spatial maps back into full aux_maps
+                    sym_aux = dict(aux_maps)  # copy non-spatial fields
+                    if sym_spatial:
+                        sym_aux.update(sym_spatial)
                     entry = [sym_input, sym_policy, ex[2], sym_aux]
                     augmented.append(entry)
             n_new_positions = len(augmented)

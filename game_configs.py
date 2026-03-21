@@ -50,10 +50,11 @@ GAME_CONFIGS = {
         # --- Training ---
         "train_ratio": 8,
         "value_loss_weight": 1.0,
-        "focal_gamma": 1.0,
         "value_label_smoothing": 0.1,
         "ownership_loss_weight": 0.5,
         "threat_loss_weight": 0.5,
+        "stv_weight": 0.5,             # short-term value target (MCTS Q) loss weight
+        "surprise_kl_frac": 0.5,       # policy surprise: KL-proportional fraction (rest is uniform)
         "resblock_dropout": 0.1,
         "random_opening_moves": 12,
         "random_opening_fraction": 0.5,
@@ -71,6 +72,9 @@ GAME_CONFIGS = {
         "c_puct": 2.5,
         "dirichlet_alpha": 1.4,        # ~10 / 7 legal moves
         "dirichlet_epsilon": 0.4,      # 40% noise (was 0.25 default)
+
+        # --- Search-contempt: Thompson sampling at opponent nodes after N visits ---
+        "contempt_n": 20,  # 0=disabled, >0=Thompson after N visits at opp nodes
 
         # --- Tree reuse & Resign ---
         "tree_reuse": True,
