@@ -102,10 +102,8 @@ class Trainer:
 
         self.net.train()
         for step in range(cfg['num_steps']):
-            # Global cosine annealing: lr decays over entire training run
-            total = max(self.global_total_steps, 1)
-            lr = cfg['lr_min'] + 0.5 * (self.lr - cfg['lr_min']) * (
-                1 + math.cos(math.pi * self.global_step / total))
+            # Flat LR (KataGo-style: constant throughout non-stationary RL training)
+            lr = self.lr
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = lr
             self.global_step += 1

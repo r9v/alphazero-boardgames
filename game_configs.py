@@ -39,27 +39,27 @@ GAME_CONFIGS = {
     "connect4": {
         # --- Network ---
         "num_filters": 64,
-        "num_res_blocks": 6,
+        "num_res_blocks": 4,
         "value_head_channels": 32,
         "value_head_fc_size": 64,
         "policy_head_channels": 2,
         "se_ratio": 4,
-        "ownership_channels": 8,
-        "threat_channels": 8,
+        "ownership_channels": 0,
+        "threat_channels": 0,
 
         # --- Training ---
         "train_ratio": 8,
         "value_loss_weight": 1.0,
         "value_label_smoothing": 0.1,
-        "ownership_loss_weight": 0.5,
-        "threat_loss_weight": 0.5,
-        "stv_weight": 0.5,             # short-term value target (MCTS Q) loss weight
+        "ownership_loss_weight": 0.0,
+        "threat_loss_weight": 0.0,
+        "stv_weight": 0.0,             # short-term value target (MCTS Q) loss weight
         "surprise_kl_frac": 0.5,       # policy surprise: KL-proportional fraction (rest is uniform)
         "resblock_dropout": 0.1,
         "random_opening_moves": 12,
         "random_opening_fraction": 0.5,
         "buffer_size": 100_000,
-        "lr": 0.005,
+        "lr": 0.003,
         "batch_size": 256,
 
         # --- Self-play ---
@@ -78,7 +78,7 @@ GAME_CONFIGS = {
 
         # --- Tree reuse & Resign ---
         "tree_reuse": True,
-        "resign_threshold": -0.99,
+        "resign_threshold": -1.0,  # disabled: play to completion for full game data
         "resign_min_moves": 10,
         "resign_check_prob": 0.1,
 

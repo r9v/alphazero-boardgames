@@ -59,6 +59,35 @@ class GameState(BaseGameState):
         return False
 
 
+def classify_win(board):
+    """Classify how the game was won. Returns list of (type, col, player) tuples.
+
+    Types: 'vert' (vertical), 'horiz' (horizontal), 'diag_up' (/), 'diag_down' (\\)
+    Col: leftmost column of the winning 4 (or the column for vertical).
+    Multiple wins possible (rare but legal). Returns [] for draws.
+    """
+    wins = []
+    for player in [-1, 1]:
+        b = board
+        for c in range(COLUMN_COUNT - 3):  # Horizontal
+            for r in range(ROW_COUNT):
+                if b[r][c] == player and b[r][c+1] == player and b[r][c+2] == player and b[r][c+3] == player:
+                    wins.append(('horiz', c, player))
+        for c in range(COLUMN_COUNT):  # Vertical
+            for r in range(ROW_COUNT - 3):
+                if b[r][c] == player and b[r+1][c] == player and b[r+2][c] == player and b[r+3][c] == player:
+                    wins.append(('vert', c, player))
+        for c in range(COLUMN_COUNT - 3):  # Diagonal /
+            for r in range(ROW_COUNT - 3):
+                if b[r][c] == player and b[r+1][c+1] == player and b[r+2][c+2] == player and b[r+3][c+3] == player:
+                    wins.append(('diag_up', c, player))
+        for c in range(COLUMN_COUNT - 3):  # Diagonal \
+            for r in range(3, ROW_COUNT):
+                if b[r][c] == player and b[r-1][c+1] == player and b[r-2][c+2] == player and b[r-3][c+3] == player:
+                    wins.append(('diag_down', c, player))
+    return wins
+
+
 def compute_threat_map(board, player):
     """Compute per-cell threat map from current player's perspective.
 

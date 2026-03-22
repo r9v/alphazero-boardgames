@@ -103,6 +103,7 @@ class BatchedSelfPlay:
             'random_opening_total': 0, 'random_opening_terminated': 0,
             'random_opening_surviving': self.num_games,
             'col_selections': [0] * self.game.action_size,  # per-column move count
+            'win_patterns': {},  # {(type, col): count} e.g. ('vert', 0): 5
         }
 
         self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value, mcts_Q) per move
@@ -111,6 +112,7 @@ class BatchedSelfPlay:
         # Initialize all games
         states = [self.game.new_game() for _ in range(self.num_games)]
         examples = [[] for _ in range(self.num_games)]
+        raw_priors = {}  # per-game raw prior before Dirichlet noise (for policy target pruning)
         terminal_values = [0] * self.num_games  # raw terminal values per game
         active = list(range(self.num_games))  # indices of games still in progress
         move_counts = [0] * self.num_games
@@ -178,6 +180,9 @@ class BatchedSelfPlay:
         active_roots = [roots[i] for i in active]
         self._batch_evaluate_nodes(active_roots)
 
+        # Store raw priors before Dirichlet noise (for policy target pruning)
+        for i in active:
+            raw_priors[i] = roots[i].P.copy() if roots[i].P is not None else None
         # Add Dirichlet noise to root priors (legal actions only)
         for root in active_roots:
             root.P = add_dirichlet_noise(root.P, self.dirichlet_alpha, self.dirichlet_epsilon, root.available_actions_mask)
@@ -203,6 +208,7 @@ class BatchedSelfPlay:
                     terminal_values[i] = tv
                     _finalize_game_targets(examples[i], tv, label="Resign",
                                            final_board=states[i].board)
+                    self._track_win_pattern(states[i].board, tv)
                     self._p['resign_count'] += 1
                     self._p['resign_move_sum'] += move_counts[i]
                 elif should_resign and not resign_allowed[i]:
@@ -232,6 +238,30 @@ class BatchedSelfPlay:
                 if pi_sum > 0:
                     pi = pi / pi_sum
 
+                # Policy target pruning: subtract noise/forced-induced visits from non-best children
+                # Raw pi is used for move selection (with exploration artifacts)
+                # Pruned pi_target is used for training (clean signal)
+                best_action_raw = np.argmax(pi)
+                pi_target = np.zeros_like(pi)
+                for action in root.available_actions:
+                    child = children[action]
+                    if child is None:
+                        continue
+                    raw_visits = child.n
+                    if action != best_action_raw:
+                        # Subtract estimated noise-induced visits:
+                        # sqrt(2 * prior * total_visits) using raw prior (before Dirichlet)
+                        rp = raw_priors.get(i)
+                        prior_val = rp[action] if rp is not None else 0.0
+                        noise_visits = (2.0 * prior_val * root.n) ** 0.5
+                        raw_visits = max(0, raw_visits - noise_visits)
+                    pi_target[action] = raw_visits
+                pt_sum = pi_target.sum()
+                if pt_sum > 0:
+                    pi_target = pi_target / pt_sum
+                else:
+                    pi_target = pi  # fallback to raw if pruning removed everything
+
                 # MCTS visit entropy: H = -sum(p * log(p)) for non-zero entries
                 pi_nz = pi[pi > 0]
                 if len(pi_nz) > 0:
@@ -242,7 +272,7 @@ class BatchedSelfPlay:
                 # Diagnostic: record per-move stats
                 self._game_value_preds[i].append((states[i].player, root.nnet_value, -root.Q))
 
-                # Temperature: explore early, exploit late
+                # Temperature: explore early, exploit late (uses RAW pi for move selection)
                 move_num = len(examples[i])
                 if move_num < self.temp_threshold:
                     action = np.random.choice(len(pi), p=pi)
@@ -284,7 +314,7 @@ class BatchedSelfPlay:
                     'policy_surprise': kl_div,
                     'mcts_q': mcts_q,
                 }
-                examples[i].append([self.game.state_to_input(states[i]), pi, states[i].player, aux_maps])
+                examples[i].append([self.game.state_to_input(states[i]), pi_target, states[i].player, aux_maps])
                 move_counts[i] += 1
 
                 states[i] = self.game.step(states[i], action)
@@ -301,6 +331,7 @@ class BatchedSelfPlay:
                             self._p['resign_false_positives'] += 1
                     _finalize_game_targets(examples[i], tv, label="Terminal",
                                            final_board=states[i].board)
+                    self._track_win_pattern(states[i].board, tv)
                 else:
                     # --- Tree reuse or fresh root ---
                     if self.tree_reuse:
@@ -326,10 +357,12 @@ class BatchedSelfPlay:
                 new_roots = [roots[i] for i in next_active_fresh]
                 self._batch_evaluate_nodes(new_roots)
                 for i in next_active_fresh:
+                    raw_priors[i] = roots[i].P.copy() if roots[i].P is not None else None
                     roots[i].P = add_dirichlet_noise(roots[i].P, self.dirichlet_alpha, self.dirichlet_epsilon, roots[i].available_actions_mask)
 
             # Add Dirichlet noise to reused roots too (for exploration)
             for i in next_active_reused:
+                raw_priors[i] = roots[i].P.copy() if roots[i].P is not None else None
                 roots[i].P = add_dirichlet_noise(roots[i].P, self.dirichlet_alpha, self.dirichlet_epsilon, roots[i].available_actions_mask)
 
             active = next_active_fresh + next_active_reused
@@ -362,6 +395,19 @@ class BatchedSelfPlay:
         self._compute_value_diagnostics(results)
 
         return all_examples, results, game_lengths
+
+    def _track_win_pattern(self, board, tv):
+        """Classify and count win patterns if the game has a winner."""
+        if tv == 0:
+            return  # draw
+        try:
+            from games.connect4 import classify_win
+            wins = classify_win(board)
+            for win_type, col, _player in wins:
+                key = (win_type, col)
+                self._p['win_patterns'][key] = self._p['win_patterns'].get(key, 0) + 1
+        except (ImportError, AttributeError):
+            pass  # not Connect4, skip
 
     def _compute_value_diagnostics(self, results):
         """Compute statistics about NN value predictions during self-play."""

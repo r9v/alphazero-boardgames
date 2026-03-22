@@ -165,6 +165,45 @@ class TrainingLogger:
             for i, pct in enumerate(pcts):
                 writer.add_scalar(f"self_play/col_{i}_pct", pct, iteration)
 
+        # Win pattern classification
+        win_patterns = perf.get('win_patterns', {})
+        if win_patterns:
+            # Aggregate by type
+            type_counts = {}
+            col_wins = {}  # per-column win count (any type)
+            for (wtype, col), count in win_patterns.items():
+                type_counts[wtype] = type_counts.get(wtype, 0) + count
+                col_wins[col] = col_wins.get(col, 0) + count
+            total_wins = sum(type_counts.values())
+            # Print summary
+            type_str = " ".join(f"{t}={c}" for t, c in sorted(type_counts.items()))
+            print(f"  Diag[WIN_PAT]: {type_str} (total={total_wins})")
+            # Per-column vertical wins
+            vert_by_col = {col: cnt for (t, col), cnt in win_patterns.items() if t == 'vert'}
+            if vert_by_col:
+                vert_str = " ".join(f"c{c}={vert_by_col.get(c, 0)}" for c in range(7))
+                print(f"  Diag[WIN_VERT]: {vert_str}")
+            # Per-column horizontal wins (by leftmost col)
+            horiz_by_col = {col: cnt for (t, col), cnt in win_patterns.items() if t == 'horiz'}
+            if horiz_by_col:
+                horiz_str = " ".join(f"c{c}={horiz_by_col.get(c, 0)}" for c in range(4))
+                print(f"  Diag[WIN_HORIZ]: {horiz_str}")
+            # Per-column diagonal wins (by leftmost col)
+            diag_by_col = {col: cnt for (t, col), cnt in win_patterns.items() if t in ('diag_up', 'diag_down')}
+            if diag_by_col:
+                diag_str = " ".join(f"c{c}={diag_by_col.get(c, 0)}" for c in range(4))
+                print(f"  Diag[WIN_DIAG]: {diag_str}")
+            # Tensorboard
+            for (wtype, col), count in win_patterns.items():
+                writer.add_scalar(f"win_pattern/{wtype}_c{col}", count, iteration)
+            # Edge vs center win ratio
+            edge_wins = sum(cnt for (t, c), cnt in win_patterns.items() if c in (0, 6))
+            center_wins = sum(cnt for (t, c), cnt in win_patterns.items() if c in (2, 3, 4))
+            if total_wins > 0:
+                print(f"  Diag[WIN_EDGE_CTR]: edge(c0,c6)={edge_wins}({edge_wins/total_wins*100:.1f}%) center(c2-4)={center_wins}({center_wins/total_wins*100:.1f}%)")
+                writer.add_scalar("win_pattern/edge_frac", edge_wins / total_wins, iteration)
+                writer.add_scalar("win_pattern/center_frac", center_wins / total_wins, iteration)
+
     def _log_self_play_stats(self, iteration, stats):
         """Log 3-in-a-row, self-play counts, pre-seg, drift, weight delta."""
         writer = self.writer
@@ -957,6 +996,14 @@ class TrainingLogger:
                     fc1_input = vconv_flat
             fc1_out = F_torch.leaky_relu(t.net.value_fc1(fc1_input), negative_slope=0.01)
 
+        # Optimal actions for each diagnostic position (winning move column)
+        optimal_actions = {
+            'x_wins_next': 3, 'o_wins_next': 3, 'vert_wins': 3,
+            'horiz_right': 3, 'vert_edge': 0, 'vert_edge_clean': 0,
+            'diag_wins': 3, 'race_edge_ctr': 0, 'horiz_edge': 0,
+            'race_horiz': 3, 'vert_edge_right': 6, 'late_vert': 1,
+        }
+
         n = len(positions)
         print(f"  {label}:")
         for i, (name, state_input, expected_str) in enumerate(positions):
@@ -976,11 +1023,20 @@ class TrainingLogger:
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_W", w, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_D", d, iteration)
             self.writer.add_scalar(f"fixed_eval/{prefix}{name}_L", l, iteration)
+            # Top-3 policy with probabilities and optimal action
+            sorted_acts = np.argsort(policy)[::-1]
+            top3 = [(int(a), policy[a]) for a in sorted_acts[:3]]
+            top3_str = " ".join(f"c{a}={p:.1%}" for a, p in top3)
+            opt = optimal_actions.get(name)
+            opt_str = f" opt=c{opt}({policy[opt]:.1%})" if opt is not None else ""
+            correct_str = ""
+            if opt is not None:
+                correct_str = " OK" if top_action == opt else f" WRONG(expect c{opt})"
             # Value conv per-channel activations
             ch_str = " ".join(f"{vconv_act[i][c]:+.3f}" for c in range(vconv_act.shape[1]))
-            print(f"    {name}: V={value:+.4f} top_act={top_action} swap_d={swap_delta:+.4f} "
+            print(f"    {name}: V={value:+.4f} top_act={top_action}{correct_str} swap_d={swap_delta:+.4f} "
                   f"sym={sym_err:+.4f} ({expected_str})")
-            print(f"      WDL=[{w:.3f} {d:.3f} {l:.3f}] vconv=[{ch_str}]")
+            print(f"      policy=[{top3_str}]{opt_str} WDL=[{w:.3f} {d:.3f} {l:.3f}]")
 
         # Pairwise cosine similarity of flattened vconv features and fc1 activations
         # between all "I'm winning" positions to see if the value head distinguishes them
@@ -1000,6 +1056,43 @@ class TrainingLogger:
                     parts_fc1.append(f"{na[:5]}~{nb[:5]}={cf:.2f}")
             print(f"  Diag[FE_COS]: vconv_flat: {' '.join(parts_vconv)}")
             print(f"  Diag[FE_COS]: fc1:        {' '.join(parts_fc1)}")
+
+        # Backbone feature comparison: vert_edge vs vert_wins
+        # These have identical patterns (3 stacked pieces) in different columns (0 vs 3)
+        # If backbone features differ, it's the conv zero-padding creating column bias
+        try:
+            name_to_idx = {name: i for i, (name, _, _) in enumerate(positions)}
+            if 'vert_edge' in name_to_idx and 'vert_wins' in name_to_idx:
+                ve_idx = name_to_idx['vert_edge']
+                vw_idx = name_to_idx['vert_wins']
+                bb_ve = bb_out[ve_idx]
+                bb_vw = bb_out[vw_idx]
+
+                gap_cos = float(F_torch.cosine_similarity(
+                    bb_ve.mean(dim=(1, 2)).unsqueeze(0),
+                    bb_vw.mean(dim=(1, 2)).unsqueeze(0)
+                ).item())
+
+                col_mag_ve = bb_ve.abs().sum(dim=0).mean(dim=0).cpu().numpy()
+                col_mag_vw = bb_vw.abs().sum(dim=0).mean(dim=0).cpu().numpy()
+
+                ve_str = " ".join(f"c{c}={col_mag_ve[c]:.2f}" for c in range(7))
+                vw_str = " ".join(f"c{c}={col_mag_vw[c]:.2f}" for c in range(7))
+
+                print(f"  Diag[BB_CMP]: vert_edge vs vert_wins backbone GAP cosine={gap_cos:.4f}")
+                print(f"  Diag[BB_CMP]: vert_edge col_mag: {ve_str}")
+                print(f"  Diag[BB_CMP]: vert_wins col_mag: {vw_str}")
+
+                gap_ve_val = vconv_act[ve_idx]
+                gap_vw_val = vconv_act[vw_idx]
+                ve_vconv_str = " ".join(f"{gap_ve_val[c]:+.3f}" for c in range(len(gap_ve_val)))
+                vw_vconv_str = " ".join(f"{gap_vw_val[c]:+.3f}" for c in range(len(gap_vw_val)))
+                print(f"  Diag[BB_CMP]: vert_edge vconv_gap: [{ve_vconv_str}]")
+                print(f"  Diag[BB_CMP]: vert_wins vconv_gap: [{vw_vconv_str}]")
+
+                self.writer.add_scalar("diag/bb_gap_cosine_ve_vw", gap_cos, iteration)
+        except Exception as e:
+            print(f"  [DIAG-DBG] Backbone comparison failed: {e}")
 
     def _get_diagnostic_positions(self):
         """Return a list of (name, state_input, expected_description) for fixed evaluation."""
@@ -1077,7 +1170,8 @@ class TrainingLogger:
         positions.append(("horiz_right", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
         # Vertical near-win at edge: X has 3 stacked in col 0, plays col 0 to win
-        # X at (0,0),(1,0),(2,0). O at (0,3),(0,4),(0,5). 3X 3O = X to move.
+        # O at (0,3),(0,4),(0,5) — has 3-in-a-row threat which may confuse value head
+        # X at (0,0),(1,0),(2,0). 3X 3O = X to move.
         board = np.zeros((6, 7), dtype="int")
         board[0][0] = -1
         board[1][0] = -1
@@ -1087,6 +1181,18 @@ class TrainingLogger:
         board[0][5] = 1
         s = C4State(None, board, player=-1)
         positions.append(("vert_edge", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
+
+        # Same as vert_edge but O pieces scattered (no O threat):
+        # X at (0,0),(1,0),(2,0). O at (0,2),(0,4),(0,6). 3X 3O = X to move.
+        board = np.zeros((6, 7), dtype="int")
+        board[0][0] = -1
+        board[1][0] = -1
+        board[2][0] = -1
+        board[0][2] = 1
+        board[0][4] = 1
+        board[0][6] = 1
+        s = C4State(None, board, player=-1)
+        positions.append(("vert_edge_clean", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
         # Diagonal near-win: X has rising diagonal (0,0)(1,1)(2,2), plays col 3 to win at (3,3)
         # Board has 10 pieces (5X 5O) with support for the diagonal and col 3 filled to row 2
@@ -1103,6 +1209,42 @@ class TrainingLogger:
         board[0][4] = 1   # O extra (balances to 5X 5O)
         s = C4State(None, board, player=-1)
         positions.append(("diag_wins", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
+
+        # Race: X vert col 0 vs O vert col 3, X to move -> X wins by tempo
+        board = np.zeros((6, 7), dtype="int")
+        board[0][0] = board[1][0] = board[2][0] = -1
+        board[0][3] = board[1][3] = board[2][3] = 1
+        s = C4State(None, board, player=-1)
+        positions.append(("race_edge_ctr", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
+
+        # Horizontal win requiring edge col 0: X at cols 1,2,3 plays col 0
+        board = np.zeros((6, 7), dtype="int")
+        board[0][1] = board[0][2] = board[0][3] = -1
+        board[0][5] = board[1][5] = board[0][6] = 1
+        s = C4State(None, board, player=-1)
+        positions.append(("horiz_edge", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
+
+        # Race horizontal: X cols 0-2 vs O cols 4-6, X plays col 3 to win
+        board = np.zeros((6, 7), dtype="int")
+        board[0][0] = board[0][1] = board[0][2] = -1
+        board[0][4] = board[0][5] = board[0][6] = 1
+        s = C4State(None, board, player=-1)
+        positions.append(("race_horiz", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
+
+        # Vertical win at right edge (col 6), O scattered
+        board = np.zeros((6, 7), dtype="int")
+        board[0][6] = board[1][6] = board[2][6] = -1
+        board[0][0] = board[0][2] = board[0][4] = 1
+        s = C4State(None, board, player=-1)
+        positions.append(("vert_edge_right", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
+
+        # Late game: fuller board (9X 9O), X has vert 3 at col 1, plays col 1
+        board = np.zeros((6, 7), dtype="int")
+        board[0] = [-1, -1,  1,  1,  1, -1,  1]
+        board[1] = [ 1, -1, -1, -1,  1,  1, -1]
+        board[2] = [-1, -1,  1,  1,  0,  0,  0]
+        s = C4State(None, board, player=-1)
+        positions.append(("late_vert", t.game.state_to_input(s), "expect > +0.5 (I'm winning)"))
 
         return positions
 
