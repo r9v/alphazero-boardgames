@@ -1,7 +1,7 @@
 """Tournament: battle all checkpoints in elimination style.
 
 Usage:
-    python battle/tournament.py --game connect4 [--sims 200] [--games 50] [--c-puct 2.5]
+    python battle/tournament.py --game connect4 [--sims 200] [--games 50] [--parallel 10]
 
 Loads all .pt checkpoints from checkpoints/<game>/, seeds a single-elimination
 bracket, and plays matches. Winner advances. Prints bracket results.
@@ -9,57 +9,141 @@ bracket, and plays matches. Winner advances. Prints bracket results.
 import argparse
 import os
 import sys
-import math
 import time
+import torch
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils import load_game, make_net
-from mcts import MCTS
+from mcts import MCTS, Node, add_dirichlet_noise
 
 
-def play_match(game, net1, net2, mcts1, mcts2, num_games, sims):
-    """Play num_games between net1 and net2. Returns (net1_wins, net2_wins, draws)."""
+def _batched_mcts_move(game, net, indices, states, sims, c_puct):
+    """Run MCTS for all games in `indices` with batched neural net inference.
+
+    Uses virtual-loss multi-select to collect leaf nodes across all games,
+    then evaluates them in a single batch_predict call.
+    """
+
+    mcts_instances = {i: MCTS(game, net, c_puct=c_puct) for i in indices}
+    # Create root nodes
+    roots = {}
+    root_inputs = []
+    root_idx_map = []
+    for i in indices:
+        root = Node(None, states[i], game)  # net=None, deferred
+        roots[i] = root
+        root_inputs.append(game.state_to_input(states[i]))
+        root_idx_map.append(i)
+
+    # Batch evaluate roots
+    if root_inputs:
+        values, policies = net.batch_predict(root_inputs)
+        for j, i in enumerate(root_idx_map):
+            roots[i].resolve(values[j], policies[j])
+            # Dirichlet noise so each game plays out differently
+            roots[i].P = add_dirichlet_noise(
+                roots[i].P, 0.03, 0.25, roots[i].available_actions_mask)
+
+    # Run simulations with batched leaf evaluation
+    for _sim in range(sims):
+        # Collect leaves across all games using virtual loss
+        leaves = []  # (game_idx, leaf_node, path)
+        leaf_inputs = []
+        for i in indices:
+            leaf, path = mcts_instances[i].search_expand_vl(roots[i])
+            if leaf is not None:
+                leaves.append((i, leaf, path))
+                leaf_inputs.append(game.state_to_input(leaf.state))
+
+        if not leaf_inputs:
+            continue
+
+        # Single batched inference for all leaves
+        values, policies = net.batch_predict(leaf_inputs)
+
+        # Resolve and backprop
+        for j, (i, leaf, path) in enumerate(leaves):
+            leaf.resolve(values[j], policies[j])
+            mcts_instances[i].search_backup_vl(leaf, path)
+
+    # Extract actions from visit counts
+    actions = {}
+    for i in indices:
+        root = roots[i]
+        pi = np.zeros(len(root.available_actions_mask), dtype=np.float64)
+        for child_action in root.available_actions:
+            child = root.children[child_action]
+            if child is not None:
+                pi[child_action] = child.n
+        if pi.sum() > 0:
+            pi /= pi.sum()
+        actions[i] = np.argmax(pi)
+
+    return actions
+
+
+def play_match(game, net1, net2, num_games, sims, c_puct, parallel=10, device='cuda'):
+    """Play num_games between net1 and net2 with batched parallelism.
+
+    Runs `parallel` games simultaneously, batching MCTS leaf evaluations
+    across all games into single neural net inference calls.
+    Returns (net1_wins, net2_wins, draws).
+    """
     wins1, wins2, draws = 0, 0, 0
+    games_done = 0
 
-    for g in range(num_games):
-        if g % 2 == 0:
-            first_net, second_net = net1, net2
-            first_mcts, second_mcts = mcts1, mcts2
-            first_is_1 = True
-        else:
-            first_net, second_net = net2, net1
-            first_mcts, second_mcts = mcts2, mcts1
-            first_is_1 = False
+    while games_done < num_games:
+        batch_size = min(parallel, num_games - games_done)
 
-        state = game.new_game()
-        move_count = 0
+        # Initialize parallel games
+        states = [game.new_game() for _ in range(batch_size)]
+        # Alternate who goes first: even=net1 first, odd=net2 first
+        first_is_1 = [(games_done + i) % 2 == 0 for i in range(batch_size)]
+        move_counts = [0] * batch_size
+        active = list(range(batch_size))
 
-        while not state.terminal:
-            if move_count % 2 == 0:
-                mcts_player = first_mcts
-            else:
-                mcts_player = second_mcts
+        while active:
+            # Group by which network should move
+            net1_indices = []
+            net2_indices = []
+            for i in active:
+                is_first_player_turn = move_counts[i] % 2 == 0
+                if (is_first_player_turn and first_is_1[i]) or \
+                   (not is_first_player_turn and not first_is_1[i]):
+                    net1_indices.append(i)
+                else:
+                    net2_indices.append(i)
 
-            pi = mcts_player.get_policy(sims, state, add_dirichlet=False)
-            action = np.argmax(pi)
-            state = game.step(state, action)
-            move_count += 1
+            # Batch MCTS with batched neural net inference
+            for indices, net in [(net1_indices, net1), (net2_indices, net2)]:
+                if not indices:
+                    continue
 
-        tv = state.terminal_value
-        if tv == 0:
-            draws += 1
-        elif tv == -1:
-            if first_is_1:
-                wins1 += 1
-            else:
-                wins2 += 1
-        else:
-            if first_is_1:
-                wins2 += 1
-            else:
-                wins1 += 1
+                actions = _batched_mcts_move(game, net, indices, states, sims, c_puct)
+                for i in indices:
+                    states[i] = game.step(states[i], actions[i])
+                    move_counts[i] += 1
+
+            # Check for terminal states
+            new_active = []
+            for i in active:
+                if states[i].terminal:
+                    tv = states[i].terminal_value
+                    if tv == 0:
+                        draws += 1
+                    elif (tv == -1 and first_is_1[i]) or (tv == 1 and not first_is_1[i]):
+                        wins1 += 1
+                    else:
+                        wins2 += 1
+                else:
+                    new_active.append(i)
+            active = new_active
+
+        games_done += batch_size
+        ts = time.strftime("%H:%M:%S")
+        print(f"      [{ts}] games {games_done}/{num_games}: {wins1}-{wins2} (d={draws})")
 
     return wins1, wins2, draws
 
@@ -98,20 +182,21 @@ def main():
     parser.add_argument("--sims", type=int, default=200)
     parser.add_argument("--games", type=int, default=50, help="Games per match")
     parser.add_argument("--c-puct", type=float, default=2.5)
+    parser.add_argument("--parallel", type=int, default=10,
+                        help="Games to run in parallel per match (default 10)")
     args = parser.parse_args()
 
     game = load_game(args.game)
     checkpoints = get_checkpoints(args.game)
     n = len(checkpoints)
     print(f"Found {n} checkpoints for {args.game}")
-    print(f"Settings: {args.sims} sims, {args.games} games/match, c_puct={args.c_puct}")
+    print(f"Settings: {args.sims} sims, {args.games} games/match, "
+          f"c_puct={args.c_puct}, parallel={args.parallel}")
 
     if n < 2:
         print("Need at least 2 checkpoints for a tournament.")
         return
 
-    # Seed the bracket — pair adjacent checkpoints (chronological neighbors)
-    # If odd number, last checkpoint gets a bye
     contestants = list(checkpoints)
     round_num = 1
 
@@ -124,7 +209,6 @@ def main():
 
         for i in range(0, len(contestants), 2):
             if i + 1 >= len(contestants):
-                # Bye — odd one out advances
                 print(f"\n  {short_name(contestants[i])} gets a bye")
                 next_round.append(contestants[i])
                 continue
@@ -136,13 +220,26 @@ def main():
             t0 = time.time()
             net1 = load_checkpoint(game, args.game, path1)
             net2 = load_checkpoint(game, args.game, path2)
-            mcts1 = MCTS(game, net1, c_puct=args.c_puct)
-            mcts2 = MCTS(game, net2, c_puct=args.c_puct)
 
-            w1, w2, d = play_match(game, net1, net2, mcts1, mcts2, args.games, args.sims)
+            w1, w2, d = play_match(game, net1, net2, args.games, args.sims,
+                                   args.c_puct, parallel=args.parallel)
             elapsed = time.time() - t0
 
             print(f"    {name1}: {w1}W  |  {name2}: {w2}W  |  draws: {d}  ({elapsed:.1f}s)")
+
+            # Tie-break: rematch with 2x games
+            if w1 == w2:
+                rematch_games = args.games * 2
+                print(f"    Tied! Rematch with {rematch_games} games...")
+                t0 = time.time()
+                w1, w2, d = play_match(game, net1, net2, rematch_games, args.sims,
+                                       args.c_puct, parallel=args.parallel)
+                elapsed = time.time() - t0
+                print(f"    {name1}: {w1}W  |  {name2}: {w2}W  |  draws: {d}  ({elapsed:.1f}s)")
+
+            # Free GPU memory
+            del net1, net2
+            torch.cuda.empty_cache()
 
             if w1 >= w2:
                 winner = path1

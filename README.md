@@ -40,11 +40,11 @@ tensorboard --logdir runs/
 
 ## Supported Games
 
-| Game | Board | Action Space |
-|------|-------|-------------|
-| **Tic-Tac-Toe** | 3x3 | 9 |
-| **Connect 4** | 6x7 | 7 |
-| **Santorini** | 5x5 | 128 |
+| Game            | Board | Action Space |
+| --------------- | ----- | ------------ |
+| **Tic-Tac-Toe** | 3x3   | 9            |
+| **Connect 4**   | 6x7   | 7            |
+| **Santorini**   | 5x5   | 128          |
 
 ## Architecture
 
@@ -97,7 +97,7 @@ MCTS, Connect 4, and Santorini game logic are all implemented in Cython for perf
 Battle all saved checkpoints in a single-elimination tournament:
 
 ```bash
-python battle/tournament.py --game connect4 --sims 200 --games 50
+python battle/tournament.py --game connect4 --sims 50 --games 50 --parallel 50
 ```
 
 Loads all `.pt` checkpoints from `checkpoints/<game>/`, pairs them chronologically, and plays elimination matches. Each match alternates who goes first.
