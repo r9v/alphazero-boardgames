@@ -3,7 +3,7 @@
 Run: python -m tests.test_connect4
 """
 import numpy as np
-from games.c_connect4 import CConnect4Game, CConnect4State
+from games.connect4 import Connect4Game as CConnect4Game, CConnect4State
 
 ROW_COUNT = 6
 COLUMN_COUNT = 7

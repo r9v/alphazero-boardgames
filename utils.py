@@ -17,7 +17,7 @@ def wdl_to_scalar(wdl_logits):
 
 GAMES = {
     "tictactoe": "games.tictactoe:TTTGame",
-    "connect4": "games.c_connect4:CConnect4Game",
+    "connect4": "games.connect4:Connect4Game",
     "santorini": "games.santorini:SantoriniGame",
 }
 

@@ -9,8 +9,8 @@ extensions = [
         include_dirs=[np.get_include()],
     ),
     Extension(
-        "games.c_connect4",
-        ["games/c_connect4.pyx"],
+        "games.connect4.c_game",
+        ["games/connect4/c_game.pyx"],
         include_dirs=[np.get_include()],
     ),
     Extension(

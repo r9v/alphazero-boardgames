@@ -403,7 +403,7 @@ class BatchedSelfPlay:
         if tv == 0:
             return  # draw
         try:
-            from games.c_connect4 import classify_win
+            from games.connect4 import classify_win
             wins = classify_win(board)
             for win_type, col, _player in wins:
                 key = (win_type, col)

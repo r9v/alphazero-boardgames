@@ -4,7 +4,7 @@ Run: python -m tests.test_mcts
 """
 import math
 import numpy as np
-from games.c_connect4 import CConnect4Game, CConnect4State
+from games.connect4 import Connect4Game as CConnect4Game, CConnect4State
 from utils import load_game
 from mcts import MCTS, Node, add_dirichlet_noise
 
