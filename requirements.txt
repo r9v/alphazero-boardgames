@@ -1,6 +1,5 @@
 torch>=2.0
 numpy
-tqdm
 tensorboard
 pygame
 cython

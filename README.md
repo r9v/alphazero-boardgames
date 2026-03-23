@@ -1,10 +1,30 @@
 # AlphaZero for Board Games
 
-An implementation of the [AlphaZero](https://arxiv.org/abs/1712.01815) algorithm applied to board games — Tic-Tac-Toe, Connect 4, and Santorini.
+An implementation of [AlphaZero](https://arxiv.org/abs/1712.01815) (Google DeepMind, 2017) applied to board games — Tic-Tac-Toe, Connect 4, and Santorini.
 
-Originally implemented in 2020. Restructured and modernized in 2026 (PyTorch migration, unified game interface, KataGo-inspired training improvements).
+Originally implemented in **2020**. Restructured and modernized in **2026** (PyTorch migration, unified game interface, KataGo-inspired training improvements).
+
+## Overview
+
+AlphaZero learns to play board games entirely from self-play, with no human knowledge beyond the rules of the game. This project reproduces the core components of that system:
+
+- Monte Carlo Tree Search (MCTS) guided by a neural network
+- Dual-head neural network outputting both a move policy and a position value
+- Self-play training loop that generates training data from games the agent plays against itself
+
+## Results
+
+The Connect 4 model defeated [Min-ji](https://papergames.io/en/r/SPQKyjKpFH/replay) (2000 Elo), [Ahmad](https://papergames.io/en/r/va-9VWrm3Z/replay) (2025 Elo), and drew against [Ramon](https://papergames.io/en/r/VsRFK9i2Re/replay) (2050 Elo) on PaperGames — all playing as second player on the first attempt with 200 sims/move (Connect 4 favors the first player). Also defeated [Carlito](https://papergames.io/en/r/pnc7H7iCj/replay) (2200 Elo, the strongest bot on the site) with 400 sims/move. Trained on a single GPU in ~1 hour with a lightweight residual network (4 res blocks, 64 filters).
+
+| Min-ji (2000 Elo) — Win | Ahmad (2025 Elo) — Win |
+|:-:|:-:|
+| ![Min-ji](results/MinJi_2000_Win.png) | ![Ahmad](results/Ahmad_2025_Win.png) |
+| **Ramon (2050 Elo) — Draw** | **Carlito (2200 Elo, 400 sims) — Win** |
+| ![Ramon](results/Ramon_2050_Draw.png) | ![Carlito](results/Carlito_2200_Win.png) |
 
 ## Quick Start
+
+**Requirements:** Python 3.8+, [PyTorch](https://pytorch.org/) with CUDA, a C compiler (for Cython extensions), and `triton` for `torch.compile` acceleration (`pip install triton`, or `pip install triton-windows` on Windows).
 
 ```bash
 pip install -r requirements.txt
@@ -59,7 +79,7 @@ Input (2ch: my pieces, opponent pieces)
   Head      Head
    |         |
  Conv 1x1  Conv 1x1 + GAP
- GN+ReLU   GN+LeakyReLU
+ GN+ReLU   GN+ReLU
  Linear    FC + Dropout
  Softmax   WDL logits (Win/Draw/Loss)
 ```
@@ -101,15 +121,6 @@ python battle/tournament.py --game connect4 --sims 50 --games 50 --parallel 50
 ```
 
 Loads all `.pt` checkpoints from `checkpoints/<game>/`, pairs them chronologically, and plays elimination matches. Each match alternates who goes first.
-
-## Tests
-
-```bash
-python -m tests.test_connect4
-python -m tests.test_mcts
-python -m tests.test_santorini_placement
-python -m tests.test_santorini_symmetry
-```
 
 ## References
 

@@ -35,16 +35,15 @@ class TrainingLogger:
         if d:
             rb = d.get('rb_grad_norms', {})
             if rb:
-                first_rb = sorted(rb.keys())[0]
-                eff_lr = rb[first_rb].get('c2_eff_lr', 0)
+                eff_lr = rb.get('0_eff_lr', 0)
                 writer.add_scalar("diag/eff_lr_rb0", eff_lr, iteration)
 
             pv_std = d.get('pred_v_std', 0)
             writer.add_scalar("diag/pred_v_std", pv_std, iteration)
 
             sign_acc = 0
-            if hasattr(self._t, '_batched') and hasattr(self._t._batched, '_value_diagnostics'):
-                vd = self._t._batched._value_diagnostics
+            if hasattr(self._t, '_batched') and hasattr(self._t._batched, 'value_diag'):
+                vd = self._t._batched.value_diag
                 if vd:
                     sign_acc = vd.get('sign_accuracy', 0)
             writer.add_scalar("diag/sign_acc", sign_acc, iteration)
@@ -57,7 +56,7 @@ class TrainingLogger:
             gap = val_vloss - train_vloss if val_vloss and train_vloss else 0
             writer.add_scalar("diag/vloss_gap", gap, iteration)
 
-            print(f"  Diag: eff_lr_rb0={rb[sorted(rb.keys())[0]].get('c2_eff_lr', 0):.4f} "
+            print(f"  Diag: eff_lr_rb0={rb.get('0_eff_lr', 0):.4f} "
                   f"pred_v_std={pv_std:.3f} sign_acc={sign_acc:.1%} "
                   f"policy_top1={top1:.1%} vloss_gap={gap:+.4f} "
                   f"buf={d.get('buffer_fill', 0)}/{d.get('buffer_capacity', 0)}"
