@@ -3,6 +3,7 @@ GAME_CONFIGS = {
         # Network
         "num_filters": 16,
         "num_res_blocks": 1,
+        "num_groups": 2,
         "value_head_channels": 1,
         "value_head_fc_size": 16,
         "policy_head_channels": 2,
@@ -12,13 +13,13 @@ GAME_CONFIGS = {
         "target_epochs": 4,
         "buffer_size": 2_000,
         "value_loss_weight": 1.0,
-        "lr": 0.01,
+        "lr": 0.005,
         "batch_size": 64,
 
         # Self-play
-        "default_iterations": 24,
-        "default_games": 24,
-        "default_simulations": 24,
+        "default_iterations": 48,
+        "default_games": 32,
+        "default_simulations": 32,
         "selects_per_round": 1,
         "vl_value": 0.0,
         "temp_threshold": 3,
@@ -78,7 +79,7 @@ GAME_CONFIGS = {
         "target_epochs": 4,
         "buffer_size": 55000,
         "value_loss_weight": 3.0,
-        "lr": 0.01,
+        "lr": 0.005,
         "batch_size": 64,
 
         # Self-play
