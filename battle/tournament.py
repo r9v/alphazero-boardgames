@@ -65,12 +65,13 @@ def play_match(game, net1, net2, mcts1, mcts2, num_games, sims):
     return wins1, wins2, draws
 
 
-def load_checkpoint(game, game_name, path):
+def load_checkpoint(game, game_name, path, device='cuda'):
     """Create a fresh network and load checkpoint."""
     net = make_net(game, game_name)
     if not net.load(path):
         raise RuntimeError(f"Failed to load checkpoint: {path}")
     net.eval()
+    net.to(device)
     return net
 
 

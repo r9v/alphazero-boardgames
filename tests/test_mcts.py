@@ -4,10 +4,11 @@ Run: python -m tests.test_mcts
 """
 import math
 import numpy as np
-from games.connect4 import Connect4Game, GameState
+from games.c_connect4 import CConnect4Game, CConnect4State
+from utils import load_game
 from mcts import MCTS, Node, add_dirichlet_noise
 
-game = Connect4Game()
+game = CConnect4Game()
 passed = 0
 failed = 0
 
@@ -105,7 +106,7 @@ mcts = MCTS(game, mock)
 # Create a board where X has 4 horizontal in row 0
 board = np.zeros((6, 7), dtype="int")
 board[0][0:4] = -1  # X wins
-state = GameState(None, board, player=1)  # It would be O's turn
+state = CConnect4State.from_board(board, player=1)  # It would be O's turn
 check("X wins: terminal=True", state.terminal)
 check("X wins: terminal_value=-1", state.terminal_value == -1)
 
@@ -118,22 +119,14 @@ check("X wins, O to move: evaluate returns 1",
 # O wins (terminal_value = 1)
 board = np.zeros((6, 7), dtype="int")
 board[0][0:4] = 1  # O wins
-state = GameState(None, board, player=-1)  # It would be X's turn
+state = CConnect4State.from_board(board, player=-1)  # It would be X's turn
 node = Node(None, state, game, mock)
 val = mcts._evaluate(node)
 # evaluate = -1 * (-1) = 1
 check("O wins, X to move: evaluate returns 1",
       abs(val - 1.0) < 1e-6, f"got {val}")
 
-# X wins, next player would be -1 (doesn't happen normally, but test the math)
-board = np.zeros((6, 7), dtype="int")
-board[0][0:4] = -1
-state = GameState(None, board, player=-1)
-node = Node(None, state, game, mock)
-val = mcts._evaluate(node)
-# evaluate = -(-1) * (-1) = -1
-check("X wins, player=-1: evaluate returns -1",
-      abs(val - (-1.0)) < 1e-6, f"got {val}")
+# (Removed: impossible state test — X can't have 4-in-a-row with player=-1)
 
 
 # ============================================================
@@ -184,7 +177,7 @@ root.P = np.ones(7) / 7
 # For testing, create a board where X has 3 in a row and plays the 4th
 board = np.zeros((6, 7), dtype="int")
 board[0][0:3] = -1  # X has 3 in row 0
-state_before = GameState(None, board, player=-1)  # X to move
+state_before = CConnect4State.from_board(board, player=-1)  # X to move
 root = Node(None, state_before, game, mock)
 root.P = np.ones(7) / 7
 
@@ -288,7 +281,7 @@ board[0][0:3] = -1  # X: row 0, cols 0-2
 board[0][4] = 1
 board[0][5] = 1
 
-state = GameState(None, board, player=-1)  # X to move
+state = CConnect4State.from_board(board, player=-1)  # X to move
 check("Pre-win position is NOT terminal", not state.terminal)
 
 # Use a network that's neutral (doesn't bias the search)
@@ -327,11 +320,11 @@ board[0][0:3] = 1   # O: row 0, cols 0-2 (3 in a row)
 board[1][0] = -1     # Some X pieces
 board[1][1] = -1
 
-state = GameState(None, board, player=-1)  # X to move
+state = CConnect4State.from_board(board, player=-1)  # X to move
 check("Blocking position is NOT terminal", not state.terminal)
 
 # Verify O would win at col 3
-o_wins = game.step(GameState(None, board, player=1), 3)
+o_wins = game.step(CConnect4State.from_board(board, player=1), 3)
 check("O would win at col 3", o_wins.terminal and o_wins.terminal_value == 1)
 
 mock_neutral = MockNet(0.0)

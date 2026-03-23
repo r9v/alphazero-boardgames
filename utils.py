@@ -15,17 +15,9 @@ def wdl_to_scalar(wdl_logits):
     return probs[:, 0] - probs[:, 2]
 
 
-def _connect4_module():
-    """Return Cython Connect4 if available, else Python."""
-    try:
-        import games.c_connect4
-        return "games.c_connect4:CConnect4Game"
-    except ImportError:
-        return "games.connect4:Connect4Game"
-
 GAMES = {
     "tictactoe": "games.tictactoe:TTTGame",
-    "connect4": _connect4_module(),
+    "connect4": "games.c_connect4:CConnect4Game",
     "santorini": "games.santorini:SantoriniGame",
 }
 

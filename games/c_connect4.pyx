@@ -223,6 +223,25 @@ cdef class CConnect4State:
         """Cache state_to_input result on this state."""
         self._input_np = inp
 
+    @staticmethod
+    def from_board(board, int player=-1):
+        """Create a CConnect4State from a numpy board array and player.
+
+        board: (6,7) int array where -1=X, +1=O, 0=empty
+        player: whose turn it is (-1=X, +1=O)
+        """
+        cdef uint64_t bb_me = 0, bb_opp = 0
+        cdef int r, c
+        cdef uint64_t bit
+        for c in range(COLUMN_COUNT):
+            for r in range(ROW_COUNT):
+                bit = <uint64_t>1 << (COL_BASE[c] + r)
+                if board[r][c] == player:
+                    bb_me |= bit
+                elif board[r][c] == -player:
+                    bb_opp |= bit
+        return CConnect4State.create(bb_me, bb_opp, player, None)
+
 
 def _from_numpy_board(board, int player, prev_state=None):
     """Create a CConnect4State from a numpy (6,7) board and player."""

@@ -3,9 +3,12 @@
 Run: python -m tests.test_connect4
 """
 import numpy as np
-from games.connect4 import Connect4Game, GameState, ROW_COUNT, COLUMN_COUNT
+from games.c_connect4 import CConnect4Game, CConnect4State
 
-game = Connect4Game()
+ROW_COUNT = 6
+COLUMN_COUNT = 7
+
+game = CConnect4Game()
 passed = 0
 failed = 0
 
@@ -29,8 +32,8 @@ def print_board(board):
 
 
 def make_state(board, player):
-    """Create a GameState from a board array and player."""
-    return GameState(None, np.array(board, dtype="int"), player)
+    """Create a CConnect4State from a board array and player."""
+    return CConnect4State.from_board(np.array(board, dtype="int"), player)
 
 
 # ============================================================
@@ -163,7 +166,7 @@ board = np.array([
     [ 1,  1, -1, -1,  1, -1,  1],  # row 5
 ], dtype="int")
 state = make_state(board, 1)
-has_win = state._check_player_won(-1) or state._check_player_won(1)
+has_win = state.terminal and state.terminal_value != 0
 if has_win:
     # Brute-force find a valid draw board by playing random games
     print("  Searching for a valid draw board...")
