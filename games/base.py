@@ -48,19 +48,9 @@ class Game(ABC):
         number of input channels (derived from num_history_states).
         """
 
-    def compute_threat_map(self, state: GameState) -> 'np.ndarray | None':
-        """Compute per-cell threat map for the current position.
+    def get_symmetries(self, state_input: np.ndarray, policy: np.ndarray):
+        """Return list of (state_input, policy) including original + symmetries.
 
-        Returns (H, W) float32 array: +1=my threat, -1=opp threat, 0=none.
-        Override in subclasses. Returns None by default (no threat computation).
-        """
-        return None
-
-    def get_symmetries(self, state_input: np.ndarray, policy: np.ndarray,
-                       aux_maps: dict = None):
-        """Return list of (state_input, policy, aux_maps) including original + symmetries.
-
-        aux_maps: dict of name→(H,W) arrays (e.g. {'ownership': ..., 'threat': ...}).
         Override in subclasses for games with board symmetries (e.g. mirror).
         """
-        return [(state_input, policy, aux_maps)]
+        return [(state_input, policy)]

@@ -145,7 +145,7 @@ class TestPlacementToNormal:
         """state_to_input should handle 0-1 workers without error."""
         s = game.new_game()
         inp = game.state_to_input(s)
-        assert inp.shape == (7, 5, 5)
+        assert inp.shape == (8, 5, 5)
         # All building levels should be 0
         assert inp[0].sum() == 25  # level 0 everywhere
         # No workers

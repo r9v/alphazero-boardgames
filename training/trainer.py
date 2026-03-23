@@ -1,4 +1,3 @@
-import math
 import os
 import random
 import time
@@ -9,11 +8,13 @@ from torch.utils.tensorboard import SummaryWriter
 
 from training.replay_buffer import ReplayBuffer
 from training.parallel_self_play import BatchedSelfPlay
-from training.diagnostics import raw_value_to_wdl_class
 from training.training_logger import TrainingLogger
 from utils import wdl_to_scalar
 
 
+def raw_value_to_wdl_class(raw_v):
+    """Convert raw values (+1/0/-1) to WDL class indices: +1->0, 0->1, -1->2."""
+    return (1 - raw_v).astype(np.int64)
 
 
 
@@ -26,7 +27,6 @@ class Trainer:
         self.games_per_iteration = self.config.get("games_per_iteration", 2)
         self.checkpoint_dir = self.config.get("checkpoint_dir", "checkpoints")
         self.batch_size = self.config.get("batch_size", 64)
-        self.epochs = self.config.get("epochs", 10)
         self.lr = self.config.get("lr", 0.01)
         self.device = self.config.get("device", "cpu")
         self.max_train_steps = self.config.get("max_train_steps", 5000)
@@ -56,8 +56,6 @@ class Trainer:
 
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
         self.value_label_smoothing = self.config.get("value_label_smoothing", 0.0)
-        self.ownership_loss_weight = self.config.get("ownership_loss_weight", 0.0)
-        self.threat_loss_weight = self.config.get("threat_loss_weight", 0.0)
         self.surprise_weighting = self.config.get("surprise_weighting", True)
         self.surprise_kl_frac = self.config.get("surprise_kl_frac", 0.5)  # KL-proportional fraction (rest is uniform)
         self.stv_weight = self.config.get("stv_weight", 0.5)  # short-term value target weight
@@ -82,8 +80,6 @@ class Trainer:
         if len(samples) < self.batch_size:
             print(f"  Not enough samples ({len(samples)}), skipping training")
             return None
-
-        # (Removed: buffer diagnostics)
 
         # Setup: split, pools, accumulators, schedule, pre-training diagnostics
         setup = self._init_training_state(samples, n_new_positions)
@@ -127,10 +123,7 @@ class Trainer:
             with torch.autocast('cuda', enabled=self.use_amp):
                 # No color-swap: canonical encoding + stratified sampling ensures
                 # balanced player perspectives.
-                net_out = self.net(states)
-                pred_vs, pi_all = net_out[0], net_out[1]
-                pred_aux = net_out[2] if len(net_out) > 2 else {}
-                pred_pi_logits = pi_all
+                pred_vs, pred_pi_logits = self.net(states)
 
                 # Value loss
                 value_loss = F.cross_entropy(pred_vs, target_vs,
@@ -158,36 +151,6 @@ class Trainer:
                         stv_loss = F.mse_loss(pred_scalar, target_q)
                         loss = loss + self.stv_weight * stv_loss
                         acc['total_stv_loss'] += stv_loss.item()
-
-                # Auxiliary spatial losses (ownership + threat)
-                # Each batch sample s[3] is an aux_maps dict or None
-                def _aux_loss(pred_key, target_key, weight):
-                    """Compute MSE loss for an auxiliary spatial head."""
-                    if pred_key not in pred_aux or weight <= 0:
-                        return 0.0
-                    pred_map = pred_aux[pred_key][:B]  # original only (not swapped)
-                    has_target = [
-                        s[3] is not None and target_key in s[3] and s[3][target_key] is not None
-                        for s in batch
-                    ]
-                    if not any(has_target):
-                        return 0.0
-                    mask = torch.BoolTensor(has_target).to(self.device)
-                    targets = torch.FloatTensor(np.array([
-                        s[3][target_key] for s in batch
-                        if s[3] is not None and target_key in s[3] and s[3][target_key] is not None
-                    ])).to(self.device)
-                    aux_loss = F.mse_loss(pred_map[mask], targets)
-                    return aux_loss, aux_loss.item()
-
-                for key, weight, acc_key in [
-                    ('ownership', self.ownership_loss_weight, 'total_ownership_loss'),
-                    ('threat', self.threat_loss_weight, 'total_threat_loss'),
-                ]:
-                    result = _aux_loss(key, key, weight)
-                    if isinstance(result, tuple):
-                        loss = loss + weight * result[0]
-                        acc[acc_key] += result[1]
 
             self.optimizer.zero_grad()
             self.scaler.scale(loss).backward()
@@ -250,12 +213,10 @@ class Trainer:
         late_start = num_steps - early_cutoff
         lr_min = self.lr * 0.1
 
-        # (Removed: pre-training diagnostics)
-
         # All tracking accumulators
         acc = {
             'total_loss': 0, 'total_value_loss': 0, 'total_policy_loss': 0,
-            'total_ownership_loss': 0, 'total_threat_loss': 0, 'total_stv_loss': 0,
+            'total_stv_loss': 0,
             'num_batches': 0, 'data_prep_time': 0.0, 'gradient_time': 0.0,
             'early_vloss': 0.0, 'early_ploss': 0.0,
             'late_vloss': 0.0, 'late_ploss': 0.0,
@@ -352,8 +313,6 @@ class Trainer:
                     acc['o_target_sum'] += scalar_target[is_o].mean().item()
                     acc['o_pred_sum'] += _scalar_v[is_o].mean().item()
                     acc['o_count'] += 1
-
-                # (Removed: ImmWin vloss split)
 
                 # (#6) Value loss by game phase
                 total_pieces = my_counts + opp_counts
@@ -602,8 +561,6 @@ class Trainer:
         avg_loss = acc['total_loss'] / max(num_batches, 1)
         avg_value_loss = acc['total_value_loss'] / max(num_batches, 1)
         avg_policy_loss = acc['total_policy_loss'] / max(num_batches, 1)
-        avg_ownership_loss = acc['total_ownership_loss'] / max(num_batches, 1)
-        avg_threat_loss = acc['total_threat_loss'] / max(num_batches, 1)
         avg_stv_loss = acc['total_stv_loss'] / max(num_batches, 1)
         early_vloss = acc['early_vloss'] / max(early_cutoff, 1)
         early_ploss = acc['early_ploss'] / max(early_cutoff, 1)
@@ -687,9 +644,6 @@ class Trainer:
             }
             self._grad_stats = []
 
-        # (Removed: vh_diag, backbone_gradient_decomposition, svd_rank, gradient_conflict,
-        #  train_cos, fe_sensitivity, imm_win, post_training_player diagnostics)
-
         self._train_perf = {
             "data_prep_time": acc['data_prep_time'],
             "gradient_time": acc['gradient_time'],
@@ -717,9 +671,6 @@ class Trainer:
     def _self_play(self, iteration):
         """Run self-play games in parallel with batched evaluation."""
         kwargs = {k: self.config[k] for k in self._SELF_PLAY_KEYS if k in self.config}
-        # Skip threat map computation if threat loss is disabled
-        if self.threat_loss_weight == 0:
-            kwargs['skip_threat_map'] = True
         self._batched = BatchedSelfPlay(
             self.game, self.net, self.games_per_iteration,
             self.num_simulations, **kwargs)
@@ -751,26 +702,10 @@ class Trainer:
             augmented = []
             for ex in all_examples:
                 aux_maps = ex[3] if len(ex) > 3 and isinstance(ex[3], dict) else {}
-                # For backward compat: if ex[3] is a raw array, treat as threat map
-                if len(ex) > 3 and not isinstance(ex[3], dict) and ex[3] is not None:
-                    aux_maps = {'threat': ex[3]}
-                    if len(ex) > 4 and ex[4] is not None:
-                        aux_maps['ownership'] = ex[4]
-                # Build spatial-only dict for symmetry augmentation (flip maps)
-                spatial = {}
-                if 'threat' in aux_maps and aux_maps['threat'] is not None:
-                    spatial['threat'] = aux_maps['threat']
-                if 'ownership' in aux_maps and aux_maps['ownership'] is not None:
-                    spatial['ownership'] = aux_maps['ownership']
-                syms = self.game.get_symmetries(ex[0], ex[1], spatial or None)
+                syms = self.game.get_symmetries(ex[0], ex[1])
                 for sym_tuple in syms:
                     sym_input, sym_policy = sym_tuple[0], sym_tuple[1]
-                    sym_spatial = sym_tuple[2] if len(sym_tuple) > 2 else None
-                    # Merge flipped spatial maps back into full aux_maps
-                    sym_aux = dict(aux_maps)  # copy non-spatial fields
-                    if sym_spatial:
-                        sym_aux.update(sym_spatial)
-                    entry = [sym_input, sym_policy, ex[2], sym_aux]
+                    entry = [sym_input, sym_policy, ex[2], aux_maps]
                     augmented.append(entry)
             n_new_positions = len(augmented)
             self.buffer._current_iter = iteration

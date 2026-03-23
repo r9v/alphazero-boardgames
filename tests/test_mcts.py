@@ -126,7 +126,6 @@ val = mcts._evaluate(node)
 check("O wins, X to move: evaluate returns 1",
       abs(val - 1.0) < 1e-6, f"got {val}")
 
-# (Removed: impossible state test — X can't have 4-in-a-row with player=-1)
 
 
 # ============================================================

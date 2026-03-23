@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from utils import wdl_to_scalar
+from utils import wdl_to_scalar, find_latest_checkpoint
 
 
 def ws_conv2d(x, conv):
@@ -38,7 +38,7 @@ class ResBlock(nn.Module):
     GroupNorm used instead of BatchNorm: immune to non-stationary RL data
     distribution (no running stats to drift).
     """
-    def __init__(self, num_filters, res_scale=0.5, num_groups=8, dropout=0.0, se_ratio=0):
+    def __init__(self, num_filters, res_scale=0.5, num_groups=8, dropout=0.0):
         super().__init__()
         self.bn1 = nn.GroupNorm(num_groups, num_filters)
         self.conv1 = nn.Conv2d(num_filters, num_filters, 3, padding=1)
@@ -47,26 +47,12 @@ class ResBlock(nn.Module):
         self.res_scale = res_scale
         self.drop = nn.Dropout2d(p=dropout) if dropout > 0 else None
 
-        # Squeeze-and-Excitation: global context → channel attention
-        if se_ratio > 0:
-            se_channels = num_filters // se_ratio
-            self.se_fc1 = nn.Linear(num_filters, se_channels)
-            self.se_fc2 = nn.Linear(se_channels, num_filters)
-        else:
-            self.se_fc1 = None
-
     def forward(self, x):
         residual = x
         x = ws_conv2d(F.relu(self.bn1(x)), self.conv1)
         if self.drop is not None:
             x = self.drop(x)
         x = ws_conv2d(F.relu(self.bn2(x)), self.conv2)
-        if self.se_fc1 is not None:
-            b, c, h, w = x.shape
-            se = x.mean(dim=(2, 3))
-            se = F.relu(self.se_fc1(se))
-            se = torch.sigmoid(self.se_fc2(se))
-            x = x * se.view(b, c, 1, 1)
         return x * self.res_scale + residual
 
 
@@ -76,9 +62,7 @@ class AlphaZeroNet(nn.Module):
                  value_head_channels=2, value_head_fc_size=64,
                  policy_head_channels=2,
                  backbone_dropout=0.15, num_groups=8,
-                 resblock_dropout=0.0, se_ratio=0,
-                 ownership_channels=0,
-                 threat_channels=0):
+                 resblock_dropout=0.0):
         super().__init__()
         self.board_shape = board_shape
         self.action_size = action_size
@@ -93,7 +77,7 @@ class AlphaZeroNet(nn.Module):
         res_scale = num_res_blocks ** -0.5
         self.res_blocks = nn.ModuleList(
             [ResBlock(num_filters, res_scale=res_scale, num_groups=num_groups,
-                      dropout=resblock_dropout, se_ratio=se_ratio)
+                      dropout=resblock_dropout)
              for _ in range(num_res_blocks)]
         )
 
@@ -119,23 +103,6 @@ class AlphaZeroNet(nn.Module):
         self.policy_conv = nn.Conv2d(num_filters, policy_head_channels, 1)
         self.policy_bn = nn.GroupNorm(1, policy_head_channels)
         self.policy_fc = nn.Linear(policy_head_channels * board_area, action_size)
-
-        # Ownership head (auxiliary): per-cell prediction of final board ownership
-        # Forces backbone to learn spatially-diverse features including edge columns
-        self.has_ownership = ownership_channels > 0
-        if self.has_ownership:
-            self.own_conv = nn.Conv2d(num_filters, ownership_channels, 1)
-            self.own_bn = nn.GroupNorm(1, ownership_channels)
-            self.own_out = nn.Conv2d(ownership_channels, 1, 1)
-
-        # Threat head (auxiliary): per-cell prediction of immediate threats
-        # +1 = my threat (placing here wins), -1 = opponent threat, 0 = no threat
-        # Computable from board state alone — works with random AND self-play data
-        self.has_threat = threat_channels > 0
-        if self.has_threat:
-            self.threat_conv = nn.Conv2d(num_filters, threat_channels, 1)
-            self.threat_bn = nn.GroupNorm(1, threat_channels)
-            self.threat_out = nn.Conv2d(threat_channels, 1, 1)
 
         # GN config validation: warn if any group normalizes over too few elements
         H, W = board_shape
@@ -177,17 +144,6 @@ class AlphaZeroNet(nn.Module):
         p = p.view(p.size(0), -1)
         p = self.policy_fc(p)
 
-        # Auxiliary heads — collect into dict, return as 3rd element if any
-        aux = {}
-        if self.has_ownership:
-            o = F.relu(self.own_bn(self.own_conv(x)))
-            aux['ownership'] = torch.tanh(self.own_out(o).squeeze(1))  # (B, H, W) in [-1, +1]
-        if self.has_threat:
-            t = F.relu(self.threat_bn(self.threat_conv(x)))
-            aux['threat'] = torch.tanh(self.threat_out(t).squeeze(1))  # (B, H, W) in [-1, +1]
-
-        if aux:
-            return v, p, aux
         return v, p
 
     def compile_for_inference(self):
@@ -287,18 +243,9 @@ class AlphaZeroNet(nn.Module):
         return path
 
     def load_latest(self, directory):
-        latest_path = os.path.join(directory, "latest.txt")
-        if os.path.exists(latest_path):
-            with open(latest_path) as f:
-                name = f.read().strip()
-            path = os.path.join(directory, name)
-            if self.load(path):
-                return path
-            return None
-        # Fall back to best.pt (e.g. fresh clone without latest.txt)
-        best_path = os.path.join(directory, "best.pt")
-        if self.load(best_path):
-            return best_path
+        path = find_latest_checkpoint(directory)
+        if path and self.load(path):
+            return path
         return None
 
     def load(self, path):

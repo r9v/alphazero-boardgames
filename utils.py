@@ -1,5 +1,6 @@
 """Shared utilities used across train.py, play.py, and self-play."""
 import importlib
+import os
 
 import torch.nn.functional as F
 
@@ -49,10 +50,28 @@ def make_net(game, game_name):
         backbone_dropout=cfg.get("backbone_dropout", 0.15),
         num_groups=cfg.get("num_groups", 8),
         resblock_dropout=cfg.get("resblock_dropout", 0.0),
-        se_ratio=cfg.get("se_ratio", 0),
-        ownership_channels=cfg.get("ownership_channels", 0),
-        threat_channels=cfg.get("threat_channels", 0),
     )
+
+
+def find_latest_checkpoint(directory):
+    """Find the latest checkpoint path in a directory via latest.txt or fallback."""
+    latest_path = os.path.join(directory, "latest.txt")
+    if os.path.exists(latest_path):
+        with open(latest_path) as f:
+            name = f.read().strip()
+        path = os.path.join(directory, name)
+        if os.path.exists(path):
+            return path
+    # Fall back to best.pt
+    best_path = os.path.join(directory, "best.pt")
+    if os.path.exists(best_path):
+        return best_path
+    # Fall back to most recent .pt file
+    if os.path.isdir(directory):
+        pts = sorted(f for f in os.listdir(directory) if f.endswith(".pt"))
+        if pts:
+            return os.path.join(directory, pts[-1])
+    return None
 
 
 def log_backends(mcts_cls, game):

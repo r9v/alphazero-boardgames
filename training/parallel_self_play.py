@@ -6,27 +6,23 @@ from mcts import MCTS, Node, add_dirichlet_noise
 from utils import log_backends
 
 
-def _finalize_game_targets(examples, tv, label="", final_board=None):
+def _finalize_game_targets(examples, tv, label=""):
     """Convert per-move player tags to outcome targets and verify sign chain.
 
     Args:
         examples: list of [state_input, policy, player_tag, aux_maps] for one game
         tv: terminal value (-1=X wins, +1=O wins, 0=draw)
         label: context string for assertion messages
-        final_board: if provided, add ownership target to aux_maps dict
 
     After finalization, each example is:
         [state_input, policy, value, aux_maps]
-    where aux_maps is a dict with keys: threat, policy_surprise, mcts_q, ownership(optional)
+    where aux_maps is a dict with keys: policy_surprise, mcts_q
     """
     if tv != 0 and len(examples) > 0:
         assert examples[-1][2] == tv, \
             f"{label} sign-chain: last_player={examples[-1][2]}, tv={tv}"
     for ex in examples:
         player_at_pos = ex[2]
-        if final_board is not None and ex[3] is not None:
-            # Ownership target: +1=my piece, -1=opponent piece, 0=empty at game end
-            ex[3]['ownership'] = (final_board * player_at_pos).astype(np.float32)
         ex[2] = tv * player_at_pos
     if tv != 0 and len(examples) > 0:
         assert abs(examples[-1][2] - 1.0) < 1e-6, \
@@ -52,8 +48,7 @@ class BatchedSelfPlay:
                  resign_min_moves=99, resign_check_prob=0.0,
                  random_opening_moves=0,
                  random_opening_fraction=1.0,
-                 contempt_n=0,
-                 skip_threat_map=False):
+                 contempt_n=0):
         self.game = game
         self.net = net
         self.num_games = num_games
@@ -69,7 +64,6 @@ class BatchedSelfPlay:
         self.resign_check_prob = resign_check_prob
         self.random_opening_moves = random_opening_moves
         self.random_opening_fraction = random_opening_fraction
-        self.skip_threat_map = skip_threat_map
         self.mcts = MCTS(game, net, c_puct=c_puct, contempt_n=contempt_n)
 
         # Log backends once
@@ -208,8 +202,7 @@ class BatchedSelfPlay:
                     # Resign: current player loses, opponent wins
                     tv = -states[i].player
                     terminal_values[i] = tv
-                    _finalize_game_targets(examples[i], tv, label="Resign",
-                                           final_board=states[i].board)
+                    _finalize_game_targets(examples[i], tv, label="Resign")
                     self._track_win_pattern(states[i].board, tv)
                     self._p['resign_count'] += 1
                     self._p['resign_move_sum'] += move_counts[i]
@@ -293,9 +286,6 @@ class BatchedSelfPlay:
                 self._p['col_selections'][action] += 1
 
                 # Training target is always the full visit distribution
-                # Aux maps dict: threat, policy_surprise, mcts_value
-                threat_map = None if self.skip_threat_map else self.game.compute_threat_map(states[i])
-
                 # Policy surprise: KL(MCTS_policy || prior_policy)
                 prior = root.P  # network's policy prior
                 kl_div = 0.0
@@ -312,7 +302,6 @@ class BatchedSelfPlay:
                 mcts_q = float(-root.Q) if root.n > 0 else 0.0
 
                 aux_maps = {
-                    'threat': threat_map,
                     'policy_surprise': kl_div,
                     'mcts_q': mcts_q,
                 }
@@ -331,8 +320,7 @@ class BatchedSelfPlay:
                         resigner_outcome = tv * resign_check_player[i]
                         if resigner_outcome >= 0:  # drew or won
                             self._p['resign_false_positives'] += 1
-                    _finalize_game_targets(examples[i], tv, label="Terminal",
-                                           final_board=states[i].board)
+                    _finalize_game_targets(examples[i], tv, label="Terminal")
                     self._track_win_pattern(states[i].board, tv)
                 else:
                     # --- Tree reuse or fresh root ---

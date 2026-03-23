@@ -25,11 +25,8 @@ GAME_CONFIGS = {
         "c_puct": 1.5,
         "dirichlet_alpha": 1.1,        # ~10 / 9 legal moves
 
-        # --- Tree reuse & Resign ---
+        # --- Tree reuse ---
         "tree_reuse": True,
-        "resign_threshold": -1.0,       # effectively disabled (game too short)
-        "resign_min_moves": 99,
-        "resign_check_prob": 0.0,
 
         # --- Play (human vs AI) ---
         "play_simulations": 16,
@@ -43,16 +40,10 @@ GAME_CONFIGS = {
         "value_head_channels": 32,
         "value_head_fc_size": 64,
         "policy_head_channels": 2,
-        "se_ratio": 0,
-        "ownership_channels": 0,
-        "threat_channels": 0,
-
         # --- Training ---
         "train_ratio": 8,
         "value_loss_weight": 1.0,
         "value_label_smoothing": 0.1,
-        "ownership_loss_weight": 0.0,
-        "threat_loss_weight": 0.0,
         "stv_weight": 0.0,             # short-term value target (MCTS Q) loss weight
         "surprise_kl_frac": 0.5,       # policy surprise: KL-proportional fraction (rest is uniform)
         "resblock_dropout": 0.1,
@@ -76,11 +67,8 @@ GAME_CONFIGS = {
         # --- Search-contempt: Thompson sampling at opponent nodes after N visits ---
         "contempt_n": 20,  # 0=disabled, >0=Thompson after N visits at opp nodes
 
-        # --- Tree reuse & Resign ---
+        # --- Tree reuse ---
         "tree_reuse": True,
-        "resign_threshold": -1.0,  # disabled: play to completion for full game data
-        "resign_min_moves": 10,
-        "resign_check_prob": 0.1,
 
         # --- Play (human vs AI) ---
         "play_simulations": 200,
