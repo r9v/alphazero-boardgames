@@ -9,16 +9,7 @@ from utils import wdl_to_scalar, find_latest_checkpoint
 
 
 def ws_conv2d(x, conv):
-    """Conv2d with Weight Standardization + Kaiming scaling.
-
-    Normalizes conv weights to zero-mean, then scales to Kaiming magnitude
-    (sqrt(2/fan_in)) per output filter. Weights learn direction only;
-    magnitude is fixed at the variance-preserving scale.
-
-    Without the Kaiming factor, WS normalizes to std=1.0 per filter, but
-    with fan_in=C*kH*kW=1152 elements, this makes activations ~24x too large.
-    The Kaiming factor corrects this to preserve activation variance.
-    """
+    """Conv2d with Weight Standardization + Kaiming scaling."""
     w = conv.weight
     mean = w.mean(dim=[1, 2, 3], keepdim=True)
     std = w.std(dim=[1, 2, 3], keepdim=True) + 1e-5
@@ -28,16 +19,7 @@ def ws_conv2d(x, conv):
 
 
 class ResBlock(nn.Module):
-    """Pre-activation ResBlock with Weight Standardization on both convs.
-
-    GN→ReLU→WS-Conv1→GN→ReLU→WS-Conv2 + skip.
-    Clean residual path. Weight Standardization on all convs prevents weight
-    explosion by normalizing weights per filter before each forward pass.
-    Residual branch scaled by 1/√L (Fixup-style) to prevent variance
-    explosion through depth: Var grows as (1+1/L)^L ≈ e instead of 2^L.
-    GroupNorm used instead of BatchNorm: immune to non-stationary RL data
-    distribution (no running stats to drift).
-    """
+    """Pre-activation ResBlock: GN→ReLU→WS-Conv, residual scaled by 1/√L."""
     def __init__(self, num_filters, res_scale=0.5, num_groups=8, dropout=0.0):
         super().__init__()
         self.bn1 = nn.GroupNorm(num_groups, num_filters)
@@ -68,12 +50,9 @@ class AlphaZeroNet(nn.Module):
         self.action_size = action_size
         board_area = board_shape[0] * board_shape[1]
 
-        # Initial conv block (GroupNorm: immune to non-stationary RL data)
         self.conv = nn.Conv2d(input_channels, num_filters, 3, padding=1)
         self.bn = nn.GroupNorm(num_groups, num_filters)
 
-        # Residual blocks (pre-activation / pre-norm)
-        # Scale residual branch by 1/√L to control variance growth through depth
         res_scale = num_res_blocks ** -0.5
         self.res_blocks = nn.ModuleList(
             [ResBlock(num_filters, res_scale=res_scale, num_groups=num_groups,
@@ -81,30 +60,24 @@ class AlphaZeroNet(nn.Module):
              for _ in range(num_res_blocks)]
         )
 
-        # Final GN→ReLU after all ResBlocks (standard pre-norm pattern)
-        # Ensures backbone output is normalized before heads
         self.final_bn = nn.GroupNorm(num_groups, num_filters)
 
-        # Channel dropout on backbone output before heads split.
-        # Prevents channel segregation between value and policy heads.
-        # Drops entire channels (Dropout2d) so neither head can exclusively own channels.
+        # Channel dropout prevents head channel segregation
         self.backbone_dropout = nn.Dropout2d(p=backbone_dropout)
 
-        # Value head: pure global average pooling (KataGo approach)
-        # Eliminates position-specific FC weights that cause gradient interference
-        # between center and edge positions
+        # Value head: GAP → FC → WDL logits
         self.value_conv = nn.Conv2d(num_filters, value_head_channels, 1)
         self.value_bn = nn.GroupNorm(1, value_head_channels)
-        self.value_fc1 = nn.Linear(value_head_channels, value_head_fc_size)  # GAP only: [C] -> FC
+        self.value_fc1 = nn.Linear(value_head_channels, value_head_fc_size)
         self.value_dropout = nn.Dropout(p=0.2)
-        self.value_fc2 = nn.Linear(value_head_fc_size, 3)  # WDL: Win/Draw/Loss logits
+        self.value_fc2 = nn.Linear(value_head_fc_size, 3)
 
-        # Policy head (1 group = LayerNorm-like for small channel count)
+        # Policy head
         self.policy_conv = nn.Conv2d(num_filters, policy_head_channels, 1)
         self.policy_bn = nn.GroupNorm(1, policy_head_channels)
         self.policy_fc = nn.Linear(policy_head_channels * board_area, action_size)
 
-        # GN config validation: warn if any group normalizes over too few elements
+        # Warn if any GN group has too few elements
         H, W = board_shape
         gn_configs = [
             ("backbone", num_groups, num_filters, H * W),
@@ -126,20 +99,17 @@ class AlphaZeroNet(nn.Module):
         return F.relu(self.final_bn(x))
 
     def forward(self, x):
-        # Backbone
         x = self.backbone_forward(x)
-
-        # Channel dropout: prevent head channel segregation
         x = self.backbone_dropout(x)
 
-        # Value head: pure GAP (position-invariant)
+        # Value head
         v = F.relu(self.value_bn(self.value_conv(x)))
-        v = v.mean(dim=(2, 3))              # [B, C] global avg pool — no spatial info
+        v = v.mean(dim=(2, 3))
         v = F.relu(self.value_fc1(v))
         v = self.value_dropout(v)
-        v = self.value_fc2(v)  # [B, 3] raw WDL logits (no tanh)
+        v = self.value_fc2(v)
 
-        # Policy head (returns raw logits; callers apply softmax/log_softmax)
+        # Policy head
         p = F.relu(self.policy_bn(self.policy_conv(x)))
         p = p.view(p.size(0), -1)
         p = self.policy_fc(p)
@@ -150,8 +120,6 @@ class AlphaZeroNet(nn.Module):
         """Compile the forward pass with torch.compile for faster inference."""
         try:
             self.eval()
-            # Store compiled forward function (not module) to avoid
-            # circular reference that causes recursion in self.eval()
             self._compiled_forward = torch.compile(self.forward, mode="reduce-overhead")
         except Exception:
             self._compiled_forward = None
@@ -194,8 +162,7 @@ class AlphaZeroNet(nn.Module):
         t0 = time.time()
         n = len(state_inputs)
         inp_array = np.array(state_inputs)
-        # Pad to next multiple of 8 to reduce CUDAGraph recompilation
-        PAD_MULTIPLE = 8
+        PAD_MULTIPLE = 8  # reduce CUDAGraph recompilation
         padded_n = ((n + PAD_MULTIPLE - 1) // PAD_MULTIPLE) * PAD_MULTIPLE
         if padded_n > n:
             pad_shape = (padded_n - n,) + inp_array.shape[1:]

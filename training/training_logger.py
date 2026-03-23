@@ -1,19 +1,5 @@
-"""Training logger — logs 8 core health metrics to console and TensorBoard."""
-
-
 class TrainingLogger:
-    """Handles console and TensorBoard logging for the training loop.
-
-    Logs only game-independent health metrics:
-    1. loss / vloss / ploss (iteration summary)
-    2. p1/p2/draw + avg_game_length (iteration summary)
-    3. self_play + train time (iteration summary)
-    4. eff_lr rb0
-    5. pred_v std
-    6. sign_acc
-    7. policy top1_acc
-    8. vloss train/val gap
-    """
+    """Console and TensorBoard logging for training health metrics."""
 
     def __init__(self, trainer):
         self._t = trainer
@@ -28,7 +14,6 @@ class TrainingLogger:
         train_result = stats['train_result']
         d = self._t._train_diag if hasattr(self._t, '_train_diag') else {}
 
-        # Main iteration summary (loss, games, timing)
         if train_result is not None:
             avg_loss, avg_value_loss, avg_policy_loss = train_result
             writer.add_scalar("loss/total", avg_loss, iteration)
@@ -47,20 +32,16 @@ class TrainingLogger:
         writer.add_scalar("perf/self_play_time", stats['self_play_time'], iteration)
         writer.add_scalar("perf/train_time", stats['train_time'], iteration)
 
-        # Core health metrics
         if d:
-            # eff_lr rb0
             rb = d.get('rb_grad_norms', {})
             if rb:
                 first_rb = sorted(rb.keys())[0]
                 eff_lr = rb[first_rb].get('c2_eff_lr', 0)
                 writer.add_scalar("diag/eff_lr_rb0", eff_lr, iteration)
 
-            # pred_v std
             pv_std = d.get('pred_v_std', 0)
             writer.add_scalar("diag/pred_v_std", pv_std, iteration)
 
-            # sign_acc (from self-play)
             sign_acc = 0
             if hasattr(self._t, '_batched') and hasattr(self._t._batched, '_value_diagnostics'):
                 vd = self._t._batched._value_diagnostics
@@ -68,11 +49,9 @@ class TrainingLogger:
                     sign_acc = vd.get('sign_accuracy', 0)
             writer.add_scalar("diag/sign_acc", sign_acc, iteration)
 
-            # policy top1_acc
             top1 = d.get('policy_top1_acc', 0)
             writer.add_scalar("diag/policy_top1_acc", top1, iteration)
 
-            # vloss train/val gap
             val_vloss = d.get('val_vloss', 0)
             train_vloss = d.get('avg_value_loss', 0)
             gap = val_vloss - train_vloss if val_vloss and train_vloss else 0

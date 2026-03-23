@@ -69,6 +69,6 @@ class TTTGame(Game):
     def state_to_input(self, state):
         inp = np.zeros((2, 3, 3), dtype="float32")
         me = state.player
-        inp[0] = (state.board == me).astype("float32")   # my pieces
-        inp[1] = (state.board == -me).astype("float32")   # opponent pieces
+        inp[0] = (state.board == me).astype("float32")
+        inp[1] = (state.board == -me).astype("float32")
         return inp

@@ -25,7 +25,6 @@ class ReplayBuffer:
             self.arr = list(items[-self.max_size:])
             self._count = self.max_size
         elif n + self.to_insert_next <= self.max_size:
-            # Count how many None slots we're overwriting
             old_nones = sum(1 for i in range(self.to_insert_next, self.to_insert_next + n)
                            if self.arr[i] is None)
             self._count += old_nones
@@ -38,7 +37,6 @@ class ReplayBuffer:
         else:
             first_part = self.max_size - self.to_insert_next
             second_part = n - first_part
-            # Count None slots in both regions
             old_nones = sum(1 for i in range(self.to_insert_next, self.max_size)
                            if self.arr[i] is None)
             old_nones += sum(1 for i in range(second_part)

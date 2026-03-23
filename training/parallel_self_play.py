@@ -33,12 +33,7 @@ def _finalize_game_targets(examples, tv, label=""):
 
 
 class BatchedSelfPlay:
-    """Runs N self-play games in parallel, batching neural network evaluations.
-
-    Instead of evaluating one position at a time (slow on GPU due to kernel
-    launch overhead), this collects pending MCTS leaf nodes across all games
-    and evaluates them in a single batched forward pass.
-    """
+    """Runs N self-play games in parallel with batched NN evaluation."""
 
     def __init__(self, game, net, num_games, num_simulations,
                  selects_per_round=1, vl_value=0.0,
@@ -66,7 +61,6 @@ class BatchedSelfPlay:
         self.random_opening_fraction = random_opening_fraction
         self.mcts = MCTS(game, net, c_puct=c_puct, contempt_n=contempt_n)
 
-        # Log backends once
         if not getattr(BatchedSelfPlay, '_backend_logged', False):
             log_backends(MCTS, game)
             BatchedSelfPlay._backend_logged = True
@@ -80,7 +74,6 @@ class BatchedSelfPlay:
             - results: list of terminal_value per game
             - game_lengths: list of number of moves per game
         """
-        # All perf/tracking counters in a single dict
         self._p = {
             'select_expand_time': 0.0, 'backup_time': 0.0, 'nn_time': 0.0,
             'preprocess_time': 0.0, 'transfer_time': 0.0, 'forward_time': 0.0,
@@ -105,32 +98,27 @@ class BatchedSelfPlay:
         self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value, mcts_Q) per move
         self._mcts_visit_entropies = []  # entropy of MCTS visit distribution per move
 
-        # Initialize all games
         states = [self.game.new_game() for _ in range(self.num_games)]
         examples = [[] for _ in range(self.num_games)]
-        raw_priors = {}  # per-game raw prior before Dirichlet noise (for policy target pruning)
-        terminal_values = [0] * self.num_games  # raw terminal values per game
-        active = list(range(self.num_games))  # indices of games still in progress
+        raw_priors = {}
+        terminal_values = [0] * self.num_games
+        active = list(range(self.num_games))
         move_counts = [0] * self.num_games
 
-        # --- Forced random openings for position diversity ---
-        # Each game plays K random legal moves (K ~ Uniform(0, max)) before MCTS.
-        # No training data recorded during random moves.
-        random_opening_counts = [0] * self.num_games  # actual K per game
+        random_opening_counts = [0] * self.num_games
         if self.random_opening_moves > 0:
             total_random = 0
             total_terminated = 0
             frac = getattr(self, 'random_opening_fraction', 1.0)
             for i in range(self.num_games):
                 if random.random() >= frac:
-                    continue  # this game starts normally
+                    continue
                 k = random.randint(0, self.random_opening_moves)
                 for m in range(k):
                     legal = states[i].available_actions
                     legal_indices = [a for a in range(len(legal)) if legal[a]]
                     if not legal_indices or states[i].terminal:
                         break
-                    # Pick a random non-winning move to avoid accidental termination
                     random.shuffle(legal_indices)
                     action = legal_indices[0]
                     for a in legal_indices:
@@ -144,13 +132,11 @@ class BatchedSelfPlay:
                         total_terminated += 1
                         break
                 total_random += random_opening_counts[i]
-            # Filter out games that ended during random opening
             surviving = [i for i in range(self.num_games)
                          if not states[i].terminal]
             self._p['random_opening_total'] = total_random
             self._p['random_opening_terminated'] = total_terminated
             self._p['random_opening_surviving'] = len(surviving)
-            # Mark terminated games with their terminal values
             for i in range(self.num_games):
                 if states[i].terminal:
                     terminal_values[i] = states[i].terminal_value
@@ -160,35 +146,24 @@ class BatchedSelfPlay:
             self._p['random_opening_terminated'] = 0
             self._p['random_opening_surviving'] = self.num_games
 
-        # Per-game resign permission: with resign_check_prob chance, force play to
-        # completion (verification game to detect false positive resigns)
         resign_allowed = [random.random() >= self.resign_check_prob
                           for _ in range(self.num_games)]
-        # Track which player wanted to resign in verification games
-        # (0 = no resign requested, +1/-1 = which player wanted to resign)
         resign_check_player = [0] * self.num_games
 
-        # Create initial roots (deferred — no net eval yet)
         roots = [Node(None, s, self.game) if i in active else None
                  for i, s in enumerate(states)]
-
-        # Batch-evaluate all initial roots (only surviving games)
         active_roots = [roots[i] for i in active]
         self._batch_evaluate_nodes(active_roots)
 
-        # Store raw priors before Dirichlet noise (for policy target pruning)
         for i in active:
             raw_priors[i] = roots[i].P.copy() if roots[i].P is not None else None
-        # Add Dirichlet noise to root priors (legal actions only)
         for root in active_roots:
             root.P = add_dirichlet_noise(root.P, self.dirichlet_alpha, self.dirichlet_epsilon, root.available_actions_mask)
 
         while active:
             self._p['active_per_move'].append(len(active))
-            # Run MCTS simulations for all active games
             self._run_simulations(roots, active)
 
-            # --- Resign check ---
             still_active = []
             resign_enabled = self.resign_threshold > -1.0
             for i in active:
@@ -199,7 +174,6 @@ class BatchedSelfPlay:
                     and root_value < self.resign_threshold
                 )
                 if should_resign and resign_allowed[i]:
-                    # Resign: current player loses, opponent wins
                     tv = -states[i].player
                     terminal_values[i] = tv
                     _finalize_game_targets(examples[i], tv, label="Resign")
@@ -207,16 +181,13 @@ class BatchedSelfPlay:
                     self._p['resign_count'] += 1
                     self._p['resign_move_sum'] += move_counts[i]
                 elif should_resign and not resign_allowed[i]:
-                    # Would resign but this game is a verification game
                     if resign_check_player[i] == 0:
-                        # First time this game wants to resign — record which player
                         resign_check_player[i] = states[i].player
                         self._p['resign_check_count'] += 1
                     still_active.append(i)
                 else:
                     still_active.append(i)
 
-            # --- Extract policies and pick moves ---
             next_active_fresh = []
             next_active_reused = []
             for i in still_active:
@@ -227,15 +198,11 @@ class BatchedSelfPlay:
                     child = children[action]
                     if child is not None:
                         pi[action] = child.n / root.n
-                # Normalize: with tree reuse, root.n may include visits
-                # from before children existed, so sum(children.n) < root.n
                 pi_sum = pi.sum()
                 if pi_sum > 0:
                     pi = pi / pi_sum
 
-                # Policy target pruning: subtract noise/forced-induced visits from non-best children
-                # Raw pi is used for move selection (with exploration artifacts)
-                # Pruned pi_target is used for training (clean signal)
+                # Policy target: subtract noise-induced visits from non-best children
                 best_action_raw = np.argmax(pi)
                 pi_target = np.zeros_like(pi)
                 for action in root.available_actions:
@@ -244,8 +211,6 @@ class BatchedSelfPlay:
                         continue
                     raw_visits = child.n
                     if action != best_action_raw:
-                        # Subtract estimated noise-induced visits:
-                        # sqrt(2 * prior * total_visits) using raw prior (before Dirichlet)
                         rp = raw_priors.get(i)
                         prior_val = rp[action] if rp is not None else 0.0
                         noise_visits = (2.0 * prior_val * root.n) ** 0.5
@@ -255,25 +220,21 @@ class BatchedSelfPlay:
                 if pt_sum > 0:
                     pi_target = pi_target / pt_sum
                 else:
-                    pi_target = pi  # fallback to raw if pruning removed everything
+                    pi_target = pi
 
-                # MCTS visit entropy: H = -sum(p * log(p)) for non-zero entries
                 pi_nz = pi[pi > 0]
                 if len(pi_nz) > 0:
                     self._mcts_visit_entropies.append(
                         float(-np.sum(pi_nz * np.log(pi_nz)))
                     )
 
-                # Diagnostic: record per-move stats
                 self._game_value_preds[i].append((states[i].player, root.nnet_value, -root.Q))
 
-                # Temperature: explore early, exploit late (uses RAW pi for move selection)
                 move_num = len(examples[i])
                 if move_num < self.temp_threshold:
                     action = np.random.choice(len(pi), p=pi)
                 else:
                     action = np.argmax(pi)
-                # Check if current player has an immediate winning move
                 self._p['imm_win_total'] += 1
                 for a in range(len(states[i].available_actions)):
                     if states[i].available_actions[a]:
@@ -282,23 +243,18 @@ class BatchedSelfPlay:
                             self._p['imm_win_count'] += 1
                             break
 
-                # Track column selection frequency
                 self._p['col_selections'][action] += 1
 
-                # Training target is always the full visit distribution
-                # Policy surprise: KL(MCTS_policy || prior_policy)
-                prior = root.P  # network's policy prior
+                prior = root.P
                 kl_div = 0.0
                 if prior is not None:
                     eps = 1e-8
                     pi_safe = np.clip(pi, eps, 1.0)
                     prior_safe = np.clip(prior, eps, 1.0)
-                    # Only over available actions where pi > 0
                     mask = pi > eps
                     if mask.any():
                         kl_div = float(np.sum(pi_safe[mask] * np.log(pi_safe[mask] / prior_safe[mask])))
 
-                # MCTS root Q value from current player's perspective
                 mcts_q = float(-root.Q) if root.n > 0 else 0.0
 
                 aux_maps = {
@@ -311,30 +267,24 @@ class BatchedSelfPlay:
                 states[i] = self.game.step(states[i], action)
 
                 if states[i].terminal:
-                    # Game over — store raw terminal value and compute targets
                     tv = states[i].terminal_value
                     terminal_values[i] = tv
-                    # Check if this was a verification game that wanted to resign
                     if resign_check_player[i] != 0:
-                        # False positive = resigning player didn't actually lose
                         resigner_outcome = tv * resign_check_player[i]
-                        if resigner_outcome >= 0:  # drew or won
+                        if resigner_outcome >= 0:
                             self._p['resign_false_positives'] += 1
                     _finalize_game_targets(examples[i], tv, label="Terminal")
                     self._track_win_pattern(states[i].board, tv)
                 else:
-                    # --- Tree reuse or fresh root ---
                     if self.tree_reuse:
                         subtree = root.children[action]
                         if subtree is not None and subtree.P is not None:
-                            # Reuse subtree: promote child to new root
                             self._p['tree_reuse_visits_sum'] += subtree.n
-                            subtree.parent = None  # sever for GC of old tree
+                            subtree.parent = None
                             roots[i] = subtree
                             next_active_reused.append(i)
                             self._p['tree_reuse_count'] += 1
                         else:
-                            # Fallback: child missing or unevaluated
                             roots[i] = Node(None, states[i], self.game)
                             next_active_fresh.append(i)
                             self._p['tree_reuse_fresh_count'] += 1
@@ -342,7 +292,6 @@ class BatchedSelfPlay:
                         roots[i] = Node(None, states[i], self.game)
                         next_active_fresh.append(i)
 
-            # Batch-evaluate only fresh roots (reused ones already have NN eval)
             if next_active_fresh:
                 new_roots = [roots[i] for i in next_active_fresh]
                 self._batch_evaluate_nodes(new_roots)
@@ -350,7 +299,6 @@ class BatchedSelfPlay:
                     raw_priors[i] = roots[i].P.copy() if roots[i].P is not None else None
                     roots[i].P = add_dirichlet_noise(roots[i].P, self.dirichlet_alpha, self.dirichlet_epsilon, roots[i].available_actions_mask)
 
-            # Add Dirichlet noise to reused roots too (for exploration)
             for i in next_active_reused:
                 raw_priors[i] = roots[i].P.copy() if roots[i].P is not None else None
                 roots[i].P = add_dirichlet_noise(roots[i].P, self.dirichlet_alpha, self.dirichlet_epsilon, roots[i].available_actions_mask)

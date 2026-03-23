@@ -31,15 +31,12 @@ class Trainer:
         self.device = self.config.get("device", "cpu")
         self.max_train_steps = self.config.get("max_train_steps", 5000)
         self.target_epochs = self.config.get("target_epochs", 4)
-        self.train_ratio = self.config.get("train_ratio", 0)  # gradient steps per new position; 0 = use epoch-based
-        self.global_step = 0  # global training step counter (persists across iterations)
-        self.global_total_steps = 1  # estimated total steps; updated by run()
+        self.train_ratio = self.config.get("train_ratio", 0)
+        self.global_step = 0
+        self.global_total_steps = 1
         self.buffer = ReplayBuffer(self.config.get("buffer_size", 100000))
 
-        # Separate params: apply weight decay only to conv/linear weights,
-        # NOT to normalization gamma/beta or bias terms.  Decaying norm gamma
-        # shrinks activations every step (compounding through layers) while
-        # normalization just rescales — it doesn't regularize, it just causes magnitude decay.
+        # Weight decay only on conv/linear weights, not on norm params or biases
         decay_params = []
         no_decay_params = []
         for name, param in net.named_parameters():
@@ -57,14 +54,12 @@ class Trainer:
         self.value_loss_weight = self.config.get("value_loss_weight", 1.0)
         self.value_label_smoothing = self.config.get("value_label_smoothing", 0.0)
         self.surprise_weighting = self.config.get("surprise_weighting", True)
-        self.surprise_kl_frac = self.config.get("surprise_kl_frac", 0.5)  # KL-proportional fraction (rest is uniform)
-        self.stv_weight = self.config.get("stv_weight", 0.5)  # short-term value target weight
+        self.surprise_kl_frac = self.config.get("surprise_kl_frac", 0.5)
+        self.stv_weight = self.config.get("stv_weight", 0.5)
 
-        # Precompute parameter groups for gradient norm diagnostics (step%100)
         self._value_params = [p for n, p in net.named_parameters() if "value" in n]
         self._policy_params = [p for n, p in net.named_parameters() if "policy" in n]
 
-        # Mixed precision training: FP16 forward/loss, FP32 gradients
         self.use_amp = (self.device == "cuda")
         self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp)
 
@@ -81,7 +76,6 @@ class Trainer:
             print(f"  Not enough samples ({len(samples)}), skipping training")
             return None
 
-        # Setup: split, pools, accumulators, schedule, pre-training diagnostics
         setup = self._init_training_state(samples, n_new_positions)
         samples = setup['train_samples']
         acc = setup['acc']
@@ -90,14 +84,11 @@ class Trainer:
 
         self.net.train()
         for step in range(cfg['num_steps']):
-            # Flat LR (KataGo-style: constant throughout non-stationary RL training)
             lr = self.lr
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = lr
             self.global_step += 1
 
-            # Sample batch — surprise-weighted if available
-            # KataGo-style: half weight uniform, half proportional to policy surprise (KL)
             if self.surprise_weighting and setup.get('surprise_weights') is not None:
                 sw = setup['surprise_weights']
                 indices = np.random.choice(len(samples), size=min(self.batch_size, len(samples)),
@@ -110,7 +101,6 @@ class Trainer:
             else:
                 batch = random.sample(samples, k=min(self.batch_size, len(samples)))
 
-            # Data prep
             t0 = time.time()
             states = torch.FloatTensor(np.array([s[0] for s in batch])).to(self.device)
             target_pis = torch.FloatTensor(np.array([s[1] for s in batch])).to(self.device)
@@ -118,14 +108,10 @@ class Trainer:
             target_vs = torch.LongTensor(raw_value_to_wdl_class(raw_v)).to(self.device)
             acc['data_prep_time'] += time.time() - t0
 
-            # Forward + backward
             t0 = time.time()
             with torch.autocast('cuda', enabled=self.use_amp):
-                # No color-swap: canonical encoding + stratified sampling ensures
-                # balanced player perspectives.
                 pred_vs, pred_pi_logits = self.net(states)
 
-                # Value loss
                 value_loss = F.cross_entropy(pred_vs, target_vs,
                                             label_smoothing=self.value_label_smoothing)
 
@@ -133,7 +119,6 @@ class Trainer:
                 policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
                 loss = cfg['effective_vlw'] * value_loss + policy_loss
 
-                # Short-term value target: MSE between predicted scalar and MCTS Q
                 if self.stv_weight > 0:
                     mcts_qs = [
                         s[3].get('mcts_q', None) if isinstance(s[3], dict) else None
@@ -145,7 +130,6 @@ class Trainer:
                         target_q = torch.FloatTensor(
                             [q for q in mcts_qs if q is not None]
                         ).to(self.device)
-                        # Predicted scalar value: P(win) - P(loss) from WDL
                         pred_probs = F.softmax(pred_vs[q_mask], dim=1)
                         pred_scalar = pred_probs[:, 0] - pred_probs[:, 2]
                         stv_loss = F.mse_loss(pred_scalar, target_q)
@@ -156,13 +140,11 @@ class Trainer:
             self.scaler.scale(loss).backward()
             self.scaler.unscale_(self.optimizer)
 
-            # Collect diagnostics (reads unscaled gradients)
             self._collect_step_diagnostics(
                 step, states, target_vs, target_pis,
                 pred_vs, pred_pi_logits, value_loss, policy_loss, acc, cfg)
 
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=5.0)
-            # Save last batch gradient for TRAIN_COS diagnostic
             acc['last_batch_grad'] = torch.cat([
                 p.grad.flatten() if p.grad is not None
                 else torch.zeros(p.numel(), device=self.device)
@@ -697,8 +679,6 @@ class Trainer:
             all_examples, results, game_lengths = self._self_play(iteration)
             self_play_time = time.time() - t0
 
-            # Augment with symmetries (e.g. left-right mirror for Connect4)
-            # Example format: [state_input, policy, value, aux_maps_dict]
             augmented = []
             for ex in all_examples:
                 aux_maps = ex[3] if len(ex) > 3 and isinstance(ex[3], dict) else {}
@@ -711,11 +691,9 @@ class Trainer:
             self.buffer._current_iter = iteration
             self.buffer.insert_batch(augmented)
 
-            # === Per-iteration 3-in-a-row target bias (fresh batch only) ===
             iter_3r = None
             iter_3r_sign = None
 
-            # Log self-play stats
             wins_p1 = results.count(-1)
             wins_p2 = results.count(1)
             draws = results.count(0)
@@ -723,9 +701,6 @@ class Trainer:
             min_length = int(np.min(game_lengths))
             max_length = int(np.max(game_lengths))
             p1_win_pct = wins_p1 / max(len(results), 1)
-            # === Pre-training diagnostics ===
-
-            # Pre-training segregation (weight-based, no forward pass needed)
             pre_seg = None
             try:
                 _val_w = self.net.value_conv.weight.data
@@ -740,9 +715,6 @@ class Trainer:
             except (RuntimeError, ValueError, IndexError) as e:
                 print(f"  [DIAG-DBG] Pre-training segregation failed: {e}")
 
-            # === Snapshot backbone features + weights BEFORE training ===
-            # (1) Backbone feature drift: run FixedEval positions through backbone
-            # (3) Per-block weight delta: snapshot conv2 weights
             _pre_bb_features = None
             _pre_block_weights = {}
             try:
@@ -775,7 +747,6 @@ class Trainer:
             else:
                 self._fixed_eval_swapped = None
 
-            # === Gradient probe: what direction does the buffer push FixedEval? ===
             try:
                 if self._fixed_eval_inputs is not None and len(self.buffer) >= self.batch_size:
                     self.net.eval()
@@ -881,7 +852,6 @@ class Trainer:
             train_result = self.train_network(n_new_positions=n_new_positions)
             train_time = time.time() - t0
 
-            # === Post-training diagnostics: backbone drift + weight delta ===
             drift_result = None
             try:
                 if _pre_bb_features is not None and _diag_positions:
@@ -915,7 +885,6 @@ class Trainer:
 
             iter_time = time.time() - iter_t0
 
-            # === Log all metrics ===
             self.logger.log_iteration(iteration, num_iterations, {
                 'train_result': train_result,
                 'wins_p1': wins_p1, 'wins_p2': wins_p2, 'draws': draws,

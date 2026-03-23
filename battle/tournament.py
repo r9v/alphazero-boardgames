@@ -24,7 +24,6 @@ def play_match(game, net1, net2, mcts1, mcts2, num_games, sims):
     wins1, wins2, draws = 0, 0, 0
 
     for g in range(num_games):
-        # Alternate who goes first
         if g % 2 == 0:
             first_net, second_net = net1, net2
             first_mcts, second_mcts = mcts1, mcts2
@@ -51,12 +50,12 @@ def play_match(game, net1, net2, mcts1, mcts2, num_games, sims):
         tv = state.terminal_value
         if tv == 0:
             draws += 1
-        elif tv == -1:  # player -1 (first mover) won
+        elif tv == -1:
             if first_is_1:
                 wins1 += 1
             else:
                 wins2 += 1
-        else:  # player +1 (second mover) won
+        else:
             if first_is_1:
                 wins2 += 1
             else:
