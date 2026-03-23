@@ -39,8 +39,7 @@ class BatchedSelfPlay:
                  selects_per_round=1, vl_value=0.0,
                  temp_threshold=15, c_puct=1.5,
                  dirichlet_alpha=1.0, dirichlet_epsilon=0.25,
-                 tree_reuse=True, resign_threshold=-1.0,
-                 resign_min_moves=99, resign_check_prob=0.0,
+                 tree_reuse=True,
                  random_opening_moves=0,
                  random_opening_fraction=1.0,
                  contempt_n=0):
@@ -54,9 +53,6 @@ class BatchedSelfPlay:
         self.dirichlet_alpha = dirichlet_alpha
         self.dirichlet_epsilon = dirichlet_epsilon
         self.tree_reuse = tree_reuse
-        self.resign_threshold = resign_threshold
-        self.resign_min_moves = resign_min_moves
-        self.resign_check_prob = resign_check_prob
         self.random_opening_moves = random_opening_moves
         self.random_opening_fraction = random_opening_fraction
         self.mcts = MCTS(game, net, c_puct=c_puct, contempt_n=contempt_n)
@@ -86,13 +82,9 @@ class BatchedSelfPlay:
             'accum_rounds': 0,
             'tree_reuse_count': 0, 'tree_reuse_fresh_count': 0,
             'tree_reuse_visits_sum': 0,
-            'resign_count': 0, 'resign_move_sum': 0,
-            'resign_false_positives': 0, 'resign_check_count': 0,
-            'imm_win_count': 0, 'imm_win_total': 0,
             'random_opening_total': 0, 'random_opening_terminated': 0,
             'random_opening_surviving': self.num_games,
-            'col_selections': [0] * self.game.action_size,  # per-column move count
-            'win_patterns': {},  # {(type, col): count} e.g. ('vert', 0): 5
+            'col_selections': [0] * self.game.action_size,
         }
 
         self._game_value_preds = [[] for _ in range(self.num_games)]  # (player, nnet_value, mcts_Q) per move
@@ -146,10 +138,6 @@ class BatchedSelfPlay:
             self._p['random_opening_terminated'] = 0
             self._p['random_opening_surviving'] = self.num_games
 
-        resign_allowed = [random.random() >= self.resign_check_prob
-                          for _ in range(self.num_games)]
-        resign_check_player = [0] * self.num_games
-
         roots = [Node(None, s, self.game) if i in active else None
                  for i, s in enumerate(states)]
         active_roots = [roots[i] for i in active]
@@ -164,33 +152,9 @@ class BatchedSelfPlay:
             self._p['active_per_move'].append(len(active))
             self._run_simulations(roots, active)
 
-            still_active = []
-            resign_enabled = self.resign_threshold > -1.0
-            for i in active:
-                root_value = -roots[i].Q  # positive = winning, negative = losing
-                should_resign = (
-                    resign_enabled
-                    and move_counts[i] >= self.resign_min_moves
-                    and root_value < self.resign_threshold
-                )
-                if should_resign and resign_allowed[i]:
-                    tv = -states[i].player
-                    terminal_values[i] = tv
-                    _finalize_game_targets(examples[i], tv, label="Resign")
-                    self._track_win_pattern(states[i].board, tv)
-                    self._p['resign_count'] += 1
-                    self._p['resign_move_sum'] += move_counts[i]
-                elif should_resign and not resign_allowed[i]:
-                    if resign_check_player[i] == 0:
-                        resign_check_player[i] = states[i].player
-                        self._p['resign_check_count'] += 1
-                    still_active.append(i)
-                else:
-                    still_active.append(i)
-
             next_active_fresh = []
             next_active_reused = []
-            for i in still_active:
+            for i in active:
                 root = roots[i]
                 pi = np.zeros(np.shape(root.available_actions_mask))
                 children = root.children
@@ -235,13 +199,6 @@ class BatchedSelfPlay:
                     action = np.random.choice(len(pi), p=pi)
                 else:
                     action = np.argmax(pi)
-                self._p['imm_win_total'] += 1
-                for a in range(len(states[i].available_actions)):
-                    if states[i].available_actions[a]:
-                        ns = self.game.step(states[i], a)
-                        if ns.terminal and ns.terminal_value != 0:
-                            self._p['imm_win_count'] += 1
-                            break
 
                 self._p['col_selections'][action] += 1
 
@@ -269,12 +226,7 @@ class BatchedSelfPlay:
                 if states[i].terminal:
                     tv = states[i].terminal_value
                     terminal_values[i] = tv
-                    if resign_check_player[i] != 0:
-                        resigner_outcome = tv * resign_check_player[i]
-                        if resigner_outcome >= 0:
-                            self._p['resign_false_positives'] += 1
                     _finalize_game_targets(examples[i], tv, label="Terminal")
-                    self._track_win_pattern(states[i].board, tv)
                 else:
                     if self.tree_reuse:
                         subtree = root.children[action]
@@ -326,26 +278,11 @@ class BatchedSelfPlay:
         self.perf = dict(p)
         self.perf['min_batch'] = p['min_batch'] if p['min_batch'] != float('inf') else 0
         self.perf['tree_reuse_avg_visits'] = p['tree_reuse_visits_sum'] / max(p['tree_reuse_count'], 1)
-        self.perf['resign_avg_move'] = p['resign_move_sum'] / max(p['resign_count'], 1)
-        self.perf['imm_win_frac'] = p['imm_win_count'] / max(p['imm_win_total'], 1)
 
         # Compute self-play value prediction diagnostics
         self._compute_value_diagnostics(results)
 
         return all_examples, results, game_lengths
-
-    def _track_win_pattern(self, board, tv):
-        """Classify and count win patterns if the game has a winner."""
-        if tv == 0:
-            return  # draw
-        try:
-            from games.connect4 import classify_win
-            wins = classify_win(board)
-            for win_type, col, _player in wins:
-                key = (win_type, col)
-                self._p['win_patterns'][key] = self._p['win_patterns'].get(key, 0) + 1
-        except (ImportError, AttributeError):
-            pass  # not Connect4, skip
 
     def _compute_value_diagnostics(self, results):
         """Compute statistics about NN value predictions during self-play."""

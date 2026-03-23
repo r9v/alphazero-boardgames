@@ -41,7 +41,6 @@ GAME_CONFIGS = {
         "train_ratio": 8,
         "value_loss_weight": 1.0,
         "value_label_smoothing": 0.1,
-        "stv_weight": 0.0,
         "surprise_kl_frac": 0.5,
         "resblock_dropout": 0.1,
         "random_opening_moves": 12,
@@ -92,9 +91,6 @@ GAME_CONFIGS = {
         "c_puct": 1.5,
         "dirichlet_alpha": 0.25,  # ~10 / avg_legal_moves
         "tree_reuse": True,
-        "resign_threshold": -0.99,
-        "resign_min_moves": 10,
-        "resign_check_prob": 0.1,
         "play_simulations": 400,
         "play_c_puct": 2.0,
     },

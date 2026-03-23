@@ -55,7 +55,6 @@ class Trainer:
         self.value_label_smoothing = self.config.get("value_label_smoothing", 0.0)
         self.surprise_weighting = self.config.get("surprise_weighting", True)
         self.surprise_kl_frac = self.config.get("surprise_kl_frac", 0.5)
-        self.stv_weight = self.config.get("stv_weight", 0.5)
 
         self._value_params = [p for n, p in net.named_parameters() if "value" in n]
         self._policy_params = [p for n, p in net.named_parameters() if "policy" in n]
@@ -119,23 +118,6 @@ class Trainer:
                 policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))
                 loss = cfg['effective_vlw'] * value_loss + policy_loss
 
-                if self.stv_weight > 0:
-                    mcts_qs = [
-                        s[3].get('mcts_q', None) if isinstance(s[3], dict) else None
-                        for s in batch
-                    ]
-                    has_q = [q is not None for q in mcts_qs]
-                    if any(has_q):
-                        q_mask = torch.BoolTensor(has_q).to(self.device)
-                        target_q = torch.FloatTensor(
-                            [q for q in mcts_qs if q is not None]
-                        ).to(self.device)
-                        pred_probs = F.softmax(pred_vs[q_mask], dim=1)
-                        pred_scalar = pred_probs[:, 0] - pred_probs[:, 2]
-                        stv_loss = F.mse_loss(pred_scalar, target_q)
-                        loss = loss + self.stv_weight * stv_loss
-                        acc['total_stv_loss'] += stv_loss.item()
-
             self.optimizer.zero_grad()
             self.scaler.scale(loss).backward()
             self.scaler.unscale_(self.optimizer)
@@ -198,7 +180,6 @@ class Trainer:
         # All tracking accumulators
         acc = {
             'total_loss': 0, 'total_value_loss': 0, 'total_policy_loss': 0,
-            'total_stv_loss': 0,
             'num_batches': 0, 'data_prep_time': 0.0, 'gradient_time': 0.0,
             'early_vloss': 0.0, 'early_ploss': 0.0,
             'late_vloss': 0.0, 'late_ploss': 0.0,
@@ -215,15 +196,10 @@ class Trainer:
             'sub_iter_log': [],
             'conf_buckets': {'very_low': 0, 'low': 0, 'medium': 0, 'high': 0, 'very_high': 0},
             'conf_total': 0,
-            'fixed_eval_trajectory': [],
             'phase_vloss_sums': {'early': 0.0, 'mid': 0.0, 'late': 0.0},
             'phase_counts': {'early': 0, 'mid': 0, 'late': 0},
             'ploss_decisive_sum': 0.0, 'ploss_ambiguous_sum': 0.0,
             'decisive_count': 0, 'ambiguous_count': 0,
-            'swap_repr_trajectory': [],
-            'gn_group_var_trajectory': [],
-            'imm_win_vloss_sum': 0.0, 'imm_win_count': 0,
-            'non_imm_win_vloss_sum': 0.0, 'non_imm_win_count': 0,
         }
 
         # Policy surprise weights: half uniform, half proportional to KL divergence
@@ -365,117 +341,6 @@ class Trainer:
                 'mean_v': _scalar_v.mean().item(),
             })
 
-        # Intra-iteration value trajectory on FixedEval positions
-        _fe_inputs = getattr(self, '_fixed_eval_inputs', None)
-        _fe_names = getattr(self, '_fixed_eval_names', None)
-        if _fe_inputs is not None and _fe_names and (step % 300 == 0 or step == num_steps - 1):
-            self.net.eval()
-            with torch.no_grad():
-                _fe_v, _fe_p = self.net(_fe_inputs)[:2]
-                _fe_vals = wdl_to_scalar(_fe_v).cpu().numpy()
-            self.net.train()
-            _fe_entry = {'step': step}
-            for _fi, _fn in enumerate(_fe_names):
-                _fe_entry[_fn] = float(_fe_vals[_fi])
-            acc['fixed_eval_trajectory'].append(_fe_entry)
-
-            # Swap-representation cosine similarity
-            _fe_swapped = getattr(self, '_fixed_eval_swapped', None)
-            if _fe_swapped is not None:
-                with torch.no_grad():
-                    _bb_orig = self.net.backbone_forward(_fe_inputs).flatten(1)
-                    _bb_swap = self.net.backbone_forward(_fe_swapped).flatten(1)
-                    _swap_cos = F.cosine_similarity(_bb_orig, _bb_swap, dim=1)
-                self.net.train()
-                _swap_repr_entry = {'step': step}
-                for _fi, _fn in enumerate(_fe_names):
-                    _swap_repr_entry[_fn] = float(_swap_cos[_fi])
-                acc['swap_repr_trajectory'].append(_swap_repr_entry)
-
-            # GN SANITY: confirm train/eval gap is 0 (first TRAJ snapshot only)
-            if not getattr(self, '_gn_sanity_done', False):
-                self._gn_sanity_done = True
-                try:
-                    # Disable dropout to isolate normalization behavior
-                    _saved_dropout = []
-                    for _m in self.net.modules():
-                        if isinstance(_m, (torch.nn.Dropout, torch.nn.Dropout2d)):
-                            _saved_dropout.append((_m, _m.p))
-                            _m.p = 0.0
-                    self.net.eval()
-                    with torch.no_grad():
-                        _v_eval, _ = self.net(_fe_inputs)[:2]
-                    self.net.train()
-                    with torch.no_grad():
-                        _v_train, _ = self.net(_fe_inputs)[:2]
-                    for _m, _p in _saved_dropout:
-                        _m.p = _p
-                    _gap = (wdl_to_scalar(_v_eval) - wdl_to_scalar(_v_train)).abs().cpu().numpy()
-                    acc['gn_sanity'] = {
-                        'max_gap': float(_gap.max()),
-                        'mean_gap': float(_gap.mean()),
-                        'per_pos': {_fe_names[i]: float(_gap[i]) for i in range(len(_fe_names))},
-                    }
-                except Exception as e:
-                    print(f"  [DIAG-DBG] GN sanity check failed: {e}")
-                self.net.train()
-
-            # GN HEALTH: per-group variance, post-GN saturation, gamma magnitude
-            try:
-                _gn_pre_acts, _gn_post_acts = {}, {}
-                _hooks = []
-                for _gn_name, _gn_mod in self.net.named_modules():
-                    if isinstance(_gn_mod, torch.nn.GroupNorm):
-                        def _pre_hook(_module, _input, _name=_gn_name):
-                            _gn_pre_acts[_name] = _input[0].detach()
-                        def _post_hook(_module, _input, _output, _name=_gn_name):
-                            _gn_post_acts[_name] = _output.detach()
-                        _hooks.append(_gn_mod.register_forward_pre_hook(_pre_hook))
-                        _hooks.append(_gn_mod.register_forward_hook(_post_hook))
-                self.net.eval()
-                with torch.no_grad():
-                    self.net(_fe_inputs)
-                for _h in _hooks:
-                    _h.remove()
-                self.net.train()
-
-                # (1) Group collapse: pre-GN per-group variance
-                _min_vars, _mean_vars = [], []
-                for _gn_name, _act in _gn_pre_acts.items():
-                    _gn_mod = dict(self.net.named_modules())[_gn_name]
-                    _G = _gn_mod.num_groups
-                    _B, _C, _H, _W = _act.shape
-                    _act_g = _act.view(_B, _G, _C // _G, _H, _W)
-                    _gvar = _act_g.var(dim=(2, 3, 4))  # [B, G]
-                    _min_vars.append(_gvar.min().item())
-                    _mean_vars.append(_gvar.mean().item())
-
-                # (2) Saturation: post-GN activations near ±3 (pre-ReLU)
-                _sat_fracs = []
-                for _gn_name, _act in _gn_post_acts.items():
-                    _sat_fracs.append(float((_act.abs() > 3.0).float().mean().item()))
-
-                # (3) Gamma health: any GN gamma growing very large or very small
-                _gamma_max, _gamma_min = 0.0, float('inf')
-                for _gn_name, _gn_mod in self.net.named_modules():
-                    if isinstance(_gn_mod, torch.nn.GroupNorm) and _gn_mod.weight is not None:
-                        _g = _gn_mod.weight.data.abs()
-                        _gamma_max = max(_gamma_max, _g.max().item())
-                        _gamma_min = min(_gamma_min, _g.min().item())
-
-                acc['gn_group_var_trajectory'].append({
-                    'step': step,
-                    'min_var': min(_min_vars) if _min_vars else 0.0,
-                    'mean_var': float(np.mean(_mean_vars)) if _mean_vars else 0.0,
-                    'num_degenerate': sum(1 for v in _min_vars if v < 1e-6),
-                    'num_layers': len(_min_vars),
-                    'sat_frac': float(np.mean(_sat_fracs)) if _sat_fracs else 0.0,
-                    'gamma_max': _gamma_max,
-                    'gamma_min': _gamma_min,
-                })
-            except Exception as e:
-                print(f"  [DIAG-DBG] GN health diagnostic failed: {e}")
-
         # Track early vs late loss
         if step < early_cutoff:
             acc['early_vloss'] += value_loss.item()
@@ -543,7 +408,6 @@ class Trainer:
         avg_loss = acc['total_loss'] / max(num_batches, 1)
         avg_value_loss = acc['total_value_loss'] / max(num_batches, 1)
         avg_policy_loss = acc['total_policy_loss'] / max(num_batches, 1)
-        avg_stv_loss = acc['total_stv_loss'] / max(num_batches, 1)
         early_vloss = acc['early_vloss'] / max(early_cutoff, 1)
         early_ploss = acc['early_ploss'] / max(early_cutoff, 1)
         late_vloss = acc['late_vloss'] / max(early_cutoff, 1)
@@ -645,8 +509,7 @@ class Trainer:
 
     _SELF_PLAY_KEYS = [
         'selects_per_round', 'vl_value', 'temp_threshold', 'c_puct',
-        'dirichlet_alpha', 'tree_reuse', 'resign_threshold',
-        'resign_min_moves', 'resign_check_prob', 'random_opening_moves',
+        'dirichlet_alpha', 'tree_reuse', 'random_opening_moves',
         'random_opening_fraction', 'contempt_n',
     ]
 
@@ -691,9 +554,6 @@ class Trainer:
             self.buffer._current_iter = iteration
             self.buffer.insert_batch(augmented)
 
-            iter_3r = None
-            iter_3r_sign = None
-
             wins_p1 = results.count(-1)
             wins_p2 = results.count(1)
             draws = results.count(0)
@@ -701,187 +561,10 @@ class Trainer:
             min_length = int(np.min(game_lengths))
             max_length = int(np.max(game_lengths))
             p1_win_pct = wins_p1 / max(len(results), 1)
-            pre_seg = None
-            try:
-                _val_w = self.net.value_conv.weight.data
-                _pol_w = self.net.policy_conv.weight.data
-                _val_ch = _val_w.abs().sum(dim=(0, 2, 3)).cpu().numpy()
-                _pol_ch = _pol_w.abs().sum(dim=(0, 2, 3)).cpu().numpy()
-                pre_vp_corr = float(np.corrcoef(_val_ch, _pol_ch)[0, 1])
-                _pre_top20_v = np.argsort(_val_ch)[-20:]
-                _pre_top20_p = np.argsort(_pol_ch)[-20:]
-                pre_overlap = len(set(_pre_top20_v.tolist()) & set(_pre_top20_p.tolist()))
-                pre_seg = {'vp_corr': pre_vp_corr, 'overlap': pre_overlap}
-            except (RuntimeError, ValueError, IndexError) as e:
-                print(f"  [DIAG-DBG] Pre-training segregation failed: {e}")
 
-            _pre_bb_features = None
-            _pre_block_weights = {}
-            try:
-                self.net.eval()
-                _diag_positions = self.logger._get_diagnostic_positions()
-                if _diag_positions:
-                    _diag_inputs = torch.FloatTensor(
-                        np.array([p[1] for p in _diag_positions])
-                    ).to(self.device)
-                    with torch.no_grad():
-                        _x = self.net.backbone_forward(_diag_inputs)
-                        _pre_bb_features = _x.flatten(1).cpu()  # [5, channels*H*W]
-                # Snapshot per-block conv2 weights
-                for bi, block in enumerate(self.net.res_blocks):
-                    _pre_block_weights[bi] = block.conv2.weight.data.clone()
-                self.net.train()
-            except Exception as e:
-                print(f"  [DIAG-DBG] Pre-training snapshot failed: {e}")
-
-            # (2) Store FixedEval inputs for intra-iteration trajectory
-            _dp = locals().get('_diag_positions')
-            self._fixed_eval_inputs = locals().get('_diag_inputs') if _dp else None
-            self._fixed_eval_names = [p[0] for p in _dp] if _dp else None
-            # Build color-swapped FixedEval inputs for swap_repr cosine diagnostic
-            if self._fixed_eval_inputs is not None:
-                _fe_sw = self._fixed_eval_inputs.clone()
-                _fe_sw[:, 0] = self._fixed_eval_inputs[:, 1]
-                _fe_sw[:, 1] = self._fixed_eval_inputs[:, 0]
-                self._fixed_eval_swapped = _fe_sw
-            else:
-                self._fixed_eval_swapped = None
-
-            try:
-                if self._fixed_eval_inputs is not None and len(self.buffer) >= self.batch_size:
-                    self.net.eval()
-                    fe_inputs = self._fixed_eval_inputs
-                    fe_names = self._fixed_eval_names
-                    # Sample a large batch from buffer and compute gradient direction
-                    buf_samples = [s for s in self.buffer.arr if s is not None]
-                    probe_batch = random.sample(buf_samples, min(1024, len(buf_samples)))
-                    probe_inputs = torch.FloatTensor(np.array([s[0] for s in probe_batch])).to(self.device)
-                    probe_targets = torch.LongTensor(
-                        raw_value_to_wdl_class(np.array([s[2] for s in probe_batch]))
-                    ).to(self.device)
-
-                    # Forward on buffer batch, backward to get gradients
-                    self.net.train()
-                    self.optimizer.zero_grad()
-                    v_logits, _ = self.net(probe_inputs)[:2]
-                    probe_loss = F.cross_entropy(v_logits, probe_targets)
-                    probe_loss.backward()
-
-                    # Now measure: if we applied this gradient step, how would FixedEval change?
-                    # Use first-order approximation: delta_v ≈ -lr * grad · (dv/dparams)
-                    # Simpler: just apply a tiny step, measure, then undo
-                    # Even simpler: evaluate FixedEval AFTER the backward (model unchanged),
-                    # then do one optimizer step, evaluate again, then undo.
-                    # Cheapest: just log the loss the model would assign to each FixedEval position
-                    self.net.eval()
-                    with torch.no_grad():
-                        fe_v_logits, _ = self.net(fe_inputs)[:2]
-                        fe_probs = F.softmax(fe_v_logits, dim=1)
-                        # What the model currently predicts for each position
-                        fe_scalar = (fe_probs[:, 0] - fe_probs[:, 2]).cpu().numpy()
-                        # What loss would be if target=win (class 0) for each position
-                        win_target = torch.zeros(len(fe_names), dtype=torch.long, device=self.device)
-                        fe_loss_if_win = F.cross_entropy(fe_v_logits, win_target, reduction='none').cpu().numpy()
-
-                    self.optimizer.zero_grad()  # clean up probe gradients
-                    parts = []
-                    for i, name in enumerate(fe_names):
-                        parts.append(f"{name[:7]}={fe_scalar[i]:+.3f}(L={fe_loss_if_win[i]:.2f})")
-                    print(f"  Diag[PROBE]: pre-train FE: {' '.join(parts)}")
-
-                    # Buffer age distribution
-                    ages = [iteration - self.buffer._ages[i]
-                            for i in range(len(self.buffer))
-                            if self.buffer.arr[i] is not None]
-                    if ages:
-                        ages_arr = np.array(ages)
-                        fresh = (ages_arr <= 1).sum()
-                        recent = (ages_arr <= 4).sum()
-                        old = (ages_arr > 8).sum()
-                        print(f"  Diag[BUF_AGE]: fresh(0-1)={fresh} recent(0-4)={recent} "
-                              f"old(>8)={old} max_age={ages_arr.max()} "
-                              f"mean_age={ages_arr.mean():.1f}")
-
-                    # Buffer column distribution: pieces per column across all positions
-                    try:
-                        col_counts = np.zeros(7)
-                        sample_count = 0
-                        for s in buf_samples[:2000]:  # sample for speed
-                            inp = s[0]  # [2, 6, 7]
-                            col_counts += inp[0].sum(axis=0) + inp[1].sum(axis=0)
-                            sample_count += 1
-                        if sample_count > 0:
-                            col_pcts = col_counts / col_counts.sum() * 100
-                            col_str = " ".join(f"c{i}={col_pcts[i]:.1f}%" for i in range(7))
-                            print(f"  Diag[BUF_COL]: {col_str}")
-                    except Exception:
-                        pass
-
-                    # Edge vs center value loss split
-                    try:
-                        edge_losses = []
-                        center_losses = []
-                        for s in buf_samples[:2000]:
-                            inp = s[0]  # [2, 6, 7]
-                            # Count pieces in edge cols (0,6) vs center cols (2,3,4)
-                            edge_pieces = inp[0][:, [0, 6]].sum() + inp[1][:, [0, 6]].sum()
-                            center_pieces = inp[0][:, [2, 3, 4]].sum() + inp[1][:, [2, 3, 4]].sum()
-                            target = raw_value_to_wdl_class(np.array([s[2]]))[0]
-                            if edge_pieces > center_pieces:
-                                edge_losses.append(target)
-                            else:
-                                center_losses.append(target)
-                        if edge_losses and center_losses:
-                            edge_arr = np.array(edge_losses)
-                            center_arr = np.array(center_losses)
-                            # Win fraction (target=0 means win)
-                            edge_win = (edge_arr == 0).mean()
-                            center_win = (center_arr == 0).mean()
-                            print(f"  Diag[EDGE_CTR]: edge_positions={len(edge_losses)} "
-                                  f"win_frac={edge_win:.3f} | center_positions={len(center_losses)} "
-                                  f"win_frac={center_win:.3f}")
-                    except Exception:
-                        pass
-
-                    self.net.train()
-            except Exception as e:
-                print(f"  [DIAG-DBG] Gradient probe failed: {e}")
-
-            # Train
             t0 = time.time()
             train_result = self.train_network(n_new_positions=n_new_positions)
             train_time = time.time() - t0
-
-            drift_result = None
-            try:
-                if _pre_bb_features is not None and _diag_positions:
-                    self.net.eval()
-                    with torch.no_grad():
-                        _post_bb_features = self.net.backbone_forward(_diag_inputs).flatten(1).cpu()
-                    _cos_sims = F.cosine_similarity(_pre_bb_features, _post_bb_features, dim=1)
-                    _pos_names = [p[0] for p in _diag_positions]
-                    drift_result = {
-                        'cos_mean': float(_cos_sims.mean()),
-                        'cos_min': float(_cos_sims.min()),
-                        'per_pos': {_pos_names[i]: float(_cos_sims[i]) for i in range(len(_cos_sims))},
-                        'pos_names': _pos_names,
-                    }
-                    self.net.train()
-            except Exception as e:
-                print(f"  [DIAG-DBG] Backbone drift measurement failed: {e}")
-
-            wdelta_result = None
-            try:
-                if _pre_block_weights:
-                    wdelta_result = {}
-                    for bi, block in enumerate(self.net.res_blocks):
-                        _w_after = block.conv2.weight.data
-                        _w_before = _pre_block_weights[bi]
-                        _delta_norm = float((_w_after - _w_before).norm().item())
-                        _before_norm = float(_w_before.norm().item())
-                        wdelta_result[bi] = _delta_norm / max(_before_norm, 1e-10)
-            except Exception as e:
-                print(f"  [DIAG-DBG] Weight delta measurement failed: {e}")
 
             iter_time = time.time() - iter_t0
 
@@ -892,9 +575,6 @@ class Trainer:
                 'max_length': max_length, 'p1_win_pct': p1_win_pct,
                 'self_play_time': self_play_time, 'train_time': train_time,
                 'iter_time': iter_time,
-                'iter_3r': iter_3r, 'iter_3r_sign': iter_3r_sign,
-                'pre_seg': pre_seg, 'drift': drift_result,
-                'wdelta': wdelta_result, 'n_new_positions': n_new_positions,
             })
 
             # Save every 5 iterations + always on the last one
