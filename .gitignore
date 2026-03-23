@@ -50,6 +50,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+nul
 
 # Translations
 *.mo
@@ -131,14 +132,16 @@ dmypy.json
 # TensorBoard logs
 runs/
 
+# Diagnostics (research tools, not part of core)
+diagnostics/
+
 # Model checkpoints (keep only best.pt)
 checkpoints/**/*.pt
 !checkpoints/**/best.pt
 checkpoints/**/*.txt
 .claude
 
-#*.txt
+
 !requirements.txt
-#*.md
 !README.md
-nul
+
