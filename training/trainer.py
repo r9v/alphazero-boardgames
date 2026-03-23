@@ -9,13 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from training.replay_buffer import ReplayBuffer
 from training.parallel_self_play import BatchedSelfPlay
-from training.diagnostics import (
-    raw_value_to_wdl_class, compute_three_in_a_row, compute_buffer_diagnostics,
-    compute_pre_training_diagnostics, compute_post_training_player_diagnostics,
-    compute_value_head_diagnostics, compute_backbone_gradient_decomposition,
-    compute_svd_rank_diagnostics, compute_gradient_conflict_diagnostic,
-    compute_train_cos_diagnostic, detect_immediate_wins,
-)
+from training.diagnostics import raw_value_to_wdl_class
 from training.training_logger import TrainingLogger
 from utils import wdl_to_scalar
 
@@ -89,9 +83,7 @@ class Trainer:
             print(f"  Not enough samples ({len(samples)}), skipping training")
             return None
 
-        # Buffer diagnostics
-        all_values = np.array([s[2] for s in samples])
-        buf_diag = compute_buffer_diagnostics(samples, all_values)
+        # (Removed: buffer diagnostics)
 
         # Setup: split, pools, accumulators, schedule, pre-training diagnostics
         setup = self._init_training_state(samples, n_new_positions)
@@ -223,9 +215,9 @@ class Trainer:
             acc['total_policy_loss'] += policy_loss.item()
             acc['num_batches'] += 1
 
-        # Aggregate results + post-training diagnostics
+        # Aggregate results
         return self._aggregate_training_results(
-            acc, samples, setup['val_samples'], buf_diag, cfg, setup)
+            acc, samples, setup['val_samples'], cfg, setup)
 
     def _init_training_state(self, samples, n_new_positions):
         """Prepare train/val split, tracking accumulators, and LR schedule params."""
@@ -258,10 +250,7 @@ class Trainer:
         late_start = num_steps - early_cutoff
         lr_min = self.lr * 0.1
 
-        # Pre-training value loss + per-player predictions
-        pre_train_vloss, pbias_data = compute_pre_training_diagnostics(
-            self.net, train_samples, self.device
-        )
+        # (Removed: pre-training diagnostics)
 
         # All tracking accumulators
         acc = {
@@ -321,7 +310,6 @@ class Trainer:
             'effective_epochs': effective_epochs,
             'early_cutoff': early_cutoff, 'late_start': late_start,
             'lr_min': lr_min, 'n_samples': n_samples, 'fill_ratio': fill_ratio,
-            'pre_train_vloss': pre_train_vloss, 'pbias_data': pbias_data,
             'surprise_weights': surprise_weights,
             'acc': acc,
         }
@@ -365,15 +353,7 @@ class Trainer:
                     acc['o_pred_sum'] += _scalar_v[is_o].mean().item()
                     acc['o_count'] += 1
 
-                # ImmWin vloss split
-                imm_win_mask = detect_immediate_wins(states)
-                if imm_win_mask.any():
-                    acc['imm_win_vloss_sum'] += per_sample_vloss[imm_win_mask].mean().item()
-                    acc['imm_win_count'] += 1
-                non_imm = ~imm_win_mask
-                if non_imm.any():
-                    acc['non_imm_win_vloss_sum'] += per_sample_vloss[non_imm].mean().item()
-                    acc['non_imm_win_count'] += 1
+                # (Removed: ImmWin vloss split)
 
                 # (#6) Value loss by game phase
                 total_pieces = my_counts + opp_counts
@@ -614,7 +594,7 @@ class Trainer:
                     acc['ploss_ambiguous_sum'] += per_sample_ploss[ambig_mask].mean().item()
                     acc['ambiguous_count'] += 1
 
-    def _aggregate_training_results(self, acc, samples, val_samples, buf_diag, cfg, setup):
+    def _aggregate_training_results(self, acc, samples, val_samples, cfg, setup):
         """Compute averages, run validation, value head diagnostics. Returns (loss, vloss, ploss)."""
         num_batches = acc['num_batches']
         early_cutoff = cfg['early_cutoff']
@@ -681,12 +661,6 @@ class Trainer:
         buffer_fill = len(self.buffer)
         buffer_full = buffer_fill >= self.buffer.max_size
 
-        # Theoretical value loss floor
-        val_loss_floor = 0.0
-        for frac in [buf_diag['frac_neg'], buf_diag['frac_draw'], buf_diag['frac_pos']]:
-            if frac > 0:
-                val_loss_floor -= frac * np.log(frac)
-
         # Per-player averages
         x_vloss_avg = acc['x_vloss_sum'] / max(acc['x_count'], 1)
         o_vloss_avg = acc['o_vloss_sum'] / max(acc['o_count'], 1)
@@ -713,42 +687,8 @@ class Trainer:
             }
             self._grad_stats = []
 
-        # Value head health diagnostics
-        vh_diag = compute_value_head_diagnostics(self, samples, grad_stats_summary)
-        compute_backbone_gradient_decomposition(self, samples, vh_diag)
-        compute_svd_rank_diagnostics(self.net, vh_diag)
-
-        # Gradient conflict: x_wins_next vs o_wins_next
-        grad_conflict = compute_gradient_conflict_diagnostic(self)
-
-        # TRAIN_COS: cosine between last training batch gradient and per-position "fix" gradients
-        train_cos = compute_train_cos_diagnostic(self, acc.get('last_batch_grad'))
-
-        # Value sensitivity from TRAJ data
-        fe_sensitivity = {}
-        traj = acc['fixed_eval_trajectory']
-        if len(traj) >= 2:
-            names = [k for k in traj[0] if k != 'step']
-            for name in names:
-                deltas = [abs(traj[i][name] - traj[i - 1][name]) for i in range(1, len(traj))]
-                fe_sensitivity[name] = {
-                    'mean_abs_delta': float(np.mean(deltas)),
-                    'max_abs_delta': float(np.max(deltas)),
-                    'total_drift': abs(traj[-1][name] - traj[0][name]),
-                }
-
-        # ImmWin vloss aggregation
-        imm_win_vloss = acc['imm_win_vloss_sum'] / max(acc['imm_win_count'], 1)
-        non_imm_win_vloss = acc['non_imm_win_vloss_sum'] / max(acc['non_imm_win_count'], 1)
-
-        # Post-training per-player diagnostics
-        pbias_data = setup['pbias_data']
-        _post_x_pred, _post_o_pred, _post_x_acc, _post_o_acc = \
-            compute_post_training_player_diagnostics(self.net, pbias_data, self.device)
-
-        pre_train_vloss = setup['pre_train_vloss']
-        phase_vloss_sums = acc['phase_vloss_sums']
-        phase_counts = acc['phase_counts']
+        # (Removed: vh_diag, backbone_gradient_decomposition, svd_rank, gradient_conflict,
+        #  train_cos, fe_sensitivity, imm_win, post_training_player diagnostics)
 
         self._train_perf = {
             "data_prep_time": acc['data_prep_time'],
@@ -756,74 +696,14 @@ class Trainer:
             "num_samples": setup['n_samples'],
             "num_batches": num_batches,
         }
+        # Core 8 metrics only
         self._train_diag = {
             "avg_value_loss": avg_value_loss,
-            "val_target_mean": buf_diag['val_mean'],
-            "val_target_std": buf_diag['val_std'],
-            "frac_pos": buf_diag['frac_pos'],
-            "frac_neg": buf_diag['frac_neg'],
-            "frac_draw": buf_diag['frac_draw'],
-            "effective_epochs": cfg['effective_epochs'],
-            "num_steps": cfg['num_steps'],
-            "early_vloss": early_vloss, "early_ploss": early_ploss,
-            "late_vloss": late_vloss, "late_ploss": late_ploss,
-            "val_vloss": val_vloss, "val_ploss": val_ploss,
+            "val_vloss": val_vloss,
             "buffer_fill": buffer_fill, "buffer_capacity": self.buffer.max_size,
-            "buffer_full": buffer_full,
-            "pred_v_mean": pred_v_mean, "pred_v_std": pred_v_std,
-            "pred_v_abs_mean": pred_v_abs_mean,
-            "policy_grad_frac": policy_frac,
-            "val_loss_floor": val_loss_floor,
-            "avg_value_grad_norm": avg_value_grad,
-            "avg_policy_grad_norm": avg_policy_grad,
-            "x_vloss": x_vloss_avg, "o_vloss": o_vloss_avg,
-            "x_target_mean": x_target_avg, "o_target_mean": o_target_avg,
-            "x_pred_mean": x_pred_avg, "o_pred_mean": o_pred_avg,
-            "grad_stats": grad_stats_summary,
-            "vh_diag": vh_diag,
-            "effective_vlw": cfg['effective_vlw'],
-            "policy_entropy": avg_policy_entropy,
-            "policy_top1_acc": policy_top1_acc, "policy_top3_acc": policy_top3_acc,
-            "value_confidence_acc": value_confidence_acc,
-            "value_confident_frac": value_confident_frac,
+            "pred_v_std": pred_v_std,
+            "policy_top1_acc": policy_top1_acc,
             "rb_grad_norms": avg_rb_grad_norms,
-            "val_hist": buf_diag['val_hist'],
-            "three_r_diag": buf_diag['three_r_diag'],
-            "pre_train_vloss": pre_train_vloss,
-            "vloss_delta": (val_vloss - pre_train_vloss) if pre_train_vloss is not None else None,
-            "phase_vloss_early": phase_vloss_sums['early'] / max(phase_counts['early'], 1),
-            "phase_vloss_mid": phase_vloss_sums['mid'] / max(phase_counts['mid'], 1),
-            "phase_vloss_late": phase_vloss_sums['late'] / max(phase_counts['late'], 1),
-            "phase_counts": phase_counts,
-            "policy_loss_decisive": acc['ploss_decisive_sum'] / max(acc['decisive_count'], 1),
-            "policy_loss_ambiguous": acc['ploss_ambiguous_sum'] / max(acc['ambiguous_count'], 1),
-            "decisive_frac": acc['decisive_count'] / max(acc['decisive_count'] + acc['ambiguous_count'], 1),
-            "sub_iter_log": acc['sub_iter_log'],
-            "conf_dist": {k: v / max(acc['conf_total'], 1) for k, v in acc['conf_buckets'].items()},
-            "fixed_eval_trajectory": acc['fixed_eval_trajectory'],
-            "buf_n_x": buf_diag['n_x_buf'], "buf_n_o": buf_diag['n_o_buf'],
-            "buf_mean_tgt_x": buf_diag['mean_tgt_x'], "buf_mean_tgt_o": buf_diag['mean_tgt_o'],
-            "buf_frac_pos_x": buf_diag['frac_pos_x'], "buf_frac_pos_o": buf_diag['frac_pos_o'],
-            "pbias_pre_x_pred": pbias_data['pre_x_pred'] if pbias_data else 0.0,
-            "pbias_pre_o_pred": pbias_data['pre_o_pred'] if pbias_data else 0.0,
-            "pbias_pre_x_acc": pbias_data['pre_x_acc'] if pbias_data else 0.0,
-            "pbias_pre_o_acc": pbias_data['pre_o_acc'] if pbias_data else 0.0,
-            "pbias_post_x_pred": _post_x_pred, "pbias_post_o_pred": _post_o_pred,
-            "pbias_post_x_acc": _post_x_acc, "pbias_post_o_acc": _post_o_acc,
-            "swap_repr_trajectory": acc['swap_repr_trajectory'],
-            "gn_sanity": acc.get('gn_sanity', {}),
-            "gn_group_var_trajectory": acc['gn_group_var_trajectory'],
-            "fe_sensitivity": fe_sensitivity,
-            "grad_conflict": grad_conflict,
-            "train_cos": train_cos,
-            "imm_win_vloss": imm_win_vloss,
-            "non_imm_win_vloss": non_imm_win_vloss,
-            "imm_win_frac_train": acc['imm_win_count'] / max(acc['imm_win_count'] + acc['non_imm_win_count'], 1),
-            "avg_ownership_loss": avg_ownership_loss,
-            "avg_threat_loss": avg_threat_loss,
-            "avg_stv_loss": avg_stv_loss,
-            "mean_policy_surprise": acc.get('mean_policy_surprise'),
-            "max_policy_surprise": acc.get('max_policy_surprise'),
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 
@@ -899,17 +779,6 @@ class Trainer:
             # === Per-iteration 3-in-a-row target bias (fresh batch only) ===
             iter_3r = None
             iter_3r_sign = None
-            try:
-                _iter_inputs = np.array([ex[0] for ex in augmented])
-                _iter_targets = np.array([ex[2] for ex in augmented])
-                _3r = compute_three_in_a_row(_iter_inputs, _iter_targets, sign_split=True)
-                iter_3r = {
-                    'mine': {'count': _3r['mine']['count'], 'mean': _3r['mine']['mean_target']},
-                    'opp': {'count': _3r['opp']['count'], 'mean': _3r['opp']['mean_target']},
-                }
-                iter_3r_sign = _3r.get('sign_split')
-            except (IndexError, ValueError, RuntimeError) as e:
-                print(f"  [DIAG-DBG] Per-iteration 3-in-a-row failed: {e}")
 
             # Log self-play stats
             wins_p1 = results.count(-1)
@@ -920,7 +789,6 @@ class Trainer:
             max_length = int(np.max(game_lengths))
             p1_win_pct = wins_p1 / max(len(results), 1)
             # === Pre-training diagnostics ===
-            self.logger.eval_diagnostic_positions(iteration, prefix="pre_", label="PreTrainEval")
 
             # Pre-training segregation (weight-based, no forward pass needed)
             pre_seg = None
