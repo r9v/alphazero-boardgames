@@ -132,29 +132,17 @@ class Trainer:
 
             # Forward + backward
             t0 = time.time()
-            B = states.shape[0]
             with torch.autocast('cuda', enabled=self.use_amp):
-                # Color-swap augmentation: swap ch0↔ch1, flip value target.
-                # With canonical encoding (no ch2), swapping ch0↔ch1 views the position
-                # from the opponent's perspective. This ensures the value head sees balanced
-                # player perspectives regardless of self-play bias.
-                swapped = states.clone()
-                swapped[:, 0] = states[:, 1]
-                swapped[:, 1] = states[:, 0]
-                swapped_target_vs = 2 - target_vs  # win(0)↔loss(2), draw(1) unchanged
-
-                combined = torch.cat([states, swapped], dim=0)
-                combined_targets = torch.cat([target_vs, swapped_target_vs], dim=0)
-                net_out = self.net(combined)
-                pred_all, pi_all = net_out[0], net_out[1]
+                # No color-swap: canonical encoding + stratified sampling ensures
+                # balanced player perspectives.
+                net_out = self.net(states)
+                pred_vs, pi_all = net_out[0], net_out[1]
                 pred_aux = net_out[2] if len(net_out) > 2 else {}
+                pred_pi_logits = pi_all
 
-                # Value loss: average over original + swapped
-                value_loss = F.cross_entropy(pred_all, combined_targets,
+                # Value loss
+                value_loss = F.cross_entropy(pred_vs, target_vs,
                                             label_smoothing=self.value_label_smoothing)
-                # Extract original-only predictions for policy + diagnostics
-                pred_vs = pred_all[:B]
-                pred_pi_logits = pi_all[:B]
 
                 log_pred_pis = F.log_softmax(pred_pi_logits, dim=1)
                 policy_loss = -torch.mean(torch.sum(target_pis * log_pred_pis, dim=1))

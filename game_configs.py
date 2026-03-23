@@ -43,7 +43,7 @@ GAME_CONFIGS = {
         "value_head_channels": 32,
         "value_head_fc_size": 64,
         "policy_head_channels": 2,
-        "se_ratio": 4,
+        "se_ratio": 0,
         "ownership_channels": 0,
         "threat_channels": 0,
 

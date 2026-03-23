@@ -166,9 +166,9 @@ class AlphaZeroNet(nn.Module):
         x = self.backbone_dropout(x)
 
         # Value head: pure GAP (position-invariant)
-        v = F.leaky_relu(self.value_bn(self.value_conv(x)), negative_slope=0.01)
+        v = F.relu(self.value_bn(self.value_conv(x)))
         v = v.mean(dim=(2, 3))              # [B, C] global avg pool — no spatial info
-        v = F.leaky_relu(self.value_fc1(v), negative_slope=0.01)
+        v = F.relu(self.value_fc1(v))
         v = self.value_dropout(v)
         v = self.value_fc2(v)  # [B, 3] raw WDL logits (no tanh)
 
