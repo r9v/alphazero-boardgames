@@ -391,7 +391,7 @@ class CSantoriniGame:
     board_shape = (BOARD_SIZE, BOARD_SIZE)
     action_size = ACTION_SIZE
     num_history_states = 0
-    input_channels = 8
+    input_channels = 7
 
     def new_game(self):
         return _new_game()
@@ -405,7 +405,7 @@ class CSantoriniGame:
 
     def state_to_input(self, state):
         cdef cnp.ndarray[float, ndim=3] inp = np.zeros(
-            (8, BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
+            (7, BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
         cdef float[:, :, :] out = inp
         cdef int r, c, level, pi, oi
         cdef CSantoriniState cs
@@ -433,12 +433,6 @@ class CSantoriniGame:
             out[6, cs._wr[oi][0], cs._wc[oi][0]] = 1.0
         if cs._num_workers[oi] >= 2:
             out[6, cs._wr[oi][1], cs._wc[oi][1]] = 1.0
-
-        # Channel 7: current player identity
-        cdef float player_val = <float>cs.player
-        for r in range(BOARD_SIZE):
-            for c in range(BOARD_SIZE):
-                out[7, r, c] = player_val
 
         return inp
 
