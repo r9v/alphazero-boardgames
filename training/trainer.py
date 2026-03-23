@@ -849,6 +849,9 @@ class Trainer:
     def _self_play(self, iteration):
         """Run self-play games in parallel with batched evaluation."""
         kwargs = {k: self.config[k] for k in self._SELF_PLAY_KEYS if k in self.config}
+        # Skip threat map computation if threat loss is disabled
+        if self.threat_loss_weight == 0:
+            kwargs['skip_threat_map'] = True
         self._batched = BatchedSelfPlay(
             self.game, self.net, self.games_per_iteration,
             self.num_simulations, **kwargs)

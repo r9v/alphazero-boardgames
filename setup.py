@@ -9,6 +9,11 @@ extensions = [
         include_dirs=[np.get_include()],
     ),
     Extension(
+        "games.c_connect4",
+        ["games/c_connect4.pyx"],
+        include_dirs=[np.get_include()],
+    ),
+    Extension(
         "games.santorini.c_game",
         ["games/santorini/c_game.pyx"],
         include_dirs=[np.get_include()],

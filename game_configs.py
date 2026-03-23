@@ -59,7 +59,7 @@ GAME_CONFIGS = {
         "random_opening_moves": 12,
         "random_opening_fraction": 0.5,
         "buffer_size": 100_000,
-        "lr": 0.003,
+        "lr": 0.005,
         "batch_size": 256,
 
         # --- Self-play ---

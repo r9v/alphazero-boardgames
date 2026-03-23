@@ -1100,7 +1100,13 @@ class TrainingLogger:
         positions = []
         try:
             from games.connect4 import Connect4Game, GameState as C4State
-            if not isinstance(t.game, Connect4Game):
+            c4_classes = [Connect4Game]
+            try:
+                from games.c_connect4 import CConnect4Game
+                c4_classes.append(CConnect4Game)
+            except ImportError:
+                pass
+            if not isinstance(t.game, tuple(c4_classes)):
                 return positions
         except ImportError:
             return positions

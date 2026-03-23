@@ -10,8 +10,18 @@ Replaces Python MCTS with C-typed operations:
 import numpy as np
 cimport numpy as cnp
 from libc.math cimport sqrt, log
+from libc.stdlib cimport rand, RAND_MAX, srand
+from libc.time cimport time as c_time
 
 cnp.import_array()
+
+# Seed C RNG once at import
+srand(<unsigned int>c_time(NULL))
+
+cdef inline double _c_exponential(double scale) noexcept nogil:
+    """C-level exponential random variate via inverse CDF: -scale * ln(U)."""
+    cdef double u = (<double>rand() + 1.0) / (<double>RAND_MAX + 2.0)  # (0, 1) exclusive
+    return -scale * log(u)
 
 
 def add_dirichlet_noise(arr, double alpha, double epsilon, mask=None):
@@ -209,8 +219,8 @@ cdef int _thompson_action(CNode node):
 
         # Blend visit fraction with prior, add Dirichlet-like noise
         score = (<double>child_n + p_val * 2.0) / (total_n + 2.0)
-        # Add random noise from numpy (not ideal for Cython but simple)
-        score += np.random.exponential(0.1)
+        # C-level exponential noise (avoids Python call overhead)
+        score += _c_exponential(0.1)
 
         if score > best_score:
             best_score = score

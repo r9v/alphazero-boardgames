@@ -15,9 +15,17 @@ def wdl_to_scalar(wdl_logits):
     return probs[:, 0] - probs[:, 2]
 
 
+def _connect4_module():
+    """Return Cython Connect4 if available, else Python."""
+    try:
+        import games.c_connect4
+        return "games.c_connect4:CConnect4Game"
+    except ImportError:
+        return "games.connect4:Connect4Game"
+
 GAMES = {
     "tictactoe": "games.tictactoe:TTTGame",
-    "connect4": "games.connect4:Connect4Game",
+    "connect4": _connect4_module(),
     "santorini": "games.santorini:SantoriniGame",
 }
 
@@ -60,7 +68,7 @@ def log_backends(mcts_cls, game):
     mcts_mod = mcts_cls.__module__
     mcts_label = "C/Cython" if "c_mcts" in mcts_mod else "Python"
     game_mod = type(game).__module__
-    game_label = "C/Cython" if "c_game" in game_mod else "Python"
+    game_label = "C/Cython" if ("c_game" in game_mod or "c_connect4" in game_mod) else "Python"
     print(f"  MCTS backend: {mcts_label} ({mcts_mod})")
     print(f"  Game backend: {game_label} ({game_mod})")
     return mcts_label, game_label

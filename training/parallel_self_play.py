@@ -52,7 +52,8 @@ class BatchedSelfPlay:
                  resign_min_moves=99, resign_check_prob=0.0,
                  random_opening_moves=0,
                  random_opening_fraction=1.0,
-                 contempt_n=0):
+                 contempt_n=0,
+                 skip_threat_map=False):
         self.game = game
         self.net = net
         self.num_games = num_games
@@ -68,6 +69,7 @@ class BatchedSelfPlay:
         self.resign_check_prob = resign_check_prob
         self.random_opening_moves = random_opening_moves
         self.random_opening_fraction = random_opening_fraction
+        self.skip_threat_map = skip_threat_map
         self.mcts = MCTS(game, net, c_puct=c_puct, contempt_n=contempt_n)
 
         # Log backends once
@@ -292,7 +294,7 @@ class BatchedSelfPlay:
 
                 # Training target is always the full visit distribution
                 # Aux maps dict: threat, policy_surprise, mcts_value
-                threat_map = self.game.compute_threat_map(states[i])
+                threat_map = None if self.skip_threat_map else self.game.compute_threat_map(states[i])
 
                 # Policy surprise: KL(MCTS_policy || prior_policy)
                 prior = root.P  # network's policy prior
@@ -401,7 +403,10 @@ class BatchedSelfPlay:
         if tv == 0:
             return  # draw
         try:
-            from games.connect4 import classify_win
+            try:
+                from games.c_connect4 import classify_win
+            except ImportError:
+                from games.connect4 import classify_win
             wins = classify_win(board)
             for win_type, col, _player in wins:
                 key = (win_type, col)
