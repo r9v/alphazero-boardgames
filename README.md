@@ -103,6 +103,16 @@ a* = argmax [ Q(s,a) + c_puct * P(s,a) * sqrt(N(s)) / (1 + N(s,a)) ]
 
 MCTS and Santorini game logic are implemented in Cython for performance. The Cython extensions must be compiled before use (`python setup.py build_ext --inplace`).
 
+## Tournament
+
+Battle all saved checkpoints in a single-elimination tournament:
+
+```bash
+python battle/tournament.py --game connect4 --sims 200 --games 50
+```
+
+Loads all `.pt` checkpoints from `checkpoints/<game>/`, pairs them chronologically, and plays elimination matches. Each match alternates who goes first.
+
 ## Tests
 
 ```bash
