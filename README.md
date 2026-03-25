@@ -16,10 +16,10 @@ AlphaZero learns to play board games entirely from self-play, with no human know
 
 The Connect 4 model defeated [Min-ji](https://papergames.io/en/r/SPQKyjKpFH/replay) (2000 Elo), [Ahmad](https://papergames.io/en/r/va-9VWrm3Z/replay) (2025 Elo), and drew against [Ramon](https://papergames.io/en/r/VsRFK9i2Re/replay) (2050 Elo) on PaperGames — all playing as second player on the first attempt with 200 sims/move (Connect 4 favors the first player). Also defeated [Carlito](https://papergames.io/en/r/pnc7H7iCj/replay) (2200 Elo, the strongest bot on the site) with 400 sims/move. Trained on a single GPU in ~1 hour with a lightweight residual network (4 res blocks, 64 filters).
 
-| Min-ji (2000 Elo) — Win | Ahmad (2025 Elo) — Win |
-|:-:|:-:|
-| ![Min-ji](results/MinJi_2000_Win.png) | ![Ahmad](results/Ahmad_2025_Win.png) |
-| **Ramon (2050 Elo) — Draw** | **Carlito (2200 Elo, 400 sims) — Win** |
+|        Min-ji (2000 Elo) — Win        |          Ahmad (2025 Elo) — Win          |
+| :-----------------------------------: | :--------------------------------------: |
+| ![Min-ji](results/MinJi_2000_Win.png) |   ![Ahmad](results/Ahmad_2025_Win.png)   |
+|      **Ramon (2050 Elo) — Draw**      |  **Carlito (2200 Elo, 400 sims) — Win**  |
 | ![Ramon](results/Ramon_2050_Draw.png) | ![Carlito](results/Carlito_2200_Win.png) |
 
 ## Quick Start
@@ -43,13 +43,13 @@ python play.py --game santorini --human-first
 
 ```bash
 python -u train.py --game connect4 2>&1 | tee training_log_c4.txt
-python -u train.py --game santorini --iterations 128 2>&1 | tee training_log_santorini.txt
+python -u train.py --game santorini 2>&1 | tee training_log_santorini.txt
 ```
 
 All training parameters have per-game defaults in `game_configs.py` and can be overridden via CLI:
 
 ```bash
-python -u train.py --game santorini --iterations 64 --games 64 --simulations 256
+python train.py --game santorini --iterations 64 --games 64 --simulations 256
 ```
 
 **Monitor training:**
@@ -118,6 +118,7 @@ Battle all saved checkpoints in a single-elimination tournament:
 
 ```bash
 python battle/tournament.py --game connect4 --sims 50 --games 50 --parallel 50
+python battle/tournament.py --game santorini --sims 50 --games 50 --parallel 50 --parallel-matches 4
 ```
 
 Loads all `.pt` checkpoints from `checkpoints/<game>/`, pairs them chronologically, and plays elimination matches. Each match alternates who goes first.

@@ -1,6 +1,7 @@
 import argparse
 import pygame
 import sys
+import threading
 import numpy as np
 from . import SantoriniGame, DIRECTIONS, BOARD_SIZE
 
@@ -181,6 +182,10 @@ class GUI:
         pygame.init()
         self.screen = pygame.display.set_mode((WIN_W, WIN_H))
         pygame.display.set_caption("Santorini")
+        # Bring window to front
+        import ctypes
+        hwnd = pygame.display.get_wm_info()["window"]
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
 
         self.state = game.new_game()
         self.phase = "PLACEMENT"
@@ -194,6 +199,8 @@ class GUI:
         # AI setup
         self.ai_player = ai_player
         self.ai_thinking = False
+        self.ai_thread = None
+        self.ai_result = None
         self.simulations = simulations
         self.mcts = None
 
@@ -281,21 +288,49 @@ class GUI:
                 winner = "White(P1)" if self.state.terminal_value == -1 else "Black(P2)"
                 print(f"\n=== GAME OVER: {winner} wins ({self.move_number} moves) ===")
 
+    def _advance_tree(self, action):
+        """Advance MCTS tree to the child of the taken action for reuse."""
+        if self.mcts is None or self.mcts.last_root is None:
+            return
+        children = self.mcts.last_root.children
+        child = children[action]
+        if child is not None and child.P is not None:
+            child.parent = None
+            self.mcts.last_root = child
+        else:
+            self.mcts.last_root = None
+
     def _is_ai_turn(self):
         return (self.ai_player is not None
                 and not self.state.terminal
                 and self.state.player == self.ai_player)
 
-    def _compute_ai_move(self):
-        """Compute and execute AI move."""
+    def _start_ai_move(self):
+        """Start AI computation in background thread."""
         import time
-        t0 = time.time()
-        pi = self.mcts.get_policy(self.simulations, self.state)
-        elapsed = time.time() - t0
-        move = int(np.argmax(pi))
 
-        is_placement = (hasattr(self.state, 'placed_count')
-                        and self.state.placed_count < 4)
+        state_snapshot = self.state
+        is_placement = (hasattr(state_snapshot, 'placed_count')
+                        and state_snapshot.placed_count < 4)
+
+        reuse_root = self.mcts.last_root
+
+        def compute():
+            t0 = time.time()
+            pi = self.mcts.get_policy(self.simulations, state_snapshot,
+                                      root_node=reuse_root)
+            elapsed = time.time() - t0
+            move = int(np.argmax(pi))
+            self.ai_result = (pi, move, elapsed, is_placement)
+
+        self.ai_thread = threading.Thread(target=compute, daemon=True)
+        self.ai_thread.start()
+
+    def _finish_ai_move(self):
+        """Apply AI move result to game state."""
+        pi, move, elapsed, is_placement = self.ai_result
+        self.ai_result = None
+        self.ai_thread = None
 
         # Log AI move
         self.move_number += 1
@@ -364,6 +399,7 @@ class GUI:
             print(f"  Total unique actions visited: "
                   f"{len(actions_with_visits)}")
 
+        self._advance_tree(move)
         self.state = game.step(self.state, move)
         self._log_board()
         self._log_terminal()
@@ -404,6 +440,7 @@ class GUI:
         print(f"\n--- Placement: Human ({player}) worker {worker_num} "
               f"at ({r},{c}) ---")
 
+        self._advance_tree(action)
         self.state = game.step(self.state, action)
         self._log_board()
         self._reset_phase()
@@ -484,6 +521,7 @@ class GUI:
         print(f"\n--- Move {self.move_number}: Human ({player}) action={action} ---")
         print(f"  W({wr},{wc})→({mr},{mc}) Build({br},{bc})")
 
+        self._advance_tree(action)
         self.state = game.step(self.state, action)
         self._log_board()
         self._log_terminal()
@@ -497,14 +535,18 @@ class GUI:
                     pygame.quit()
                     sys.exit()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    self._on_click(event.pos)
+                    if not self.ai_thinking:
+                        self._on_click(event.pos)
 
-            # AI turn
+            # Start AI turn in background thread
             if self._is_ai_turn() and not self.ai_thinking:
                 self.ai_thinking = True
-                self._draw()  # Show "AI thinking..." before computing
-                pygame.event.pump()  # Keep window responsive
-                self._compute_ai_move()
+                self._draw()
+                self._start_ai_move()
+
+            # Check if AI finished
+            if self.ai_thread and not self.ai_thread.is_alive():
+                self._finish_ai_move()
                 self._draw()
 
             clock.tick(30)

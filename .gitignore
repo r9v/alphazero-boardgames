@@ -134,14 +134,15 @@ runs/
 
 # Diagnostics (research tools, not part of core)
 diagnostics/
-
-# Model checkpoints (keep only best.pt)
-checkpoints/**/*.pt
-!checkpoints/**/best.pt
-checkpoints/**/*.txt
 .claude
 
+# Model checkpoints
+checkpoints/*
+!checkpoints/connect4/
+!checkpoints/tictactoe/
+!checkpoints/santorini/
 
 !requirements.txt
 !README.md
 
+god-game-short-white-alphazero-first.png

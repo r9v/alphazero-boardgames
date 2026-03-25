@@ -162,8 +162,9 @@ class AlphaZeroNet(nn.Module):
         t0 = time.time()
         n = len(state_inputs)
         inp_array = np.array(state_inputs)
-        PAD_MULTIPLE = 8  # reduce CUDAGraph recompilation
-        padded_n = ((n + PAD_MULTIPLE - 1) // PAD_MULTIPLE) * PAD_MULTIPLE
+        # Pad to fixed bucket sizes so CUDAGraph can reuse recorded graphs
+        _BUCKETS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+        padded_n = next((b for b in _BUCKETS if b >= n), ((n + 63) // 64) * 64)
         if padded_n > n:
             pad_shape = (padded_n - n,) + inp_array.shape[1:]
             inp_array = np.concatenate([inp_array,

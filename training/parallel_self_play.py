@@ -76,7 +76,6 @@ class BatchedSelfPlay:
             'result_time': 0.0, 'postprocess_time': 0.0,
             'batch_count': 0, 'sample_count': 0, 'terminal_hits': 0,
             'min_batch': float('inf'), 'max_batch': 0,
-            'encoding_checks': 0, 'encoding_errors': 0, 'encoding_time': 0.0,
             'batch_histogram': [0, 0, 0, 0, 0],  # [1-4, 5-16, 17-32, 33-64, 65+]
             'active_per_move': [],
             'accum_rounds': 0,
@@ -467,47 +466,6 @@ class BatchedSelfPlay:
         t0 = time.time()
         state_inputs = [self.game.state_to_input(node.state) for node in nodes]
         preprocess_time = time.time() - t0
-
-        # Verify encoding consistency (sample 1 in 50 to reduce overhead)
-        # Checks that channels 0/1 match my/opponent pieces (standard
-        # relative encoding used by Connect4 and TicTacToe).
-        # Uses arithmetic to find the check index within this batch,
-        # avoiding a Python loop over all nodes.
-        t_enc = time.time()
-        prev = self._p['encoding_checks']
-        batch_len = len(nodes)
-        self._p['encoding_checks'] += batch_len
-        # Find the first check index: next multiple of 50 after prev
-        next_check = ((prev // 50) + 1) * 50
-        while next_check < prev + batch_len:
-            try:
-                idx = next_check - prev  # index within this batch
-                node = nodes[idx]
-                inp = state_inputs[idx]
-                player = node.state.player
-                num_hist = getattr(self.game, 'num_history_states', 0)
-                c = 2 * num_hist  # channel offset for current board
-                board = node.state.board
-
-                errors = []
-                # Piece count check: ch[c] = my pieces, ch[c+1] = opponent pieces
-                my_pieces_board = (board == player).sum()
-                opp_pieces_board = (board == -player).sum()
-                ch_c = inp[c].sum()
-                ch_c1 = inp[c + 1].sum()
-                if ch_c != my_pieces_board:
-                    errors.append(f"my pieces: board={my_pieces_board} enc={ch_c}")
-                if ch_c1 != opp_pieces_board:
-                    errors.append(f"opp pieces: board={opp_pieces_board} enc={ch_c1}")
-
-                if errors:
-                    self._p['encoding_errors'] += 1
-                    if self._p['encoding_errors'] <= 5:
-                        print(f"  [ENCODING ERROR] {'; '.join(errors)}")
-            except (IndexError, ValueError, TypeError):
-                pass  # encoding layout doesn't match standard pattern
-            next_check += 50
-        self._p['encoding_time'] += time.time() - t_enc
 
         values, policies, detail = self.net.batch_predict(state_inputs, detailed_timing=True)
 

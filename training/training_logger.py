@@ -61,3 +61,38 @@ class TrainingLogger:
                   f"policy_top1={top1:.1%} vloss_gap={gap:+.4f} "
                   f"buf={d.get('buffer_fill', 0)}/{d.get('buffer_capacity', 0)}"
                   if rb else "")
+
+            # MCTS correction metrics (from self-play)
+            if hasattr(self._t, '_batched') and hasattr(self._t._batched, 'value_diag'):
+                vd = self._t._batched.value_diag
+                if vd:
+                    mcts_corr = vd.get('mcts_nnet_corr', 0)
+                    mcts_correction = vd.get('mcts_correction_mean', 0)
+                    writer.add_scalar("diag/mcts_nnet_corr", mcts_corr, iteration)
+                    writer.add_scalar("diag/mcts_correction", mcts_correction, iteration)
+                    print(f"  Diag: mcts_corr={mcts_corr:.3f} mcts_correction={mcts_correction:+.3f}")
+
+            # SVD rank (capacity indicator)
+            svd = d.get('svd', {})
+            if svd:
+                writer.add_scalar("diag/svd_rank90", svd['rank90'], iteration)
+                writer.add_scalar("diag/svd_rank99", svd['rank99'], iteration)
+                print(f"  Diag: svd_rank90={svd['rank90']}/{svd['n_filters']} "
+                      f"rank99={svd['rank99']}/{svd['n_filters']}")
+
+            # Backbone drift
+            drift = d.get('drift_cos')
+            if drift is not None:
+                writer.add_scalar("diag/backbone_drift_cos", drift, iteration)
+                print(f"  Diag: backbone_drift_cos={drift:.4f}")
+
+            # Game phase value loss
+            gp = d.get('game_phase_vloss', {})
+            if gp:
+                parts = []
+                for phase in ('early', 'mid', 'late'):
+                    if phase in gp:
+                        writer.add_scalar(f"diag/vloss_{phase}", gp[phase], iteration)
+                        parts.append(f"{phase}={gp[phase]:.3f}")
+                if parts:
+                    print(f"  Diag: vloss_phase {' '.join(parts)}")

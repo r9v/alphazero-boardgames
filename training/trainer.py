@@ -75,6 +75,12 @@ class Trainer:
             print(f"  Not enough samples ({len(samples)}), skipping training")
             return None
 
+        # Snapshot backbone params for drift measurement
+        with torch.no_grad():
+            self._pre_train_backbone = torch.cat([
+                p.data.flatten() for p in self.net.res_blocks.parameters()
+            ]).clone()
+
         setup = self._init_training_state(samples, n_new_positions)
         samples = setup['train_samples']
         acc = setup['acc']
@@ -496,7 +502,41 @@ class Trainer:
             "num_samples": setup['n_samples'],
             "num_batches": num_batches,
         }
-        # Core 8 metrics only
+        # SVD rank of last resblock conv2 (capacity indicator)
+        svd_info = {}
+        try:
+            last_rb = self.net.res_blocks[-1]
+            w = last_rb.conv2.weight.data.reshape(last_rb.conv2.weight.shape[0], -1)
+            sv = torch.linalg.svdvals(w)
+            sv_norm = sv / sv[0]
+            n_filters = w.shape[0]
+            svd_info = {
+                'rank90': int((sv_norm > 0.1).sum().item()),
+                'rank99': int((sv_norm > 0.01).sum().item()),
+                'n_filters': n_filters,
+            }
+        except Exception:
+            pass
+
+        # Backbone drift (cosine similarity pre vs post training)
+        drift_cos = None
+        if hasattr(self, '_pre_train_backbone'):
+            try:
+                post_params = torch.cat([p.data.flatten() for p in self.net.res_blocks.parameters()])
+                cos = F.cosine_similarity(self._pre_train_backbone.unsqueeze(0),
+                                          post_params.unsqueeze(0)).item()
+                drift_cos = cos
+            except Exception:
+                pass
+
+        # Game phase value loss
+        gp = {}
+        for phase in ('early', 'mid', 'late'):
+            c = acc['phase_counts'][phase]
+            if c > 0:
+                gp[phase] = acc['phase_vloss_sums'][phase] / c
+
+        # Core metrics
         self._train_diag = {
             "avg_value_loss": avg_value_loss,
             "val_vloss": val_vloss,
@@ -504,6 +544,9 @@ class Trainer:
             "pred_v_std": pred_v_std,
             "policy_top1_acc": policy_top1_acc,
             "rb_grad_norms": avg_rb_grad_norms,
+            "svd": svd_info,
+            "drift_cos": drift_cos,
+            "game_phase_vloss": gp,
         }
         return avg_loss, avg_value_loss, avg_policy_loss
 

@@ -69,30 +69,36 @@ GAME_CONFIGS = {
     "santorini": {
         # Network
         "num_filters": 128,
-        "num_res_blocks": 3,
-        "value_head_channels": 4,
+        "num_res_blocks": 5,
+        "value_head_channels": 32,
         "value_head_fc_size": 64,
         "policy_head_channels": 4,
+        "resblock_dropout": 0.1,
 
         # Training
-        "max_train_steps": 12800,
-        "target_epochs": 4,
-        "buffer_size": 55000,
-        "value_loss_weight": 3.0,
+        "train_ratio": 8,
+        "buffer_size": 150000,
+        "value_loss_weight": 1.5,
+        "value_label_smoothing": 0.1,
+        "surprise_kl_frac": 0.5,
         "lr": 0.005,
-        "batch_size": 64,
+        "batch_size": 256,
 
         # Self-play
         "default_iterations": 64,
-        "default_games": 64,
+        "default_games": 256,
         "default_simulations": 256,
         "selects_per_round": 8,
-        "vl_value": 3.0,
+        "vl_value": 0.0,
         "temp_threshold": 15,
-        "c_puct": 1.5,
+        "c_puct": 2.5,
         "dirichlet_alpha": 0.25,  # ~10 / avg_legal_moves
+        "dirichlet_epsilon": 0.4,
+        "random_opening_moves": 4,
+        "random_opening_fraction": 0.5,
+        "contempt_n": 10,
         "tree_reuse": True,
-        "play_simulations": 400,
-        "play_c_puct": 2.0,
+        "play_simulations": 500,
+        "play_c_puct": 1.5,
     },
 }

@@ -10,6 +10,7 @@ import argparse
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import torch
 import numpy as np
 
@@ -184,6 +185,9 @@ def main():
     parser.add_argument("--c-puct", type=float, default=2.5)
     parser.add_argument("--parallel", type=int, default=10,
                         help="Games to run in parallel per match (default 10)")
+    parser.add_argument("--parallel-matches", type=int, default=1,
+                        help="Matches to run in parallel per round (default 1). "
+                             "Each match loads 2 networks to GPU.")
     args = parser.parse_args()
 
     game = load_game(args.game)
@@ -200,55 +204,77 @@ def main():
     contestants = list(checkpoints)
     round_num = 1
 
+    def run_match(path1, path2, match_idx):
+        """Run a single match (possibly with rematch). Returns (winner_path, result_str)."""
+        name1, name2 = short_name(path1), short_name(path2)
+        lines = [f"\n  Match: {name1} vs {name2}"]
+
+        t0 = time.time()
+        net1 = load_checkpoint(game, args.game, path1)
+        net2 = load_checkpoint(game, args.game, path2)
+
+        w1, w2, d = play_match(game, net1, net2, args.games, args.sims,
+                               args.c_puct, parallel=args.parallel)
+        elapsed = time.time() - t0
+
+        lines.append(f"    {name1}: {w1}W  |  {name2}: {w2}W  |  draws: {d}  ({elapsed:.1f}s)")
+
+        # Tie-break: rematch with 2x games
+        if w1 == w2:
+            rematch_games = args.games * 2
+            lines.append(f"    Tied! Rematch with {rematch_games} games...")
+            t0 = time.time()
+            w1, w2, d = play_match(game, net1, net2, rematch_games, args.sims,
+                                   args.c_puct, parallel=args.parallel)
+            elapsed = time.time() - t0
+            lines.append(f"    {name1}: {w1}W  |  {name2}: {w2}W  |  draws: {d}  ({elapsed:.1f}s)")
+
+        del net1, net2
+        torch.cuda.empty_cache()
+
+        if w1 >= w2:
+            winner = path1
+            lines.append(f"    Winner: {name1}")
+        else:
+            winner = path2
+            lines.append(f"    Winner: {name2}")
+
+        return match_idx, winner, "\n".join(lines)
+
     while len(contestants) > 1:
         print(f"\n{'='*60}")
         print(f"ROUND {round_num} — {len(contestants)} contestants")
         print(f"{'='*60}")
 
-        next_round = []
-
+        # Collect match pairs and byes
+        matches = []
+        next_round = [None] * ((len(contestants) + 1) // 2)
         for i in range(0, len(contestants), 2):
+            slot = i // 2
             if i + 1 >= len(contestants):
                 print(f"\n  {short_name(contestants[i])} gets a bye")
-                next_round.append(contestants[i])
-                continue
-
-            path1, path2 = contestants[i], contestants[i + 1]
-            name1, name2 = short_name(path1), short_name(path2)
-            print(f"\n  Match: {name1} vs {name2}")
-
-            t0 = time.time()
-            net1 = load_checkpoint(game, args.game, path1)
-            net2 = load_checkpoint(game, args.game, path2)
-
-            w1, w2, d = play_match(game, net1, net2, args.games, args.sims,
-                                   args.c_puct, parallel=args.parallel)
-            elapsed = time.time() - t0
-
-            print(f"    {name1}: {w1}W  |  {name2}: {w2}W  |  draws: {d}  ({elapsed:.1f}s)")
-
-            # Tie-break: rematch with 2x games
-            if w1 == w2:
-                rematch_games = args.games * 2
-                print(f"    Tied! Rematch with {rematch_games} games...")
-                t0 = time.time()
-                w1, w2, d = play_match(game, net1, net2, rematch_games, args.sims,
-                                       args.c_puct, parallel=args.parallel)
-                elapsed = time.time() - t0
-                print(f"    {name1}: {w1}W  |  {name2}: {w2}W  |  draws: {d}  ({elapsed:.1f}s)")
-
-            # Free GPU memory
-            del net1, net2
-            torch.cuda.empty_cache()
-
-            if w1 >= w2:
-                winner = path1
-                print(f"    Winner: {name1}")
+                next_round[slot] = contestants[i]
             else:
-                winner = path2
-                print(f"    Winner: {name2}")
+                matches.append((contestants[i], contestants[i + 1], slot))
 
-            next_round.append(winner)
+        if args.parallel_matches > 1 and len(matches) > 1:
+            # Run matches in parallel
+            workers = min(args.parallel_matches, len(matches))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(run_match, p1, p2, slot): slot
+                    for p1, p2, slot in matches
+                }
+                for future in as_completed(futures):
+                    slot, winner, output = future.result()
+                    print(output)
+                    next_round[slot] = winner
+        else:
+            # Sequential matches
+            for p1, p2, slot in matches:
+                _, winner, output = run_match(p1, p2, slot)
+                print(output)
+                next_round[slot] = winner
 
         contestants = next_round
         round_num += 1

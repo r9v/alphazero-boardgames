@@ -284,12 +284,22 @@ cdef class CMCTS:
         self.c_puct = c_puct
         self.contempt_n = contempt_n  # 0 = disabled, >0 = Thompson after N visits at opp nodes
 
-    def get_policy(self, int num_simulations, state, bint add_dirichlet=False):
-        """Run MCTS and return visit-count policy."""
+    def get_policy(self, int num_simulations, state, bint add_dirichlet=False,
+                   root_node=None):
+        """Run MCTS and return visit-count policy.
+
+        If root_node is provided, reuse it as the search root instead of
+        creating a new one. Used for tree reuse across moves.
+        """
         if state.terminal:
             raise ValueError("Called get_policy with terminal state")
 
-        cdef CNode root = CNode(None, state, self.game, self.net)
+        cdef CNode root
+        if root_node is not None:
+            root = <CNode>root_node
+        else:
+            root = CNode(None, state, self.game, self.net)
+
         if add_dirichlet:
             root.P = add_dirichlet_noise(root.P, 0.03, 0.25, root._avail_mask)
 
