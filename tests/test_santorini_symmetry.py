@@ -8,20 +8,11 @@ from games.santorini.symmetry import (
     get_symmetries, _transform_state, _transform_pos, _transform_policy,
     _needs_worker_swap, DIR_PERMS, _ACTION_REMAP, BOARD_SIZE,
 )
+from tests.test_utils import TestCounter
 
 game = SantoriniGame()
-passed = 0
-failed = 0
-
-
-def check(name, condition, detail=""):
-    global passed, failed
-    if condition:
-        passed += 1
-        print(f"  PASS: {name}")
-    else:
-        failed += 1
-        print(f"  FAIL: {name}  {detail}")
+tc = TestCounter()
+check = tc.check
 
 
 # ----------------------------------------------------------------
@@ -351,9 +342,4 @@ check(f"multi-state roundtrip ({n_tested} tests, {n_errors} errors)",
 # ----------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------
-print(f"\n{'='*50}")
-print(f"Results: {passed} passed, {failed} failed")
-if failed == 0:
-    print("All tests passed!")
-else:
-    print("SOME TESTS FAILED")
+tc.summary("Santorini symmetry")

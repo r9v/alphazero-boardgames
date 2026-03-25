@@ -4,31 +4,19 @@ Run: python -m tests.test_connect4
 """
 import numpy as np
 from games.connect4 import Connect4Game as CConnect4Game, CConnect4State
+from tests.test_utils import TestCounter
+from utils import print_board as _print_board
 
 ROW_COUNT = 6
 COLUMN_COUNT = 7
 
 game = CConnect4Game()
-passed = 0
-failed = 0
-
-
-def check(name, condition, detail=""):
-    global passed, failed
-    if condition:
-        passed += 1
-        print(f"  PASS: {name}")
-    else:
-        failed += 1
-        print(f"  FAIL: {name}  {detail}")
+tc = TestCounter()
+check = tc.check
 
 
 def print_board(board):
-    symbols = {0: ".", -1: "X", 1: "O"}
-    for r in range(5, -1, -1):
-        row = " ".join(symbols[board[r][c]] for c in range(7))
-        print(f"        {row}")
-    print("        " + " ".join(str(c) for c in range(7)))
+    _print_board(board, "connect4")
 
 
 def make_state(board, player):
@@ -318,9 +306,4 @@ print_board(s.board)
 # ============================================================
 # Summary
 # ============================================================
-print(f"\n{'='*50}")
-print(f"RESULTS: {passed} passed, {failed} failed")
-if failed == 0:
-    print("All Connect4 game logic tests PASSED!")
-else:
-    print(f"WARNING: {failed} test(s) FAILED!")
+tc.summary("Connect4 game logic")

@@ -1,18 +1,35 @@
 class TrainingLogger:
-    """Console and TensorBoard logging for training health metrics."""
+    """Console and TensorBoard logging for training health metrics.
 
-    def __init__(self, trainer):
-        self._t = trainer
-        self.writer = trainer.writer
+    Accepts a TensorBoard SummaryWriter directly. All diagnostic data is
+    passed as structured dicts through log_iteration() rather than reaching
+    into trainer private attributes.
+    """
+
+    def __init__(self, writer):
+        self.writer = writer
 
     def close(self):
         self.writer.close()
 
     def log_iteration(self, iteration, num_iterations, stats):
-        """Log core metrics for one iteration to console and TensorBoard."""
+        """Log core metrics for one iteration to console and TensorBoard.
+
+        Args:
+            iteration: Current iteration index.
+            num_iterations: Total number of iterations.
+            stats: Dict containing:
+                - train_result: (avg_loss, avg_vloss, avg_ploss) or None
+                - wins_p1, wins_p2, draws: Self-play game outcomes
+                - avg_length, min_length, max_length: Game length stats
+                - self_play_time, train_time, iter_time: Timing
+                - train_diag: Dict of training diagnostics (from aggregate_training_results)
+                - value_diag: Dict of self-play value diagnostics (from BatchedSelfPlay)
+        """
         writer = self.writer
         train_result = stats['train_result']
-        d = self._t._train_diag if hasattr(self._t, '_train_diag') else {}
+        d = stats.get('train_diag', {})
+        vd = stats.get('value_diag', {})
 
         if train_result is not None:
             avg_loss, avg_value_loss, avg_policy_loss = train_result
@@ -41,11 +58,7 @@ class TrainingLogger:
             pv_std = d.get('pred_v_std', 0)
             writer.add_scalar("diag/pred_v_std", pv_std, iteration)
 
-            sign_acc = 0
-            if hasattr(self._t, '_batched') and hasattr(self._t._batched, 'value_diag'):
-                vd = self._t._batched.value_diag
-                if vd:
-                    sign_acc = vd.get('sign_accuracy', 0)
+            sign_acc = vd.get('sign_accuracy', 0) if vd else 0
             writer.add_scalar("diag/sign_acc", sign_acc, iteration)
 
             top1 = d.get('policy_top1_acc', 0)
@@ -62,15 +75,13 @@ class TrainingLogger:
                   f"buf={d.get('buffer_fill', 0)}/{d.get('buffer_capacity', 0)}"
                   if rb else "")
 
-            # MCTS correction metrics (from self-play)
-            if hasattr(self._t, '_batched') and hasattr(self._t._batched, 'value_diag'):
-                vd = self._t._batched.value_diag
-                if vd:
-                    mcts_corr = vd.get('mcts_nnet_corr', 0)
-                    mcts_correction = vd.get('mcts_correction_mean', 0)
-                    writer.add_scalar("diag/mcts_nnet_corr", mcts_corr, iteration)
-                    writer.add_scalar("diag/mcts_correction", mcts_correction, iteration)
-                    print(f"  Diag: mcts_corr={mcts_corr:.3f} mcts_correction={mcts_correction:+.3f}")
+            # MCTS correction metrics (from self-play value diagnostics)
+            if vd:
+                mcts_corr = vd.get('mcts_nnet_corr', 0)
+                mcts_correction = vd.get('mcts_correction_mean', 0)
+                writer.add_scalar("diag/mcts_nnet_corr", mcts_corr, iteration)
+                writer.add_scalar("diag/mcts_correction", mcts_correction, iteration)
+                print(f"  Diag: mcts_corr={mcts_corr:.3f} mcts_correction={mcts_correction:+.3f}")
 
             # SVD rank (capacity indicator)
             svd = d.get('svd', {})

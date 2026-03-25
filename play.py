@@ -3,38 +3,7 @@ import numpy as np
 
 from game_configs import GAME_CONFIGS
 from mcts import MCTS
-from utils import load_game, make_net, log_backends
-
-
-def print_board(board, game_name):
-    if game_name == "tictactoe":
-        symbols = {0: ".", -1: "X", 1: "O"}
-        print()
-        print("  Board:        Move indices:")
-        print()
-        for r in range(3):
-            pieces = " ".join(symbols[board[r][c]] for c in range(3))
-            indices = " ".join(str(r * 3 + c) for c in range(3))
-            print(f"    {pieces}           {indices}")
-        print()
-
-    elif game_name == "connect4":
-        symbols = {0: ".", -1: "X", 1: "O"}
-        print()
-        for r in range(5, -1, -1):  # top to bottom
-            row = " ".join(symbols[board[r][c]] for c in range(7))
-            print(f"    {row}")
-        print("    " + " ".join(str(c) for c in range(7)))
-        print()
-
-    elif game_name == "santorini":
-        print()
-        for r in range(5):
-            cells = []
-            for c in range(5):
-                cells.append(str(board[r][c]))
-            print(f"    {' '.join(cells)}")
-        print()
+from utils import load_game, make_net, log_backends, print_board
 
 
 def main():

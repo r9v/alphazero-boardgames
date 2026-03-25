@@ -74,6 +74,38 @@ def find_latest_checkpoint(directory):
     return None
 
 
+def print_board(board, game_name):
+    """Pretty-print a board for any supported game."""
+    if game_name == "tictactoe":
+        symbols = {0: ".", -1: "X", 1: "O"}
+        print()
+        print("  Board:        Move indices:")
+        print()
+        for r in range(3):
+            pieces = " ".join(symbols[board[r][c]] for c in range(3))
+            indices = " ".join(str(r * 3 + c) for c in range(3))
+            print(f"    {pieces}           {indices}")
+        print()
+
+    elif game_name == "connect4":
+        symbols = {0: ".", -1: "X", 1: "O"}
+        print()
+        for r in range(5, -1, -1):  # top to bottom
+            row = " ".join(symbols[board[r][c]] for c in range(7))
+            print(f"    {row}")
+        print("    " + " ".join(str(c) for c in range(7)))
+        print()
+
+    elif game_name == "santorini":
+        print()
+        for r in range(5):
+            cells = []
+            for c in range(5):
+                cells.append(str(board[r][c]))
+            print(f"    {' '.join(cells)}")
+        print()
+
+
 def log_backends(mcts_cls, game):
     """Print MCTS and game backend info. Returns (mcts_label, game_label)."""
     mcts_mod = mcts_cls.__module__
