@@ -1,64 +1,74 @@
 import argparse
 
-from network import AlphaZeroNet
+import torch
+
+from game_configs import GAME_CONFIGS
 from training import Trainer
-
-
-GAMES = {
-    "tictactoe": "games.tictactoe:TTTGame",
-    "connect4": "games.connect4:Connect4Game",
-}
-
-
-def load_game(name):
-    if name not in GAMES:
-        raise ValueError(f"Unknown game '{name}'. Choose from: {list(GAMES.keys())}")
-    module_path, class_name = GAMES[name].rsplit(":", 1)
-    import importlib
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)()
+from utils import GAMES, load_game, make_net
 
 
 def main():
     parser = argparse.ArgumentParser(description="AlphaZero self-play training")
     parser.add_argument("--game", type=str, default="tictactoe",
                         choices=list(GAMES.keys()))
-    parser.add_argument("--simulations", type=int, default=50,
-                        help="MCTS simulations per move")
-    parser.add_argument("--games", type=int, default=2,
-                        help="Self-play games per iteration")
-    parser.add_argument("--iterations", type=int, default=1,
-                        help="Number of training iterations")
-    parser.add_argument("--filters", type=int, default=256,
-                        help="Number of conv filters")
-    parser.add_argument("--res-blocks", type=int, default=2,
-                        help="Number of residual blocks")
+    parser.add_argument("--simulations", type=int, default=None,
+                        help="MCTS simulations per move (default: per-game config)")
+    parser.add_argument("--games", type=int, default=None,
+                        help="Self-play games per iteration (default: per-game config)")
+    parser.add_argument("--iterations", type=int, default=None,
+                        help="Number of training iterations (default: per-game config)")
+    parser.add_argument("--device", type=str, default="auto",
+                        help="Device: 'cpu', 'cuda', or 'auto' (default)")
     args = parser.parse_args()
+
+    # Resolve device
+    if args.device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        device = args.device
+    print(f"Using device: {device}")
 
     game = load_game(args.game)
 
-    # Input channels: 2 channels per (history + current) state + 2 for player
-    input_channels = 2 * (game.num_history_states + 1) + 2
+    game_cfg = GAME_CONFIGS.get(args.game, {})
 
-    net = AlphaZeroNet(
-        input_channels=input_channels,
-        board_shape=game.board_shape,
-        action_size=game.action_size,
-        num_res_blocks=args.res_blocks,
-        num_filters=args.filters,
-    )
+    # Use per-game defaults when CLI args not specified
+    num_iterations = args.iterations or game_cfg.get("default_iterations", 10)
+    num_games = args.games or game_cfg.get("default_games", 32)
+    num_simulations = args.simulations or game_cfg.get("default_simulations", 50)
+
+    net = make_net(game, args.game)
 
     checkpoint_dir = f"checkpoints/{args.game}"
+    net.to(device)
+
+    # Resume from latest checkpoint if available
+    loaded_path = net.load_latest(checkpoint_dir)
+    if loaded_path:
+        print(f"Resumed from: {loaded_path}")
+    else:
+        print("No checkpoint found, starting from scratch.")
+
+    if device == "cuda":
+        net.compile_for_inference()
+
+    random_opening = game_cfg.get('random_opening_moves', 0)
+    print(f"Config: {args.game} | iters={num_iterations} games={num_games} "
+          f"sims={num_simulations}")
+    if random_opening > 0:
+        print(f"  Forced openings: 0-{random_opening} random moves per game")
 
     config = {
-        "num_simulations": args.simulations,
-        "games_per_iteration": args.games,
+        **game_cfg,
+        "num_simulations": num_simulations,
+        "games_per_iteration": num_games,
         "checkpoint_dir": checkpoint_dir,
         "game_name": args.game,
+        "device": device,
     }
 
     trainer = Trainer(game, net, config)
-    trainer.run(num_iterations=args.iterations)
+    trainer.run(num_iterations=num_iterations)
 
 
 if __name__ == "__main__":

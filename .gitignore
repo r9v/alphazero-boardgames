@@ -50,6 +50,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+nul
 
 # Translations
 *.mo
@@ -131,8 +132,17 @@ dmypy.json
 # TensorBoard logs
 runs/
 
-# Model checkpoints (keep only best.pt)
-checkpoints/**/*.pt
-!checkpoints/**/best.pt
-checkpoints/**/*.txt
+# Diagnostics (research tools, not part of core)
+diagnostics/
 .claude
+
+# Model checkpoints
+checkpoints/*
+!checkpoints/connect4/
+!checkpoints/tictactoe/
+!checkpoints/santorini/
+
+!requirements.txt
+!README.md
+
+god-game-short-white-alphazero-first.png
